@@ -3,10 +3,10 @@ node_modules/
 .env.local
 .env.bak
 *.env.bak
-backend/.tunnel.log
-backend/.tunnel.err.log
-backend/start-local-db-tunnel.ps1
-backend/stop-local-db-tunnel.ps1
+# backend/.tunnel.log
+# backend/.tunnel.err.log
+# backend/start-local-db-tunnel.ps1
+# backend/stop-local-db-tunnel.ps1
 ufs crm/dist/
 others/hr form/dist/
 *.log
