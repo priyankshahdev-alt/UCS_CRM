@@ -76,7 +76,7 @@ export default function ReceiptTemplateAshray({ donor, project }) {
         </div>
         <div style={{ display:'flex', alignItems:'flex-end', marginBottom:'18px', flexWrap:'wrap' }}>
           <span style={{ fontWeight:700, color:dark, marginRight:'8px', marginBottom:'5px' }}>The Sum of Rupees:</span>
-          <div style={{ flex:1, minHeight:'28px', padding:'4px 8px', color:'#222', fontWeight:600, borderBottom:`2px solid ${secondary}` }}>{amountInWords(amount)} Rupees and No. Paise Only</div>
+          <div style={{ flex:1, minHeight:'28px', padding:'4px 8px', color:'#222', fontWeight:600, borderBottom:`2px solid ${secondary}` }}>{amountInWords(amount)}</div>
         </div>
         <div style={{ display:'flex', alignItems:'flex-end', marginBottom:'18px', gap:'20px' }}>
           <div style={{ display:'flex', alignItems:'flex-end', flex:1 }}>
