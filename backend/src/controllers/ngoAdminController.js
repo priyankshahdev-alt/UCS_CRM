@@ -1312,8 +1312,8 @@ export const getStations = async (req, res) => {
       if (targetNgoIds.length === 0) return res.json([]);
     }
 
-    // Get all station assignments (including unassigned)
-    const assignments = await getStationAssignmentsByNgo(targetNgoIds, true);
+    // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
+    const assignments = await getStationAssignmentsByNgo(targetNgoIds, !ngo_id);
 
     // Get donor counts per station from fro_assignments (deduplicated by donor_id)
     const { data: faData, error: faErr } = await db
@@ -1553,18 +1553,20 @@ export const updateStationNgos = async (req, res) => {
     const { station } = req.params;
     const { ngo_id, fro_worker_id } = req.body;
 
-    const access = await getUserNgoAccess(req.user.id);
-    const allowedNgoIds = new Set(access.map(a => a.ngo_id));
+    // Look up the existing station assignment to preserve its ngo_id
+    const { data: existing } = await db
+      .from('fro_station_assignments')
+      .select('id, ngo_id')
+      .eq('station', station.trim())
+      .maybeSingle();
 
-    // Verify the NGO is accessible
-    const validNgoId = ngo_id && allowedNgoIds.has(ngo_id) ? ngo_id : null;
+    const resolvedNgoId = existing?.ngo_id || ngo_id || null;
 
-    // Upsert single assignment (avoids delete-then-insert race condition)
     const { error: upsertErr } = await db
       .from('fro_station_assignments')
       .upsert({
         station: station.trim(),
-        ngo_id: validNgoId,
+        ngo_id: resolvedNgoId,
         assigned_by: req.user.id,
         fro_worker_id: fro_worker_id || null,
       }, { onConflict: 'station,ngo_id' });
