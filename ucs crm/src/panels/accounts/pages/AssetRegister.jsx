@@ -1063,6 +1063,17 @@ export default function AssetRegister() {
     return sortDir === 'desc' ? s.reverse() : s
   }, [filtered, sortKey, sortDir])
 
+  const filteredCatStats = useMemo(() => {
+    const map = {}
+    sorted.forEach(a => {
+      const c = a.category
+      if (!map[c]) map[c] = { c, color: CAT_COLORS[CATEGORIES.indexOf(c) % CAT_COLORS.length] || '#64748b', recs: 0, units: 0 }
+      map[c].recs++
+      map[c].units += uq(a)
+    })
+    return Object.values(map).sort((a, b) => b.units - a.units)
+  }, [sorted])
+
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageSafe = Math.min(page, pageCount)
   const rows = sorted.slice((pageSafe - 1) * pageSize, pageSafe * pageSize)
@@ -1247,7 +1258,7 @@ export default function AssetRegister() {
         /* ---------- name hover spec popover ---------- */
         .arx-spec-wrap { position: relative; display: inline-block; max-width: 100%; }
         .arx-spec-trigger { cursor: default; border-bottom: 1px dashed #c2d4cb; }
-        .arx-spec-pop { position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; min-width: 220px; max-width: 300px; background: #fff; border: 1px solid var(--arx-line); border-radius: 12px; box-shadow: 0 18px 42px -18px rgba(16,31,25,.4); padding: 8px 10px; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .18s ease, transform .18s ease, visibility .18s; pointer-events: none; }
+        .arx-spec-pop { position: absolute; z-index: 50; top: calc(100% + 8px); left: 0; min-width: 220px; max-width: 300px; background: #ffffff; border: 1.5px solid #d1d5db; border-radius: 12px; box-shadow: 0 8px 24px -4px rgba(16,31,25,.28), 0 2px 8px rgba(16,31,25,.12); padding: 10px 12px; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .18s ease, transform .18s ease, visibility .18s; pointer-events: none; }
         .arx-spec-wrap:hover .arx-spec-pop { opacity: 1; visibility: visible; transform: translateY(0); }
         .arx-spec-title { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--arx-mint); padding: 2px 2px 6px; border-bottom: 1px solid var(--arx-line); margin-bottom: 5px; }
         .arx-spec-row { display: flex; gap: 10px; align-items: baseline; padding: 4px 2px; }
@@ -1295,6 +1306,14 @@ export default function AssetRegister() {
         .arx-qty { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; background: #eef3f1; color: #33453e; border-radius: 8px; padding: 3px 8px; font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums; }
         .arx-tcat { display: inline-flex; align-items: center; gap: 7px; }
         .arx-root .ci { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+        /* ---------- totals bar ---------- */
+        .arx-totals-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; background: #f6faf8; border-top: 1px solid var(--arx-line); font-size: 12px; }
+        .arx-totals-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 8px; border: 1px solid; background: #fff; font-weight: 600; }
+        .arx-totals-chip .ci { width: 22px; height: 22px; border-radius: 6px; }
+        .arx-totals-cat { color: var(--arx-muted); font-size: 11.5px; }
+        .arx-totals-qty { font-weight: 800; font-variant-numeric: tabular-nums; }
+        .arx-totals-grand { margin-left: auto; font-size: 12px; color: var(--arx-ink2); font-weight: 600; }
 
         /* ---------- mobile cards ---------- */
         .arx-mcards { display: none; grid-template-columns: 1fr; gap: 11px; }
@@ -1549,17 +1568,16 @@ export default function AssetRegister() {
       <div className="arx-kpis">
         <StatCard icon={Package} label="Total Records" value={summary.total}
           sub={`${summary.units.toLocaleString('en-IN')} units · ${catStats.length} categories`} tint="#eef2ff" fg="#4f46e5" delay={0} />
-        <StatCard icon={IndianRupee} label="Active Value" value={summary.value}
-          sub={`${summary.valuedCount} priced assets`} tint="#ecfdf5" fg="#059669" delay={60} isMoney />
-        <StatCard icon={CheckCircle2} label="Available" value={summary.available} tint="#eff6ff" fg="#2563eb" delay={120}
-          active={fStatus === 'available'} onClick={() => setFStatus(fStatus === 'available' ? 'all' : 'available')} />
-        <StatCard icon={UserCheck} label="Assigned" value={summary.assigned} sub="with workers" tint="#f0fdf4" fg="#16a34a" delay={180}
-          active={fStatus === 'assigned'} onClick={() => setFStatus(fStatus === 'assigned' ? 'all' : 'assigned')} />
-        <StatCard icon={Wrench} label="In Repair" value={summary.repair}
-          sub={longRepair.length > 0 ? `${longRepair.length} over 30 days` : undefined} tint="#fffbeb" fg="#d97706" delay={240}
-          active={fStatus === 'repair'} onClick={() => setFStatus(fStatus === 'repair' ? 'all' : 'repair')} />
-        <StatCard icon={ShieldAlert} label="Warranty ≤30d" value={warrantySoon.length} sub="expiring soon" tint="#fef2f2" fg="#dc2626" delay={300}
-          onClick={() => setTab('reports')} />
+        {(() => {
+          const laptop = catStats.find(x => x.c === 'Laptop')
+          const top = catStats.filter(x => x.c !== 'Laptop').slice(0, 4)
+          const cards = laptop ? [laptop, ...top] : catStats.slice(0, 5)
+          return cards.map((x, i) => (
+            <StatCard key={x.c} icon={catIcon(x.c)} label={x.c} value={x.units}
+              sub={`${x.recs} records`} tint={x.color + '15'} fg={x.color} delay={(i + 1) * 60}
+              active={fCat === x.c} onClick={() => setFCat(fCat === x.c ? 'all' : x.c)} />
+          ))
+        })()}
       </div>
 
       {/* tabs */}
@@ -1698,6 +1716,23 @@ export default function AssetRegister() {
                   })}
                 </tbody>
               </table>
+              {filteredCatStats.length > 0 && (
+                <div className="arx-totals-bar">
+                  {filteredCatStats.map(x => {
+                    const CI = catIcon(x.c)
+                    return (
+                      <span key={x.c} className="arx-totals-chip" style={{ borderColor: x.color + '40' }}>
+                        <span className="ci" style={{ background: x.color + '16', color: x.color }}><CI size={12} /></span>
+                        <span className="arx-totals-cat">{x.c}</span>
+                        <span className="arx-totals-qty" style={{ color: x.color }}>{x.units.toLocaleString('en-IN')}</span>
+                      </span>
+                    )
+                  })}
+                  <span className="arx-totals-grand">
+                    <b>Total</b> {filteredCatStats.reduce((s, x) => s + x.units, 0).toLocaleString('en-IN')} units
+                  </span>
+                </div>
+              )}
             </div>
             <div className="arx-mcards">
               {rows.map((a, i) => {
