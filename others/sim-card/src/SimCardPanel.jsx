@@ -13,9 +13,6 @@ import './simCard.css';
 
 import Dashboard from './Dashboard';
 import Inventory from './Inventory';
-import SimInventory from './SimInventory';
-import Expiring from './Expiring';
-import Reports from './Reports';
 
 const HEADER_MAP = {
   'mobile id': 'mobile_id', 'mobile id no': 'mobile_id', 'mobile id no.': 'mobile_id', 'mobile no': 'mobile_id', 'mobile': 'mobile_id',
@@ -260,17 +257,11 @@ function DeleteConfirmModal({ card, deleting, onClose, onConfirm }) {
 const NAV = [
   { id: 'dashboard', path: '/sim/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'inventory', path: '/sim/inventory', label: 'All SIM Cards', icon: 'simcard' },
-  { id: 'inventory', path: '/sim/cards', label: 'SIM Inventory', icon: 'inventory' },
-  { id: 'expiring', path: '/sim/expiring', label: 'Expiring SIMs', icon: 'clock' },
-  { id: 'reports', path: '/sim/reports', label: 'SIM Reports', icon: 'report' },
 ];
 
 const PAGE_META = {
-  '/sim/dashboard': ['SIM Management', 'SIM Card Management', 'Manage SIM cards, devices, expiry dates and replacement records.'],
+  '/sim/dashboard': ['Sim Cards and Mobile Management', 'Sim Cards and Mobile Management', 'Manage SIM cards, devices, expiry dates and replacement records.'],
   '/sim/inventory': ['SIM Management', 'All SIM Cards', 'Complete list of every registered SIM card.'],
-  '/sim/cards': ['SIM Management', 'SIM Inventory', 'Track physical SIM stock, availability and assignment.'],
-  '/sim/expiring': ['SIM Management', 'Expiring SIMs', 'SIMs nearing or past their auto-expiry date.'],
-  '/sim/reports': ['SIM Management', 'SIM Reports', 'Expiry and inventory analytics.'],
 };
 
 function PanelInner() {
@@ -326,7 +317,7 @@ function PanelInner() {
         <aside className="sim-sidebar">
           <div className="sim-brand">
             <div className="mark">SIM</div>
-            <div><h1>SIM Card</h1><span>Management System</span></div>
+            <div><h1>Sim Cards</h1><span>And Mobile Management</span></div>
           </div>
           <div className="sim-side-label">SIM Management</div>
           <nav className="sim-nav">
@@ -367,10 +358,6 @@ function PanelInner() {
               <Route index element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
               <Route path="dashboard" element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
               <Route path="inventory" element={<Inventory onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} onHistory={setHistoryCard} />} />
-              <Route path="cards" element={<SimInventory />} />
-              <Route path="expiring" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
-              <Route path="expiring/:tab" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
-              <Route path="reports" element={<Reports />} />
               <Route path="*" element={<Navigate to="/sim/dashboard" replace />} />
             </Routes>
           </div>
