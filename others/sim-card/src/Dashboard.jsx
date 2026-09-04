@@ -168,12 +168,12 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const data = useMemo(() => {
     const enriched = cards.map((c) => ({ ...c, _status: effectiveStatus(c) }));
     const total = enriched.reduce((sum, c) => sum + countSims(c), 0);
+    const active = enriched.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + enriched.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+    const expiring = enriched.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+    const expired = enriched.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
+    const replaced = enriched.filter((c) => c._status === 'Replaced').reduce((sum, c) => sum + countSims(c), 0);
+    const inactive = enriched.filter((c) => c._status === 'Inactive').reduce((sum, c) => sum + countSims(c), 0) + replaced;
     const noSim = enriched.filter((c) => countSims(c) === 0).length;
-    const active = enriched.filter((c) => c._status === 'Active' || c._status === 'Expiring Soon').length;
-    const expiring = enriched.filter((c) => c._status === 'Expiring Soon').length;
-    const expired = enriched.filter((c) => c._status === 'Expired').length;
-    const replaced = enriched.filter((c) => c._status === 'Replaced').length;
-    const inactive = enriched.filter((c) => c._status === 'Inactive').length + replaced;
 
     const buckets = {
       expired,
@@ -245,7 +245,6 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
     { label: 'Active', value: data.active, color: '#16a34a' },
     { label: 'Expiring Soon', value: data.expiring, color: '#d97706' },
     { label: 'Expired', value: data.expired, color: '#dc2626' },
-    { label: 'Inactive', value: data.inactive, color: '#94a3b8' },
   ];
 
   const invItems = [
@@ -334,10 +333,9 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
           {(() => {
             const total = nokiaCards.reduce((sum, c) => sum + countSims(c), 0);
-            const active = nokiaCards.filter((c) => c._status === 'Active' || c._status === 'Expiring Soon').length;
-            const expiring = nokiaCards.filter((c) => c._status === 'Expiring Soon').length;
-            const expired = nokiaCards.filter((c) => c._status === 'Expired').length;
-            const replaced = nokiaCards.filter((c) => c._status === 'Replaced').length;
+            const active = nokiaCards.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + nokiaCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+            const expiring = nokiaCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+            const expired = nokiaCards.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
             const noSim = nokiaCards.filter((c) => countSims(c) === 0).length;
             const items = [
               { key: 'total', label: 'All SIM Cards', val: total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
@@ -360,10 +358,9 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           <div className="panel-head"><h3>Android Mobile Summary</h3><span className="ln">{androidCards.reduce((s, c) => s + countSims(c), 0)} Android SIMs</span></div>
           {(() => {
             const total = androidCards.reduce((sum, c) => sum + countSims(c), 0);
-            const active = androidCards.filter((c) => c._status === 'Active' || c._status === 'Expiring Soon').length;
-            const expiring = androidCards.filter((c) => c._status === 'Expiring Soon').length;
-            const expired = androidCards.filter((c) => c._status === 'Expired').length;
-            const replaced = androidCards.filter((c) => c._status === 'Replaced').length;
+            const active = androidCards.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + androidCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+            const expiring = androidCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
+            const expired = androidCards.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
             const noSim = androidCards.filter((c) => countSims(c) === 0).length;
             const items = [
               { key: 'total', label: 'All SIM Cards', val: total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
