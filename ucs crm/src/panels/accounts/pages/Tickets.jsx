@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPut, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 const DEPARTMENTS = ['accounts', 'developers', 'hr'];
 const CATEGORIES = [
@@ -7,6 +8,12 @@ const CATEGORIES = [
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'technical', label: 'Technical' },
   { value: 'other', label: 'Other' },
+];
+
+const PRIORITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
 ];
 
 const STATUS_COLORS = {
@@ -26,6 +33,21 @@ export default function AccountsTickets() {
   const [replyText, setReplyText] = useState('');
   const [resolution, setResolution] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+
+  const [showRaise, setShowRaise] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [deskLoading, setDeskLoading] = useState(false);
+  const [form, setForm] = useState({
+    department: 'accounts',
+    category: 'technical',
+    subject: '',
+    description: '',
+    reference_id: '',
+    priority: 'medium',
+    desk_number: '',
+    ngo: '',
+  });
+  const [formErrors, setFormErrors] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -58,6 +80,64 @@ export default function AccountsTickets() {
   };
 
   useEffect(() => { load(); }, [statusFilter, deptFilter]);
+
+  const fetchMyAsset = async () => {
+    setDeskLoading(true);
+    try {
+      const assets = await apiGet('/assets/my-assigned').catch(() => []);
+      const asset = Array.isArray(assets) ? assets[0] : null;
+      if (asset) {
+        setForm(p => ({
+          ...p,
+          desk_number: p.desk_number || asset.code || '',
+          ngo: p.ngo || asset.location || '',
+        }));
+      }
+    } catch (err) { /* silent */ }
+    finally { setDeskLoading(false); }
+  };
+
+  useEffect(() => { fetchMyAsset(); }, []);
+
+  const handleRaise = async () => {
+    const errs = {};
+    if (!form.subject.trim()) errs.subject = 'Subject is required';
+    if (Object.keys(errs).length) { setFormErrors(errs); return; }
+    setFormErrors({});
+    setSubmitting(true);
+    try {
+      if (form.department === 'developers') {
+        await apiPost('/developer-tickets', {
+          subject: form.subject,
+          description: form.description,
+          category: form.category,
+          priority: form.priority,
+          reference_id: form.reference_id,
+          desk_number: form.desk_number,
+          ngo: form.ngo,
+          raised_by_panel: 'accounts',
+        });
+      } else {
+        await apiPost('/tickets', {
+          department: form.department,
+          category: form.category,
+          subject: form.subject,
+          description: form.description,
+          reference_id: form.reference_id,
+          priority: form.priority,
+          desk_number: form.desk_number,
+          ngo: form.ngo,
+          raised_by_panel: 'accounts',
+        });
+      }
+      toast('Ticket submitted successfully', 'success');
+      setShowRaise(false);
+      setForm({ department: 'accounts', category: 'technical', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: form.desk_number, ngo: form.ngo });
+      load();
+    } catch (err) { setFormErrors({ _general: err.message }); }
+    finally { setSubmitting(false); }
+  };
+
 
   const openDetail = async (ticket) => {
     try {
@@ -136,6 +216,7 @@ export default function AccountsTickets() {
             ))}
           </select>
           <button className="btn btn-sm" onClick={load} style={{ marginLeft: 'auto' }}>Refresh</button>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowRaise(true)}>+ Raise Ticket</button>
         </div>
         <div className="table-wrap">
           <table>
@@ -194,6 +275,90 @@ export default function AccountsTickets() {
           </table>
         </div>
       </div>
+
+      {showRaise && (
+        <div className="modal-overlay" onClick={() => setShowRaise(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="modal-head">
+              <h3>Raise a Ticket</h3>
+              <button className="btn btn-sm btn-icon" onClick={() => setShowRaise(false)} style={{ padding: 4 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              {formErrors._general && (
+                <div style={{ padding: '8px 12px', marginBottom: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#dc2626' }}>
+                  {formErrors._general}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Department *
+                  <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                  </select>
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Category *
+                  <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Desk Number
+                  <input value={form.desk_number} onChange={e => setForm(p => ({ ...p, desk_number: e.target.value }))} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  NGO
+                  <input value={form.ngo} onChange={e => setForm(p => ({ ...p, ngo: e.target.value }))} placeholder={deskLoading ? 'Fetching...' : 'Auto-filled from your desk'} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Priority
+                  <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))}>
+                    {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Reference ID (optional)
+                  <input value={form.reference_id} onChange={e => setForm(p => ({ ...p, reference_id: e.target.value }))} placeholder="Payment/suspense ID" />
+                </label>
+              </div>
+              <label className="field" style={{ marginBottom: 12 }}>
+                Subject *
+                <input value={form.subject} onChange={e => { setForm(p => ({ ...p, subject: e.target.value })); if (formErrors.subject) setFormErrors(p => { const n = { ...p }; delete n.subject; return n; }); }}
+                  placeholder="Brief title of the issue"
+                  style={formErrors.subject ? { borderColor: '#dc2626' } : undefined} />
+                {formErrors.subject && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 3 }}>{formErrors.subject}</div>}
+              </label>
+              <label className="field" style={{ marginBottom: 12 }}>
+                Description
+                <div style={{ position: 'relative' }}>
+                  <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Describe the issue in detail..." maxLength={200} rows={4} style={{ padding: '10px 12px', paddingRight: 56, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', width: '100%', boxSizing: 'border-box' }} />
+                  <span style={{ position: 'absolute', bottom: 6, right: 8, fontSize: 10, fontWeight: 600, color: form.description.length > 180 ? '#dc2626' : 'var(--ink-soft)' }}>
+                    {form.description.length}/200
+                  </span>
+                </div>
+              </label>
+            </div>
+            <div className="modal-foot" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowRaise(false)}
+                style={{ padding: '8px 20px', color: '#dc2626', border: '1px solid #dc2626', borderRadius: 6, background: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s' }}
+                onMouseOver={e => { e.currentTarget.style.background = '#fef2f2'; }}
+                onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleRaise} disabled={submitting}
+                style={{ padding: '8px 20px', fontSize: 12, borderRadius: 6 }}>
+                {submitting ? 'Submitting...' : 'Submit Ticket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDetail && (
         <div className="modal-overlay" onClick={() => setShowDetail(null)}>
