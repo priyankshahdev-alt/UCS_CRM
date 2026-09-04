@@ -12,7 +12,7 @@ router.get('/workers', getWorkers);
 router.get('/my', listMyTickets);
 
 router.post('/', createTicket);
-router.get('/', authenticateRole('accounts', 'super_admin'), listTickets);
+router.get('/', authenticateRole('accounts', 'super_admin', 'event_head'), listTickets);
 router.get('/:id', getTicket);
 router.put('/:id', authenticateRole('accounts', 'super_admin'), updateTicket);
 router.post('/:id/reply', addReply);

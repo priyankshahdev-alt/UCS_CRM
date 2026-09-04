@@ -92,6 +92,10 @@ const EMBED_JOINS = {
   agent_phone_assignments: {
     whatsapp_accounts: { childColumn: 'account_id', parentColumn: 'id' },
   },
+  support_tickets: {
+    support_tickets_raised_by_fkey: { childColumn: 'raised_by', parentColumn: 'id' },
+    support_tickets_resolved_by_fkey: { childColumn: 'resolved_by', parentColumn: 'id' },
+  },
   developer_tickets: {
     developer_tickets_raised_by_fkey: { childColumn: 'raised_by', parentColumn: 'id' },
     developer_tickets_assigned_to_fkey: { childColumn: 'assigned_to', parentColumn: 'id' },

@@ -58,7 +58,7 @@ export const getTicket = async (req, res) => {
 
 export const createTicket = async (req, res) => {
   try {
-    const { subject, description, category, priority, reference_id, raised_by_panel } = req.body;
+    const { subject, description, category, priority, reference_id, raised_by_panel, desk_number, ngo } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
 
     const workerName = req.user.name || req.user.login_id || '';
@@ -71,6 +71,8 @@ export const createTicket = async (req, res) => {
       category: category || 'bug',
       priority: priority || 'medium',
       reference_id: reference_id || null,
+      desk_number: desk_number || null,
+      ngo: ngo || null,
     });
     return res.status(201).json(data);
   } catch (error) {
