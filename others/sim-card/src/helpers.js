@@ -51,9 +51,9 @@ export function effectiveStatus(card) {
   if (base === 'Replaced') return base;
   const dl = card.days_left !== undefined && card.days_left !== null ? card.days_left : daysLeft(card.expiry_date);
   if (dl === null) return base === 'Active' ? 'Active' : 'Inactive';
-  if (dl < 1) return 'Expired';
+  if (dl < 0) return 'Expired';
   if (base === 'Inactive') return base;
-  if (dl > 30) return 'Active';
+  if (dl > 28) return 'Active';
   return 'Expiring Soon';
 }
 
