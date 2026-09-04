@@ -352,39 +352,90 @@ function ImportModal({ onClose, onImported, pushToast }) {
       try {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
         const out = []
-        const sheets = [
-          { name: 'Computer', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
-          { name: 'Asset Register', dataFrom: 3, descCol: 3, qtyCol: 4 },
-          { name: 'Asset Register Import', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
-        ]
-        sheets.forEach(({ name, dataFrom, descCol, qtyCol, teamLeaderCol }) => {
-          const ws = wb.Sheets[name]
-          if (!ws) return
+
+        // New 22-column format detection: scan all sheets for header row
+        let foundNewFormat = false
+        for (const sn of wb.SheetNames) {
+          const ws = wb.Sheets[sn]
+          if (!ws) continue
           const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+          // Find header row: first row with 22+ cells starting with "Code"
+          const headerIdx = data.findIndex(r => r && r.length >= 22 && r[0] === 'Code' && r[1] === 'Name')
+          if (headerIdx < 0) continue
+          foundNewFormat = true
           data.forEach((r, i) => {
-            if (i < dataFrom) return
-            const loc = String(r[1] || '').trim().replace(/\s+$/, '')
+            if (i <= headerIdx) return
+            const code = normalizeCode(r[0])
+            if (!code) return
             const cat = String(r[2] || '').trim()
             if (!SNAP_CODES[cat]) return
-            const code = normalizeCode(r[0])
-            const isMachine = code !== ''
-            const desc = String(r[descCol] || '').trim()
-            const qty = isMachine ? 1 : (Number(r[qtyCol]) || 1)
-            const name = isMachine ? cat : (desc || cat)
-            const dedupeKey = code || `${cat}||${loc}||${name}`
             out.push({
-              _key: dedupeKey,
+              _key: code,
               include: true,
               code,
-              name,
+              name: String(r[1] || '').trim() || cat,
               category: cat,
-              location: loc,
-              team_leader: isMachine && teamLeaderCol != null ? String(r[teamLeaderCol] || '').trim() : '',
-              quantity: qty,
-              remarks: isMachine ? desc : '',
+              location: String(r[3] || '').trim(),
+              quantity: Number(r[4]) || 1,
+              team_leader: String(r[5] || '').trim(),
+              owner_name: String(r[6] || '').trim(),
+              brand: String(r[7] || '').trim(),
+              model: String(r[8] || '').trim(),
+              serial_no: String(r[9] || '').trim(),
+              storage: String(r[10] || '').trim(),
+              ram: String(r[11] || '').trim(),
+              processor: String(r[12] || '').trim(),
+              motherboard: String(r[13] || '').trim(),
+              condition: String(r[14] || '').trim() || 'New',
+              status: String(r[15] || '').trim() || 'available',
+              assigned_to_name: String(r[16] || '').trim(),
+              purchase_date: String(r[17] || '').trim() || null,
+              purchase_price: Number(r[18]) || null,
+              warranty_expiry: String(r[19] || '').trim() || null,
+              sim_number: String(r[20] || '').trim(),
+              remarks: String(r[21] || '').trim(),
             })
           })
-        })
+          break
+        }
+
+        // Legacy format: old Computer / Asset Register / Asset Register Import sheets
+        if (!foundNewFormat) {
+          const sheets = [
+            { name: 'Computer', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
+            { name: 'Asset Register', dataFrom: 3, descCol: 3, qtyCol: 4 },
+            { name: 'Asset Register Import', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
+          ]
+          sheets.forEach(({ name, dataFrom, descCol, qtyCol, teamLeaderCol }) => {
+            const ws = wb.Sheets[name]
+            if (!ws) return
+            const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            data.forEach((r, i) => {
+              if (i < dataFrom) return
+              const loc = String(r[1] || '').trim().replace(/\s+$/, '')
+              const cat = String(r[2] || '').trim()
+              if (!SNAP_CODES[cat]) return
+              const code = normalizeCode(r[0])
+              const isMachine = code !== ''
+              const desc = String(r[descCol] || '').trim()
+              const qty = isMachine ? 1 : (Number(r[qtyCol]) || 1)
+              const name = isMachine ? cat : (desc || cat)
+              const dedupeKey = code || `${cat}||${loc}||${name}`
+              out.push({
+                _key: dedupeKey,
+                include: true,
+                code,
+                name,
+                category: cat,
+                location: loc,
+                team_leader: isMachine && teamLeaderCol != null ? String(r[teamLeaderCol] || '').trim() : '',
+                quantity: qty,
+                remarks: isMachine ? desc : '',
+              })
+            })
+          })
+        }
+
         setRows(out)
         if (out.length === 0) setError('No recognisable asset rows were found in this file. Expected sheets: Computer / Asset Register / Asset Register Import.')
       } catch (err) {
@@ -402,10 +453,11 @@ function ImportModal({ onClose, onImported, pushToast }) {
     if (selected.length === 0) return
     setImporting(true); setResult(null)
     try {
-      const payload = selected.map(({ _key, include, ...row }) => ({ ...row, code: row.code || null, status: 'available' }))
-      const res = await api('/assets/import', { method: 'POST', body: JSON.stringify({ rows: payload }) })
+      const payload = selected.map(({ _key, include, ...row }) => ({ ...row, code: row.code || null, status: row.status || 'available' }))
+      const res = await api('/assets/import?upsert=true', { method: 'POST', body: JSON.stringify({ rows: payload }) })
       setResult(res)
-      pushToast(`${res.inserted || 0} assets imported`, 'ok')
+      const msg = [res.inserted ? `${res.inserted} imported` : '', res.updated ? `${res.updated} updated` : '', `${res.skipped?.length || 0} skipped`].filter(Boolean).join(', ')
+      pushToast(msg || 'Import complete', 'ok')
       onImported()
     } catch (err) {
       setError('Import API call failed: ' + err.message)
@@ -449,7 +501,7 @@ function ImportModal({ onClose, onImported, pushToast }) {
           {result && (
             <div className="arx-inline-alert ok">
               <CheckCircle2 size={15} />
-              <span><b>{result.inserted}</b> imported · <b>{result.skipped?.length || 0}</b> skipped (already exist) · <b>{result.errors?.length || 0}</b> errors</span>
+              <span><b>{result.inserted || 0}</b> imported · <b>{result.updated || 0}</b> updated · <b>{result.skipped?.length || 0}</b> skipped · <b>{result.errors?.length || 0}</b> errors</span>
               {result.skipped?.length > 0 && <span className="arx-note-line">Skipped: {result.skipped.slice(0, 6).map(s => s.code).join(', ')}{result.skipped.length > 6 ? '…' : ''}</span>}
             </div>
           )}
