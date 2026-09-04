@@ -1,4 +1,4 @@
-package com.ucs.hr_attend
+package com.ucs.hrattend
 
 import io.flutter.embedding.android.FlutterActivity
 
