@@ -23,6 +23,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   const [extra, setExtra] = useState({
     team: card?.team || '',
     signature: card?.signature || '',
+    ngo: card?.ngo || '',
     sim_type: card?.sim_type || '',
     gb: card?.gb || '',
     issue_date: card?.issue_date || '',
@@ -77,6 +78,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
       ...simFields,
       team: extra.team,
       signature: extra.signature,
+      ngo: extra.ngo,
       sim_type: extra.sim_type || null,
       gb: extra.gb || null,
       issue_date: extra.issue_date,
@@ -120,6 +122,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
             <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
             <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
+            <Field label="NGO" value={extra.ngo} onChange={(v) => setE('ngo', v)} />
             <Field label="Remark" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
               <label>SIM Type</label>
@@ -254,6 +257,7 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
                 <Item k="Device & Model" v={card.device_model} />
                 <Item k="IMEI" v={card.imei} />
                 <Item k="Team" v={card.team} />
+                <Item k="NGO" v={card.ngo} />
                 <Item k="Signature" v={card.signature} />
               </div>
             </div>
@@ -348,6 +352,7 @@ const HISTORY_FIELD_LABELS = {
   imei: 'IMEI No.',
   team: 'Team',
   signature: 'Remark',
+  ngo: 'NGO',
   sim_type: 'SIM Type',
   issue_date: 'SIM Card Issue Date',
   expiry_date: 'Auto Expiry Date',
@@ -447,6 +452,7 @@ export function SimHistoryModal({ card, open, onClose }) {
               <div className="detail-item"><div className="k">Mobile ID</div><div className="v">{card.mobile_id || '—'}</div></div>
               <div className="detail-item"><div className="k">Device & Model</div><div className="v">{card.device_model || '—'}</div></div>
               <div className="detail-item"><div className="k">Team</div><div className="v">{card.team || '—'}</div></div>
+              <div className="detail-item"><div className="k">NGO</div><div className="v">{card.ngo || '—'}</div></div>
               <div className="detail-item"><div className="k">Remark</div><div className="v">{card.signature || '—'}</div></div>
             </div>
           </div>

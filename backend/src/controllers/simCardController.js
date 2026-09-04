@@ -20,7 +20,7 @@ export const requiredFields = [
 ];
 
 const alwaysPresentFields = [
-  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'sim_type', 'gb',
+  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'ngo', 'sim_type', 'gb',
   'sim_1', 'sim_2', 'sim_3', 'sim_4', 'sim_5', 'sim_6', 'sim_7', 'sim_8',
   'sim_9', 'sim_10', 'sim_11', 'sim_12', 'sim_13', 'sim_14', 'sim_15', 'sim_16', 'sim_17', 'sim_18', 'sim_19', 'sim_20',
 ];
@@ -126,7 +126,7 @@ export const editSimCard = async (req, res) => {
       return res.status(400).json({ message: 'Mobile ID No. is required' });
     }
     const writable = {};
-    const nonNullableText = ['mobile_id', 'device_model', 'imei', 'team', 'signature'];
+    const nonNullableText = ['mobile_id', 'device_model', 'imei', 'team', 'signature', 'ngo'];
     for (const [k, v] of Object.entries(body || {})) {
       if (k === 'id' || k === 'created_at' || k === 'updated_at') continue;
       if (nonNullableText.includes(k)) {

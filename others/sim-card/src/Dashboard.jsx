@@ -64,9 +64,9 @@ function MobileSummaryModal({ open, mobileType, cardType, records, onClose }) {
   const totalCount = isTotal ? records.reduce((sum, c) => sum + countSims(c), 0) : records.length;
   const teamMap = {};
   if (isTotal) {
-    records.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+    records.forEach((c) => { const t = c.team || 'Unassigned'; if (mobileType === 'Nokia' && t === 'HR') return; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
   } else {
-    records.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + 1; });
+    records.forEach((c) => { const t = c.team || 'Unassigned'; if (mobileType === 'Nokia' && t === 'HR') return; teamMap[t] = (teamMap[t] || 0) + 1; });
   }
   const teamRows = Object.entries(teamMap).sort((a, b) => b[1] - a[1]);
 
@@ -102,17 +102,6 @@ function MobileSummaryModal({ open, mobileType, cardType, records, onClose }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sim-ink-soft)', marginBottom: 2 }}>{meta.label}</div>
                 <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--sim-ink)', lineHeight: 1.1 }}>{totalCount}</div>
                 <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)' }}>{meta.sublabel}</div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
-                {teamRows.map(([team, count]) => (
-                  <div key={team} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{team[0] || '?'}</div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sim-ink)' }}>{team}</div>
-                      <div style={{ fontSize: 12, color: 'var(--sim-ink-soft)' }}>{count} SIM{count !== 1 ? 's' : ''}</div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </>
           ) : (
@@ -157,10 +146,64 @@ function MobileSummaryModal({ open, mobileType, cardType, records, onClose }) {
   );
 }
 
+function UfsDistributionModal({ open, category, records, onClose }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
+  if (!open || !category) return null;
+
+  const SIM_FIELDS = Array.from({ length: 20 }, (_, i) => `sim_${i + 1}`);
+  function countSims(c) { return SIM_FIELDS.filter((f) => c[f] && String(c[f]).trim()).length; }
+
+  const ngoMap = {};
+  records.forEach((c) => {
+    if ((c.team || '').trim().toUpperCase() !== category.toUpperCase()) return;
+    const ngo = (c.ngo || '').trim() || 'Unassigned';
+    ngoMap[ngo] = (ngoMap[ngo] || 0) + countSims(c);
+  });
+  const ngoRows = Object.entries(ngoMap).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" ref={ref} onClick={(e) => e.stopPropagation()} style={{ background: '#ffffff' }}>
+        <div className="modal-head">
+          <div>
+            <h3>{category}</h3>
+            <span style={{ fontSize: 12, color: 'var(--sim-ink-soft)' }}>SIM Distribution by NGO</span>
+          </div>
+          <button className="modal-x" onClick={onClose}>&times;</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14 }}>
+            {ngoRows.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)' }}>No SIMs found for {category}.</div>
+            ) : (
+              ngoRows.map(([ngo, count]) => (
+                <div key={ngo} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--sim-ink)', marginBottom: 6 }}>{ngo}</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#2563eb', lineHeight: 1 }}>{count}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const { cards, loading, inventory, refreshInventory } = useSim();
   const [activity, setActivity] = useState([]);
   const [modal, setModal] = useState(null);
+  const [ufsModal, setUfsModal] = useState(null);
+  const [androidUfsModal, setAndroidUfsModal] = useState(null);
 
   const SIM_FIELDS = Array.from({ length: 20 }, (_, i) => `sim_${i + 1}`);
   function countSims(c) { return SIM_FIELDS.filter((f) => c[f] && String(c[f]).trim()).length; }
@@ -237,8 +280,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
     { label: 'All SIM Cards', val: data.total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
     { label: 'Active SIM Cards', val: data.active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
     { label: 'Expiring Soon', val: data.expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
-    { label: 'Expired SIM Cards', val: data.expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
-    { label: 'No SIM', val: data.noSim, sub: 'Empty SIM slots', icon: 'simcard', ic: { bg: '#fef3f2', color: '#b91c1c' }, bar: '#94a3b8' },
+    { label: 'Inactive', val: data.expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
   ];
 
   const statusSegments = [
@@ -270,7 +312,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const statusCardMap = {
     'Active SIM Cards': 'active',
     'Expiring Soon': 'expiring',
-    'Expired SIM Cards': 'expired',
+    'Inactive': 'expired',
   };
 
   function openModal(deviceType, cardLabel) {
@@ -332,21 +374,29 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
         <section className="dash-panel">
           <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
           {(() => {
-            const total = nokiaCards.reduce((sum, c) => sum + countSims(c), 0);
-            const active = nokiaCards.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + nokiaCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
-            const expiring = nokiaCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
-            const expired = nokiaCards.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
-            const noSim = nokiaCards.filter((c) => countSims(c) === 0).length;
-            const items = [
-              { key: 'total', label: 'All SIM Cards', val: total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
-              { label: 'Active SIM Cards', val: active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
-              { label: 'Expiring Soon', val: expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
-              { label: 'Expired SIM Cards', val: expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
-              { label: 'No SIM', val: noSim, sub: 'Empty SIM slots', icon: 'simcard', ic: { bg: '#fef3f2', color: '#b91c1c' }, bar: '#94a3b8' },
-            ];
+            const teamMap = {};
+            nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; if (t === 'HR') return; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+            const teamRows = Object.entries(teamMap).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
             return (
-              <div className="dash-kpi-grid">
-                {buildSummaryCards(items, 'Nokia', total)}
+              <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 12, justifyContent: 'space-between' }}>
+                {teamRows.map(([team, count]) => {
+                  const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
+                  return (
+                    <div
+                      key={team}
+                      onClick={() => { if (isUfs) setUfsModal((team || '').trim().toUpperCase()); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: 12, padding: '14px 18px', boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', cursor: isUfs ? 'pointer' : 'default', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: '1 1 0' }}
+                      onMouseEnter={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#93c5fd'; }}
+                      onMouseLeave={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#dbeafe'; }}
+                    >
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{team[0] || '?'}</div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--sim-ink)', whiteSpace: 'nowrap' }}>{team}</div>
+                        <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} SIMs</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })()}
@@ -357,21 +407,29 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
         <section className="dash-panel">
           <div className="panel-head"><h3>Android Mobile Summary</h3><span className="ln">{androidCards.reduce((s, c) => s + countSims(c), 0)} Android SIMs</span></div>
           {(() => {
-            const total = androidCards.reduce((sum, c) => sum + countSims(c), 0);
-            const active = androidCards.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + androidCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
-            const expiring = androidCards.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
-            const expired = androidCards.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
-            const noSim = androidCards.filter((c) => countSims(c) === 0).length;
-            const items = [
-              { key: 'total', label: 'All SIM Cards', val: total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
-              { label: 'Active SIM Cards', val: active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
-              { label: 'Expiring Soon', val: expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
-              { label: 'Expired SIM Cards', val: expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
-              { label: 'No SIM', val: noSim, sub: 'Empty SIM slots', icon: 'simcard', ic: { bg: '#fef3f2', color: '#b91c1c' }, bar: '#94a3b8' },
-            ];
+            const teamMap = {};
+            androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+            const teamRows = Object.entries(teamMap).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
             return (
-              <div className="dash-kpi-grid">
-                {buildSummaryCards(items, 'Android', total)}
+              <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 10, justifyContent: 'space-between', overflowX: 'auto' }}>
+                {teamRows.map(([team, count]) => {
+                  const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
+                  return (
+                    <div
+                      key={team}
+                      onClick={() => { if (isUfs) setAndroidUfsModal((team || '').trim().toUpperCase()); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: 10, padding: '10px', minWidth: 0, boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', cursor: isUfs ? 'pointer' : 'default', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: '1 1 0' }}
+                      onMouseEnter={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#93c5fd'; }}
+                      onMouseLeave={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#dbeafe'; }}
+                    >
+                      <div style={{ width: 30, height: 30, borderRadius: 8, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{team[0] || '?'}</div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sim-ink)', whiteSpace: 'nowrap' }}>{team}</div>
+                        <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} SIMs</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })()}
@@ -384,6 +442,20 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
         cardType={modal?.cardType || 'total'}
         records={modal?.deviceType === 'Nokia' ? nokiaCards : androidCards}
         onClose={() => setModal(null)}
+      />
+
+      <UfsDistributionModal
+        open={!!ufsModal}
+        category={ufsModal}
+        records={nokiaCards}
+        onClose={() => setUfsModal(null)}
+      />
+
+      <UfsDistributionModal
+        open={!!androidUfsModal}
+        category={androidUfsModal}
+        records={androidCards}
+        onClose={() => setAndroidUfsModal(null)}
       />
 
       <div className="dash-row">
