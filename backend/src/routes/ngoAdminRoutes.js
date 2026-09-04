@@ -85,6 +85,7 @@ import {
   getAssignedData,
   restoreWrongAssignments,
   getFroHourlyPerformance,
+  ensureStandardNgos,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -98,6 +99,7 @@ router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_a
 router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), getStations);
 router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
 router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
+router.post('/ngos/ensure', authenticateRole('admin', 'super_admin'), ensureStandardNgos);
 
 // Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
 router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);

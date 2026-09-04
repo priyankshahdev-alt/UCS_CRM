@@ -381,7 +381,8 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
     }
   }
   const tabOrder = (name) => {
-    const i = NGO_TABS.indexOf(String(name || '').trim());
+    const NGO_SORT = ['BSCT', 'AFLF', 'MANN'];
+    const i = NGO_SORT.indexOf(String(name || '').trim());
     return i === -1 ? 99 : i;
   };
   groups.sort((a, b) => {
@@ -1087,8 +1088,6 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   );
 }
 
-const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
-
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -1179,19 +1178,21 @@ export default function StationManagement() {
   useEffect(() => {
     setLoading(true);
     const m = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-    Promise.all([
-      apiGet('/ngo-admin/ngos'),
-      apiGet('/ngo-admin/fro-workers'),
-      apiGet('/ngo-admin/targets?month=' + m),
-      apiGet('/ngo-admin/incentives'),
-    ]).then(([n, f, t, i]) => {
+    apiPost('/ngo-admin/ngos/ensure').catch(() => {}).then(() => {
+      return Promise.all([
+        apiGet('/ngo-admin/ngos'),
+        apiGet('/ngo-admin/fro-workers'),
+        apiGet('/ngo-admin/targets?month=' + m),
+        apiGet('/ngo-admin/incentives'),
+      ]);
+    }).then(([n, f, t, i]) => {
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
       if (Array.isArray(i)) setIncentives(i);
-      const ngoId = (Array.isArray(n) ? n : []).find(ng => NGO_TABS.includes(ng.name))?.id;
-      if (ngoId) {
-        setSelectedNgoId(ngoId);
+      const ngoList = Array.isArray(n) ? n : [];
+      if (ngoList.length > 0) {
+        setSelectedNgoId(ngoList[0].id);
       }
     }).catch(err => console.error('Initial load error:', err)).finally(() => setLoading(false));
     apiGet('/ngo-admin/transfers').then(t => {
@@ -1363,13 +1364,12 @@ export default function StationManagement() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
-            {NGO_TABS.map(name => {
-              const ngo = allNgos.find(n => n.name === name);
-              const active = ngo && selectedNgoId === ngo.id;
+            {allNgos.map(ngo => {
+              const active = selectedNgoId === ngo.id;
               return (
-                <button key={name} onClick={() => ngo && setSelectedNgoId(ngo.id)}
+                <button key={ngo.id} onClick={() => setSelectedNgoId(ngo.id)}
                   style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)' }}>
-                  {name}
+                  {ngo.name}
                 </button>
               );
             })}

@@ -374,6 +374,29 @@ export const getAccessibleNgos = async (req, res) => {
   }
 };
 
+const STANDARD_NGOS = [
+  { name: 'BSCT', code: 'BSCT' },
+  { name: 'AFLF', code: 'AFLF' },
+  { name: 'MANN', code: 'MANN' },
+];
+
+export const ensureStandardNgos = async (_req, res) => {
+  try {
+    const { data: existing } = await db.from('ngos').select('id, name');
+    const nameSet = new Set((existing || []).map(n => n.name));
+    const missing = STANDARD_NGOS.filter(n => !nameSet.has(n.name));
+    let created = [];
+    for (const ngo of missing) {
+      const { data, error } = await db.from('ngos').insert({ name: ngo.name, code: ngo.code, is_active: true }).select('id, name').single();
+      if (!error && data) created.push(data);
+    }
+    const { data: all } = await db.from('ngos').select('id, name');
+    return res.json({ created: created.length, ngos: all || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getFroWorkers = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
