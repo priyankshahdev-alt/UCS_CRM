@@ -1180,7 +1180,7 @@ export default function StationManagement() {
     const m = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
     apiPost('/ngo-admin/ngos/ensure').catch(() => {}).then(() => {
       return Promise.all([
-        apiGet('/ngo-admin/ngos'),
+        apiGet('/ngo-admin/ngos/all'),
         apiGet('/ngo-admin/fro-workers'),
         apiGet('/ngo-admin/targets?month=' + m),
         apiGet('/ngo-admin/incentives'),

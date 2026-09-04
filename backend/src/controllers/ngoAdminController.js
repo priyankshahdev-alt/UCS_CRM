@@ -382,16 +382,33 @@ const STANDARD_NGOS = [
 
 export const ensureStandardNgos = async (_req, res) => {
   try {
-    const { data: existing } = await db.from('ngos').select('id, name');
-    const nameSet = new Set((existing || []).map(n => n.name));
-    const missing = STANDARD_NGOS.filter(n => !nameSet.has(n.name));
-    let created = [];
+    const { data: existing, error: fetchErr } = await db.from('ngos').select('id, name');
+    if (fetchErr) throw fetchErr;
+    const nameSet = new Set((existing || []).map(n => (n.name || '').trim().toLowerCase()));
+    const missing = STANDARD_NGOS.filter(n => !nameSet.has(n.name.toLowerCase()));
+    const created = [];
     for (const ngo of missing) {
-      const { data, error } = await db.from('ngos').insert({ name: ngo.name, code: ngo.code, is_active: true }).select('id, name').single();
-      if (!error && data) created.push(data);
+      const { data, error } = await db
+        .from('ngos')
+        .insert({ name: ngo.name, code: ngo.code })
+        .select('id, name')
+        .single();
+      if (error) { console.error('ensureStandardNgos insert error:', ngo.name, error.message); continue; }
+      if (data) created.push(data);
     }
     const { data: all } = await db.from('ngos').select('id, name');
     return res.json({ created: created.length, ngos: all || [] });
+  } catch (error) {
+    console.error('ensureStandardNgos error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllNgosForTabs = async (_req, res) => {
+  try {
+    const { data: ngos, error } = await db.from('ngos').select('id, name');
+    if (error) throw error;
+    return res.json(ngos || []);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

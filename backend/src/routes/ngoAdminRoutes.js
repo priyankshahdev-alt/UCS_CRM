@@ -86,6 +86,7 @@ import {
   restoreWrongAssignments,
   getFroHourlyPerformance,
   ensureStandardNgos,
+  getAllNgosForTabs,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -100,6 +101,7 @@ router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), ge
 router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
 router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
 router.post('/ngos/ensure', authenticateRole('admin', 'super_admin'), ensureStandardNgos);
+router.get('/ngos/all', authenticateRole('admin', 'super_admin', 'accounts'), getAllNgosForTabs);
 
 // Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
 router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);
