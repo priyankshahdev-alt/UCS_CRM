@@ -1360,44 +1360,31 @@ export default function MyDonors() {
             </button>
           </div>
           )}
-          {ngoList.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', letterSpacing: .5, textTransform: 'uppercase' }}>NGO</span>
-              <button onClick={() => { setSelectedNgo(null); setSelectedStation('all'); }}
-                style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${!selectedNgo ? '#111827' : 'var(--line)'}`, background: !selectedNgo ? '#111827' : '#fff', color: !selectedNgo ? '#fff' : 'var(--ink-soft)' }}>All</button>
-              {ngoList.map(n => (
-                <button key={n.ngo_id} onClick={() => { setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
-                  style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${selectedNgo === n.ngo_id ? '#111827' : 'var(--line)'}`, background: selectedNgo === n.ngo_id ? '#111827' : '#fff', color: selectedNgo === n.ngo_id ? '#fff' : 'var(--ink-soft)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.ngo_name}</button>
-              ))}
-            </div>
+          {ngoList.length > 1 && (
+            <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="">All NGOs</option>
+              {ngoList.map(n => <option key={n.ngo_id} value={n.ngo_id}>{n.ngo_name}</option>)}
+            </select>
           )}
-          {stationList.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', letterSpacing: .5, textTransform: 'uppercase' }}>Station</span>
-              <button onClick={() => setSelectedStation('all')}
-                style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${selectedStation === 'all' ? '#111827' : 'var(--line)'}`, background: selectedStation === 'all' ? '#111827' : '#fff', color: selectedStation === 'all' ? '#fff' : 'var(--ink-soft)' }}>All</button>
-              {stationList.map(s => (
-                <button key={s} onClick={() => setSelectedStation(s)}
-                  style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${selectedStation === s ? '#111827' : 'var(--line)'}`, background: selectedStation === s ? '#111827' : '#fff', color: selectedStation === s ? '#fff' : 'var(--ink-soft)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</button>
-              ))}
-            </div>
+          {stationList.length > 1 && (
+            <select value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="all">All stations</option>
+              {stationList.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           )}
           {listView === 'leads' && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => {
-                const active = listStatusFilter === k;
-                const groupColor = k === 'all' ? '#111827' : k === 'pending' ? '#16a34a' : k === 'retryable' ? '#d97706' : k === 'scheduled' ? '#2563eb' : k === 'donated' ? '#7c3aed' : k === 'rejected' ? '#dc2626' : '#111827';
-                return (
-                  <button key={k} onClick={() => setListStatusFilter(k)}
-                    style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${active ? groupColor : 'var(--line)'}`, background: active ? groupColor : '#fff', color: active ? '#fff' : 'var(--ink-soft)' }}>{l}</button>
-                );
-              })}
-              <button onClick={() => setListHideDonated(v => !v)}
-                style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: `1px solid ${listHideDonated ? '#16a34a' : 'var(--line)'}`, background: listHideDonated ? '#16a34a' : '#fff', color: listHideDonated ? '#fff' : 'var(--ink-soft)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{listHideDonated ? 'check' : 'visibility_off'}</span>
-                Hide donated
-              </button>
-            </div>
+          <>
+          <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
+            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+            {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={listHideDonated} onChange={e => setListHideDonated(e.target.checked)} />
+            Hide donated
+          </label>
+          </>
           )}
           <div style={{ position: 'relative', marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '3px 8px', minWidth: 200 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--ink-soft)' }}>search</span>
