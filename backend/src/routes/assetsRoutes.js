@@ -1,6 +1,6 @@
 import express from 'express'
 import db from '../config/db.js'
-import { authenticateRole } from '../middleware/authMiddleware.js'
+import { authenticate, authenticateRole } from '../middleware/authMiddleware.js'
 
 const router = express.Router()
 
@@ -39,6 +39,22 @@ router.get('/', adminHrAccounts, async (req, res) => {
     .order('created_at', { ascending: true })
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
+})
+
+// Get assets assigned to the currently logged-in worker (for ticket auto-fill)
+router.get('/my-assigned', authenticate, async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('assets')
+      .select('id, code, name, category, location, assigned_to, assigned_to_name, assigned_date')
+      .eq('assigned_to', req.user.id)
+      .eq('status', 'assigned')
+      .order('assigned_date', { ascending: false })
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 router.get('/:id', adminHrAccounts, async (req, res) => {
