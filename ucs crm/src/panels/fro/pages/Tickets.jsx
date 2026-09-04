@@ -45,8 +45,11 @@ export default function FroTickets() {
     description: '',
     reference_id: '',
     priority: 'medium',
+    desk_number: '',
+    ngo: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [deskLoading, setDeskLoading] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -67,6 +70,24 @@ export default function FroTickets() {
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
+
+  const fetchMyAsset = async () => {
+    setDeskLoading(true);
+    try {
+      const assets = await apiGet('/assets/my-assigned').catch(() => []);
+      const asset = Array.isArray(assets) ? assets[0] : null;
+      if (asset) {
+        setForm(p => ({
+          ...p,
+          desk_number: p.desk_number || asset.code || '',
+          ngo: p.ngo || asset.location || '',
+        }));
+      }
+    } catch (err) { /* silent */ }
+    finally { setDeskLoading(false); }
+  };
+
+  useEffect(() => { fetchMyAsset(); }, []);
 
   useEffect(() => { setPage(1); }, [tickets.length]);
 
@@ -110,14 +131,16 @@ export default function FroTickets() {
           category: form.category,
           priority: form.priority,
           reference_id: form.reference_id,
+          desk_number: form.desk_number,
+          ngo: form.ngo,
           raised_by_panel: 'fro',
         });
       } else {
-        await apiPost('/tickets', form);
+        await apiPost('/tickets', { ...form, raised_by_panel: 'fro' });
       }
       toast('Ticket submitted successfully', 'success');
       setShowRaise(false);
-      setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium' });
+      setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: '', ngo: '' });
       setFormErrors({});
       load();
     } catch (err) { setFormErrors({ _general: err.message }); }
@@ -278,6 +301,16 @@ export default function FroTickets() {
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   Reference ID (optional)
                   <input value={form.reference_id} onChange={e => setForm(p => ({ ...p, reference_id: e.target.value }))} placeholder="Payment/suspense ID" />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  Desk Number
+                  <input value={form.desk_number} onChange={e => setForm(p => ({ ...p, desk_number: e.target.value }))} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  NGO
+                  <input value={form.ngo} onChange={e => setForm(p => ({ ...p, ngo: e.target.value }))} placeholder={deskLoading ? 'Fetching...' : 'Auto-filled from your desk'} />
                 </label>
               </div>
               <label className="field" style={{ marginBottom: 12 }}>
