@@ -337,6 +337,13 @@
 .page-btn.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; }
 .page-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+.sim-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.sim-tab {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--sim-line); background: #fff;
+  font-size: 13px; font-weight: 600; color: var(--sim-ink); cursor: pointer; font-family: inherit;
+}
+.sim-tab.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; font-weight: 700; box-shadow: 0 0 0 2px rgba(37,99,235,.25); }
+
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1000;
   display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto;

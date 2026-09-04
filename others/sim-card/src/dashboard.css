@@ -22,6 +22,7 @@
   transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .dash-kpi:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15, 23, 42, .08); border-color: #d3dff0; }
+.dash-kpi.active { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15, 23, 42, .08); border-color: #2563eb; background: #f0f7ff; }
 .dash-kpi .kpi-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .dash-kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .dash-kpi .kpi-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
@@ -30,6 +31,13 @@
 .dash-kpi .kpi-sub { font-size: 11px; color: var(--sim-ink-soft); margin-top: 4px; }
 .dash-kpi .kpi-foot { margin-top: 12px; height: 4px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
 .dash-kpi .kpi-foot > span { display: block; height: 100%; border-radius: 99px; }
+
+.dash-kpi.compact { padding: 12px 14px; }
+.dash-kpi.compact .kpi-top { margin-bottom: 8px; }
+.dash-kpi.compact .kpi-ic { width: 30px; height: 30px; border-radius: 8px; }
+.dash-kpi.compact .kpi-num { font-size: 22px; }
+.dash-kpi.compact .kpi-sub { margin-top: 2px; }
+.dash-kpi.compact .kpi-foot { margin-top: 8px; height: 3px; }
 
 /* --- Panels --- */
 .dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
