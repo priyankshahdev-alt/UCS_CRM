@@ -68,6 +68,7 @@ import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
 import simCardRoutes from './routes/simCardRoutes.js';
 import simInventoryRoutes from './routes/simInventoryRoutes.js';
+import reminderRoutes from './routes/reminderRoutes.js';
 import assetsRoutes from './routes/assetsRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
@@ -219,6 +220,7 @@ app.use('/api/temp-cleanup', tempCleanupRoutes);
 app.use('/api/ngo-allocations', ngoAllocationRoutes);
 app.use('/api/sim-cards', simCardRoutes);
 app.use('/api/sim-inventory', simInventoryRoutes);
+app.use('/api/reminders', reminderRoutes);
 app.use('/api/assets', assetsRoutes);
 
 app.get('/api/deploy-test', (req, res) => {

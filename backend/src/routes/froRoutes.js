@@ -31,6 +31,7 @@ import {
   getDonorReceipts,
   getRejectedLeads,
   searchDonors,
+  getMyDisposedLeads,
   updateLiveStatus,
   getLiveStatuses,
   getMyProgress,
@@ -115,6 +116,7 @@ router.get('/donors/:id/full-history', getFullDonorHistory);
 router.get('/donors/:id/donations', getDonorDonations);
 router.get('/donors/:id/receipts', getDonorReceipts);
 router.get('/search-donors', searchDonors);
+router.get('/my-disposed-leads', getMyDisposedLeads);
 
 router.get('/suspense', listFroSuspense);
 router.get('/suspense/search-dispositions', searchFroDispositions);

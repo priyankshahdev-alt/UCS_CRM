@@ -159,6 +159,14 @@ export async function searchDonorsByMobile(q, opts = {}) {
   return api(`/fro/search-donors?${params}`, { _prefix: 'ucs' })
 }
 
+export async function getMyDisposedLeads(opts = {}) {
+  const params = new URLSearchParams();
+  if (opts.station) params.set('station', opts.station);
+  if (opts.ngoId) params.set('ngo_id', opts.ngoId);
+  const qs = params.toString();
+  return api(`/fro/my-disposed-leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
+}
+
 export async function searchSuspenseDonors(q) {
   return api(`/fro/suspense/donor-search?q=${encodeURIComponent(q)}`, { _prefix: 'ucs' })
 }

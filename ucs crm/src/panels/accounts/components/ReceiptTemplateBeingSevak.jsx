@@ -47,7 +47,7 @@ export default function ReceiptTemplateBeingSevak({ donor }) {
         <div style={{ marginTop:'18px', fontSize:'14px', lineHeight:'1.7', color:'#222' }}>
           <p><strong>Name: &nbsp;&nbsp;<span>{donor['Donor Name']}</span></strong></p>
           <p>Dear Sir/Madam,</p>
-          <p><strong style={{ color:ACCENT }}>Being Sevak Charitable Trust</strong>, would like to thank you for your generous donation of <span style={{ fontWeight:700, marginLeft:'8px', marginRight:'8px', color:'#0a3d62' }}>Rs. {formatAmount(amount)}</span><strong style={{ fontWeight:700, paddingBottom:'5px' }}> {amountInWords(Math.floor(amount))} Rupees and No. Paise Only</strong> for a noble cause & making a difference.</p>
+          <p><strong style={{ color:ACCENT }}>Being Sevak Charitable Trust</strong>, would like to thank you for your generous donation of <span style={{ fontWeight:700, marginLeft:'8px', marginRight:'8px', color:'#0a3d62' }}>Rs. {formatAmount(amount)}</span><strong style={{ fontWeight:700, paddingBottom:'5px' }}> {amountInWords(Math.floor(amount))}</strong> for a noble cause & making a difference.</p>
           <p>Your financial support helps us continue our mission of helping needy families through food kits, medical aid, education & other activities.</p>
           <p>Please keep this written acknowledgement for your tax records. We thank you once again for your support.</p>
           <p>Thanking you,<br />Yours truly,<br /><strong style={{ color:ACCENT }}>Being Sevak Charitable Trust</strong></p>
@@ -88,7 +88,7 @@ export default function ReceiptTemplateBeingSevak({ donor }) {
           </div>
           <div style={{ display:'flex' }}>
             <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:700, background:'#f3fbff', width:'25%' }}>The Sum of Rupees:</div>
-            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'75%' }}>{amountInWords(Math.floor(amount))} Rupees and No. Paise Only</div>
+            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'75%' }}>{amountInWords(Math.floor(amount))}</div>
           </div>
           <div style={{ display:'flex' }}>
             <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:700, background:'#f3fbff', width:'25%' }}>Mode of Payment:</div>

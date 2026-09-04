@@ -7,7 +7,9 @@ import { toast } from './Toast';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
 const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 28 Days', 'More than 28 Days'];
-const SIM_NAME_FILTERS = ['All', 'Android', 'Nokia'];
+const SIM_NAME_FILTERS = ['Android', 'Nokia'];
+const OWNER_UFS = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Locker'];
+const normOwner = (v) => String(v || '').toLowerCase().replace(/\s+/g, '');
 const SORTABLE = ['mobile_id', 'device_model', 'imei', 'status', 'team', 'signature', 'issue_date', 'expiry_date', 'days_left', 'sim_1', 'sim_2', 'replacement_count'];
 
 const COLUMNS = [
@@ -29,6 +31,8 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
   const { cards, refresh } = useSim();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
+  const [owner, setOwner] = useState('All');
+  const [remark, setRemark] = useState('All');
   const [team, setTeam] = useState('All');
   const [simType, setSimType] = useState('All');
   const [device, setDevice] = useState('All');
@@ -45,8 +49,9 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
 
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
   const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
+  const remarks = useMemo(() => [...new Set(enriched.map((c) => (c.signature || '').trim()).filter(Boolean))].sort(), [enriched]);
 
-  useEffect(() => { setPage(1); }, [search, status, team, device, simName, expiry]);
+  useEffect(() => { setPage(1); }, [search, status, owner, remark, team, device, simName, expiry]);
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -59,6 +64,8 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
       );
     }
     if (status !== 'All') list = list.filter((c) => c._status === status);
+    if (owner !== 'All') list = list.filter((c) => normOwner(c.team) === normOwner(owner));
+    if (remark !== 'All') list = list.filter((c) => (c.signature || '').trim() === remark);
     if (team !== 'All') list = list.filter((c) => c.team === team);
     if (simType !== 'All') list = list.filter((c) => (c.sim_type || '').toLowerCase() === simType.toLowerCase());
     if (device !== 'All') list = list.filter((c) => c.device_model === device);
@@ -91,7 +98,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
       });
     }
     return list;
-  }, [enriched, search, status, team, simType, device, simName, expiry, sortKey, sortDir]);
+  }, [enriched, search, status, owner, remark, team, simType, device, simName, expiry, sortKey, sortDir]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
   const safePage = Math.min(page, pageCount);
@@ -112,7 +119,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
       const n = { ...selected }; pageRows.forEach((r) => { n[r.id] = true; }); setSelected(n);
     }
   };
-  const clearFilters = () => { setSearch(''); setStatus('All'); setTeam('All'); setSimType('All'); setDevice('All'); setSimName('All'); setExpiry('All'); setPage(1); };
+  const clearFilters = () => { setSearch(''); setStatus('All'); setOwner('All'); setRemark('All'); setTeam('All'); setSimType('All'); setDevice('All'); setSimName('All'); setExpiry('All'); setPage(1); };
 
   async function doBulkChange(statusVal) {
     const ids = Object.keys(selected).filter((k) => selected[k]);
@@ -149,9 +156,13 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
         <select className="sim-select" value={status} onChange={(e) => setStatus(e.target.value)}>
           {STATUS_FILTERS.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <select className="sim-select" value={team} onChange={(e) => setTeam(e.target.value)}>
+        <select className="sim-select" value={owner} onChange={(e) => setOwner(e.target.value)}>
           <option value="All">All Owners</option>
-          {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          {OWNER_UFS.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="sim-select" value={remark} onChange={(e) => setRemark(e.target.value)}>
+          <option value="All">All Remarks</option>
+          {remarks.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select className="sim-select" value={simType} onChange={(e) => setSimType(e.target.value)}>
           <option value="All">All SIM Types</option>
@@ -160,9 +171,6 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
         <select className="sim-select" value={device} onChange={(e) => setDevice(e.target.value)}>
           <option value="All">All Devices</option>
           {devices.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <select className="sim-select" value={simName} onChange={(e) => setSimName(e.target.value)}>
-          {SIM_NAME_FILTERS.map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="sim-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
           {EXPIRY_FILTERS.map((s) => <option key={s}>{s}</option>)}
@@ -182,7 +190,13 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      <div className="sim-tabs" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {SIM_NAME_FILTERS.map((t) => (
+          <button key={t} className={`sim-tab ${simName === t ? 'active' : ''}`} onClick={() => setSimName(t)}>{t}</button>
+        ))}
+      </div>
+
+{filtered.length === 0 ? (
         <div className="sim-box empty-state">
           <div className="big">No SIM Cards Found</div>
           <div className="small">Adjust filters or add a new SIM card to get started.</div>

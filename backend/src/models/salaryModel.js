@@ -762,6 +762,7 @@ export const getPagarExportData = async (month) => {
       account_holder_relation: w.father_husband_name || '', // blank or father name
       bank_name: w.bank_name || '',
       account_number: w.account_number || '',
+      ifsc_code: w.ifsc_code || '',
       station: stationStr,
       doj: w.created_at ? String(w.created_at).slice(0, 10) : '',
       salary,

@@ -26,6 +26,11 @@ const CLAIM_BADGES = {
 
 const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
 const NGO_SHORT = { bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF' };
+const NGO_PILL = {
+  bsct: { bg: '#dbeafe', color: '#1e40af' },
+  mann: { bg: '#fce7f3', color: '#be185d' },
+  aflf: { bg: '#dcfce7', color: '#166534' },
+};
 
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -277,14 +282,19 @@ export default function FroSuspense() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-soft)', marginTop: 3 }}>
-                      <Phone size={11} />
-                      <span>{r.donor_mobile || '\u2014'}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}
-                      <span style={{ color: 'var(--line)', margin: '0 3px' }}>•</span>
-                      {NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id}
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span>{r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
+                      {r.payment_id ? (
+                        <>
+                          <span style={{ color: 'var(--line)' }}>•</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>UPI: <span style={{ color: 'var(--ink)', fontWeight: 700 }}>{r.payment_id}</span></span>
+                        </>
+                      ) : null}
+                      <span style={{
+                        padding: '2px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                        background: (NGO_PILL[r.project_id] || { bg: '#f3f4f6', color: '#6b7280' }).bg,
+                        color: (NGO_PILL[r.project_id] || { bg: '#f3f4f6', color: '#6b7280' }).color,
+                      }}>{NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id}</span>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>

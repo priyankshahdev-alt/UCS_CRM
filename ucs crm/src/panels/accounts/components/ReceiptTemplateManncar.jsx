@@ -64,7 +64,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID'] || 'NA'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Account Of</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Account Of'] || 'Corpus'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Numbers)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formatIndianCurrency(amount)}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Words)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{amountInWords(amount)} Only</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Words)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{amountInWords(amount)}</td></tr>
         </tbody>
       </table>
       <div style={{ marginTop:'35px', lineHeight:'1.7', fontSize:'18px' }}>

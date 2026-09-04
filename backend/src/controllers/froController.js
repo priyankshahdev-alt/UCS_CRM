@@ -925,6 +925,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_date: r.receipt_date || e.transaction_date,
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
+        payment_id: e.payment_id || null,
         has_receipt: true,
         // Only an explicit Accounts assignment (manual-verify save) parks an
         // entry as "waiting for receipt number". A missing receipt number alone
@@ -947,6 +948,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_date: e.transaction_date,
         receipt_time: e.payment_time,
         project_id: e.project_id,
+        payment_id: e.payment_id || null,
         has_receipt: false,
         waiting_receipt_no: !!e.verify_fro_worker_id,
       });
@@ -981,6 +983,7 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_date: r.receipt_date,
       receipt_time: r.receipt_time,
       project_id: r.project_id,
+      payment_id: r.payment_id || null,
       kind: r.has_receipt ? 'entry' : 'no_receipt',
       waiting_receipt_no: r.waiting_receipt_no || false,
       _bank_audit_entry_id: r.entry_id,
@@ -1983,7 +1986,6 @@ export const getMyDonors = async (req, res) => {
           .select('donor_id')
           .in('donor_id', chunk)
           .eq('fro_worker_id', workerId)
-          .eq('action', 'disposition')
           .gte('created_at', start.toISOString())
           .lt('created_at', end.toISOString())
       );
@@ -3977,6 +3979,121 @@ export const searchDonors = async (req, res) => {
       }
     }
 
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getMyDisposedLeads = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { station: stationFilter, ngo_id: ngoFilter } = req.query;
+
+    const { data: disposedLogs, error: logErr } = await db
+      .from('fro_donor_logs')
+      .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
+      .eq('fro_worker_id', workerId)
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (logErr) throw logErr;
+    if (!disposedLogs || disposedLogs.length === 0) return res.json([]);
+
+    const disposedDonorIds = [...new Set(disposedLogs.map(l => l.donor_id).filter(Boolean))];
+    if (disposedDonorIds.length === 0) return res.json([]);
+
+    const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+
+    let effectiveStations = stationNames;
+    let effectiveScope = myScope;
+    if (stationFilter && stationFilter !== 'all') {
+      effectiveStations = [stationFilter];
+      effectiveScope = (myScope || []).filter(s => s.station === stationFilter);
+    }
+    if (ngoFilter) {
+      effectiveScope = effectiveScope.filter(s => String(s.ngo_id) === String(ngoFilter));
+      effectiveStations = [...new Set(effectiveScope.map(s => s.station))];
+    }
+    if (effectiveStations.length === 0 && disposedDonorIds.length > 0) {
+      // No stations — nothing in scope
+      return res.json([]);
+    }
+
+    const { data: donors, error } = await db
+      .from('donor_profiles')
+      .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
+      .in('id', disposedDonorIds)
+      .limit(500);
+    if (error) throw error;
+    if (!donors || donors.length === 0) return res.json([]);
+
+    const matchedIds = donors.map(d => d.id);
+
+    const donorMap = {};
+    for (const d of donors) donorMap[d.id] = d;
+
+    let assignmentQuery = db
+      .from('fro_assignments')
+      .select('*, ngos!inner(name)')
+      .in('donor_id', matchedIds)
+      .in('station', effectiveStations.length > 0 ? effectiveStations : stationNames)
+      .not('status', 'eq', 'reassigned');
+    assignmentQuery = withStationNgoPairs(assignmentQuery, effectiveScope.length > 0 ? effectiveScope : myScope);
+    const { data: assignments } = await assignmentQuery;
+    const scopedAssignments = (assignments || []).filter(a => {
+      const pair = `${a.station}|${a.ngo_id}`;
+      return scopePairs.has(pair) || effectiveScope.some(s => s.station === a.station && String(s.ngo_id) === String(a.ngo_id));
+    });
+
+    const latestDispMap = {};
+    for (const dl of disposedLogs || []) {
+      if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
+        latestDispMap[dl.donor_id] = dl;
+      }
+    }
+
+    const result = [];
+    const seen = new Set();
+    for (const d of donors) {
+      const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
+      // If no scoped assignment found, still show entry using log-derived info
+      const assignmentsToUse = matchingAssignments.length > 0 ? matchingAssignments : [{ id: latestDispMap[d.id]?.assignment_id, donor_id: d.id, ngo_id: null, station: '', ngos: { name: 'Unknown' }, batch_type: '' }];
+      for (const a of assignmentsToUse) {
+        const key = `${d.id}-${a.ngo_id || 'na'}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const disp = latestDispMap[d.id];
+        result.push({
+          donor_id: d.id,
+          ngo_id: a.ngo_id,
+          ngo_name: a.ngos?.name || 'Unknown',
+          assignment_id: a.id,
+          station: a.station || '',
+          batch_type: a.batch_type || '',
+          donor_name: d.name || 'Unknown',
+          donor_mobile: d.mobile_number || '',
+          donor_city: d.city || '',
+          donor_amount: d.amount || 0,
+          donor_email: d.email || '',
+          donor_pan: d.pan_number || '',
+          donor_project: d.project_supported || '',
+          donor_dob: d.birth_date || '',
+          donor_type: d.donor_type || '',
+          donor_address: d.address_1 || '',
+          donation_count: d.donation_count || 0,
+          total_donated: d.total_amount || 0,
+          has_donated_current_month: false,
+          has_verified_donation_current_month: false,
+          status: 'disposed',
+          disposition_detail: disp?.disposition_detail || '',
+          disposition_category: disp?.disposition_category || '',
+          disposed_at: disp?.created_at || null,
+        });
+      }
+    }
+    // Already ordered by disposedLogs desc via map insertion, but ensure sort
+    result.sort((a, b) => new Date(b.disposed_at || 0) - new Date(a.disposed_at || 0));
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -331,7 +331,7 @@ export default function Attendance() {
           onClick={() => setPreviewImg(null)}
           style={{
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, cursor: 'pointer',
           }}
         >
           <img

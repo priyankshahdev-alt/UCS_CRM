@@ -3863,7 +3863,7 @@ export const getDonorsList = async (req, res) => {
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
-        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, worker_id: a.fro_worker_id, name, station: a.station || '' });
+        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, ngo: ngoMap[a.ngo_id] || '', worker_id: a.fro_worker_id, name, station: a.station || '' });
       }
 
       for (const d of data || []) {
@@ -4191,6 +4191,17 @@ export const createDonorAssignment = async (req, res) => {
       assigned_at: now,
     }).select().single();
     if (insertErr) throw insertErr;
+
+    // Keep donor_profiles in sync with the new assignment (ngo + station).
+    try {
+      const { data: ngoRow } = await db.from('ngos').select('name').eq('id', ngoId).maybeSingle();
+      await db.from('donor_profiles')
+        .update({ ngo: ngoRow?.name ?? null, station: cleanStation })
+        .eq('id', donorId);
+    } catch (syncErr) {
+      console.error(`createDonorAssignment: donor-profile sync failed (non-fatal):`, syncErr.message);
+    }
+
     return res.status(201).json({ assignment, agent_name: worker.name, message: `Assigned to ${worker.name} · ${cleanStation}` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -4320,7 +4331,7 @@ export const updateAssignmentStations = async (req, res) => {
 
     const { data: rows, error: fErr } = await db
       .from('fro_assignments')
-      .select('id, donor_id, station, fro_worker_id')
+      .select('id, donor_id, station, fro_worker_id, ngo_id')
       .eq('donor_id', donorId)
       .in('id', ids);
     if (fErr) throw fErr;
@@ -4335,7 +4346,7 @@ export const updateAssignmentStations = async (req, res) => {
       }
       const st = String(u.station ?? '').trim();
       if (!st) return res.status(400).json({ message: 'Station is required' });
-      planned.push({ id: row.id, station: st });
+      planned.push({ id: row.id, station: st, ngo_id: row.ngo_id });
     }
 
     for (const p of planned) {
@@ -4344,6 +4355,19 @@ export const updateAssignmentStations = async (req, res) => {
         .update({ station: p.station })
         .eq('id', p.id);
       if (error) throw error;
+    }
+
+    // Keep donor_profiles in sync (station + ngo from the assignment's NGO).
+    try {
+      const latest = planned[planned.length - 1];
+      if (latest) {
+        const { data: ngoRow } = await db.from('ngos').select('name').eq('id', latest.ngo_id).maybeSingle();
+        await db.from('donor_profiles')
+          .update({ station: latest.station, ngo: ngoRow?.name ?? null })
+          .eq('id', donorId);
+      }
+    } catch (syncErr) {
+      console.error(`updateAssignmentStations: donor-profile sync failed (non-fatal):`, syncErr.message);
     }
 
     return res.json({ updated: planned.length, assignments: planned, message: 'Station assigned' });
@@ -4380,6 +4404,28 @@ export const deleteAssignment = async (req, res) => {
     const { error: scheduleErr } = await db.from('fro_scheduled_contacts').delete().eq('assignment_id', row.id);
     if (scheduleErr) throw scheduleErr;
     await db.from('fro_assignments').delete().eq('id', row.id);
+
+    // Re-sync donor_profiles from the donor's remaining active assignment
+    // (latest by assigned_at), or clear ngo/station if none remain.
+    try {
+      const { data: next } = await db
+        .from('fro_assignments')
+        .select('ngo_id, station')
+        .eq('donor_id', row.donor_id)
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .maybeSingle();
+      let ngoVal = null;
+      if (next) {
+        const { data: ngoRow } = await db.from('ngos').select('name').eq('id', next.ngo_id).maybeSingle();
+        ngoVal = ngoRow?.name ?? null;
+      }
+      await db.from('donor_profiles')
+        .update({ ngo: ngoVal ?? null, station: next?.station ?? null })
+        .eq('id', row.donor_id);
+    } catch (syncErr) {
+      console.error(`deleteAssignment: donor-profile re-sync failed (non-fatal):`, syncErr.message);
+    }
 
     return res.json({
       deleted: true,
@@ -4452,6 +4498,16 @@ export const replaceAssignment = async (req, res) => {
       .single();
     if (insErr) throw insErr;
 
+    // Keep donor_profiles in sync with the replacement assignment (ngo + station).
+    try {
+      const { data: ngoRow } = await db.from('ngos').select('name').eq('id', row.ngo_id).maybeSingle();
+      await db.from('donor_profiles')
+        .update({ ngo: ngoRow?.name ?? null, station })
+        .eq('id', row.donor_id);
+    } catch (syncErr) {
+      console.error(`replaceAssignment: donor-profile sync failed (non-fatal):`, syncErr.message);
+    }
+
     return res.json({
       replaced: true,
       old_assignment_id: row.id,
@@ -4459,6 +4515,88 @@ export const replaceAssignment = async (req, res) => {
       agent_name: worker.name,
       message: `Reassigned to ${worker.name} · ${station}`,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Donor Sync Repair ─────────────────────────────────────
+// Backfill donor_profiles.ngo / station from the donor's latest ACTIVE
+// fro_assignment (status <> 'reassigned', ordered by assigned_at DESC). This
+// repairs profiles that were never kept in sync (e.g. created with NULL
+// ngo/station while a valid assignment exists). Scopeable via ?ngo=name.
+export const repairDonorSync = async (req, res) => {
+  try {
+    const { ngo } = req.query;
+    const BATCH = 1000;
+
+    // Collect active assignments for scoped NGO (if provided).
+    let scopeNgoId = null;
+    if (ngo && String(ngo).trim()) {
+      const { data: ngoRow } = await db.from('ngos').select('id').ilike('name', String(ngo).trim()).maybeSingle();
+      if (!ngoRow) return res.status(404).json({ message: `NGO '${ngo}' not found` });
+      scopeNgoId = ngoRow.id;
+    }
+
+    const latestByDonor = new Map();
+    // Query assignments in chunks by donor offset is complex; instead stream all
+    // distinct donors that have any active assignment via a paginated donor fetch.
+    let offset = 0;
+    let more = true;
+    while (more) {
+      let q = db
+        .from('fro_assignments')
+        .select('donor_id, ngo_id, station, assigned_at')
+        .not('status', 'eq', 'reassigned')
+        .range(offset, offset + BATCH - 1);
+      if (scopeNgoId) q = q.eq('ngo_id', scopeNgoId);
+      const { data, error } = await q;
+      if (error) throw error;
+      const chunk = data || [];
+      if (chunk.length < BATCH) more = false;
+      offset += chunk.length;
+      for (const a of chunk) {
+        if (!a.donor_id) continue;
+        const cur = latestByDonor.get(a.donor_id);
+        const ts = (x) => new Date(x?.assigned_at || 0).getTime();
+        if (!cur || ts(a) > ts(cur)) latestByDonor.set(a.donor_id, a);
+      }
+      if (chunk.length === 0) break;
+    }
+
+    // Resolve NGO names for involved NGO ids.
+    const ngoIds = [...new Set([...latestByDonor.values()].map(a => a.ngo_id).filter(Boolean))];
+    const ngoNameMap = {};
+    for (let i = 0; i < ngoIds.length; i += 500) {
+      const { data: ngos, error: nErr } = await db.from('ngos').select('id, name').in('id', ngoIds.slice(i, i + 500));
+      if (nErr) throw nErr;
+      for (const n of ngos || []) ngoNameMap[n.id] = n.name;
+    }
+
+    // Apply updates only where the profile differs.
+    let repaired = 0;
+    const updatedIds = [...latestByDonor.keys()];
+    for (let i = 0; i < updatedIds.length; i += BATCH) {
+      const chunkIds = updatedIds.slice(i, i + BATCH);
+      const { data: profiles, error: pErr } = await db
+        .from('donor_profiles')
+        .select('id, ngo, station')
+        .in('id', chunkIds);
+      if (pErr) throw pErr;
+      for (const d of profiles || []) {
+        const latest = latestByDonor.get(d.id);
+        if (!latest) continue;
+        const targetNgo = latest.ngo_id ? (ngoNameMap[latest.ngo_id] ?? null) : null;
+        const targetStation = latest.station ?? null;
+        if (d.ngo === targetNgo && (d.station ?? null) === targetStation) continue;
+        await db.from('donor_profiles')
+          .update({ ngo: targetNgo, station: targetStation })
+          .eq('id', d.id);
+        repaired++;
+      }
+    }
+
+    return res.json({ repaired, donors_scanned: updatedIds.length, message: `${repaired} donor profile(s) synced` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

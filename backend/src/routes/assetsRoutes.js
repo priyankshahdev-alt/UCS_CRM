@@ -123,18 +123,28 @@ router.delete('/:id', adminHrAccounts, async (req, res) => {
 // Bulk import from the Office Asset Register Excel:
 //   machines (Desktop/Laptop) dedupe by `code` (DESK-1 (AFLF) ...)
 //   quantity lines (all other categories) dedupe by category + location + name
+//   ?upsert=true — when a duplicate is found, merge spec fields into existing row
 router.post('/import', adminHrAccounts, async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
+  const upsert = req.query.upsert === 'true'
   if (rows.length === 0) return res.status(400).json({ error: 'rows[] required' })
 
   const errors = []
   const inserted = []
+  const updated = []
   const skipped = []
+
+  const MERGE_FIELDS = [
+    'name', 'category', 'location', 'quantity', 'team_leader', 'owner_name',
+    'brand', 'model', 'serial_no', 'storage', 'ram', 'processor', 'motherboard',
+    'condition', 'status', 'assigned_to_name', 'purchase_date', 'purchase_price',
+    'warranty_expiry', 'sim_number', 'remarks',
+  ]
 
   for (const raw of rows) {
     const row = sanitize(raw)
     if (!row.name || !String(row.name).trim()) {
-      errors.push({ index: errors.length + inserted.length + skipped.length + 1, error: 'Missing name' })
+      errors.push({ index: errors.length + inserted.length + updated.length + skipped.length + 1, error: 'Missing name' })
       continue
     }
     if (!row.quantity || Number(row.quantity) < 1) row.quantity = 1
@@ -153,7 +163,26 @@ router.post('/import', adminHrAccounts, async (req, res) => {
     }
     const { data: existing } = await dupQuery.limit(1)
     if (existing && existing.length > 0) {
-      skipped.push({ code: row.code || `${row.category} / ${row.name}`, reason: 'Already exists' })
+      if (upsert) {
+        const updates = {}
+        for (const f of MERGE_FIELDS) {
+          const v = row[f]
+          if (v !== '' && v !== null && v !== undefined) updates[f] = v
+        }
+        if (Object.keys(updates).length > 0) {
+          updates.updated_at = new Date().toISOString()
+          const { error: updErr } = await db.from('assets').update(updates).eq('id', existing[0].id)
+          if (updErr) {
+            errors.push({ code: row.code || row.name, error: updErr.message })
+          } else {
+            updated.push({ code: row.code || row.name, fields: Object.keys(updates) })
+          }
+        } else {
+          skipped.push({ code: row.code || row.name, reason: 'No new data' })
+        }
+      } else {
+        skipped.push({ code: row.code || `${row.category} / ${row.name}`, reason: 'Already exists' })
+      }
       continue
     }
 
@@ -162,14 +191,14 @@ router.post('/import', adminHrAccounts, async (req, res) => {
       if (String(error.message).includes('duplicate')) {
         skipped.push({ code: row.code || `${row.category} / ${row.name}`, reason: 'Already exists' })
       } else {
-        errors.push({ index: errors.length + inserted.length + skipped.length + 1, error: error.message })
+        errors.push({ index: errors.length + inserted.length + updated.length + skipped.length + 1, error: error.message })
       }
       continue
     }
     inserted.push(data)
   }
 
-  res.status(201).json({ inserted: inserted.length, skipped, errors, total: inserted.length + skipped.length + errors.length })
+  res.status(201).json({ inserted: inserted.length, updated: updated.length, skipped, errors, total: inserted.length + updated.length + skipped.length + errors.length })
 })
 
 export default router
