@@ -88,9 +88,10 @@ export const listSimCards = async (req, res) => {
     const cards = await getAllSimCards();
     const now = new Date();
     const withMeta = cards.map((c) => {
+      const storedDaysLeft = c.days_left !== null && c.days_left !== undefined ? c.days_left : null;
       const { daysLeft, dcStatus } = computeExpiry(c.expiry_date, now);
       const status = finalStatus(c, { daysLeft, dcStatus });
-      return { ...c, days_left: daysLeft, derived_status: status };
+      return { ...c, days_left: storedDaysLeft !== null ? storedDaysLeft : daysLeft, derived_status: status };
     });
     return res.json(withMeta);
   } catch (error) {
@@ -102,8 +103,9 @@ export const getSimCard = async (req, res) => {
   try {
     const sim = await getSimCardById(req.params.id);
     if (!sim) return res.status(404).json({ message: 'SIM card not found' });
+    const storedDaysLeft = sim.days_left !== null && sim.days_left !== undefined ? sim.days_left : null;
     const { daysLeft } = computeExpiry(sim.expiry_date);
-    return res.json({ ...sim, days_left: daysLeft });
+    return res.json({ ...sim, days_left: storedDaysLeft !== null ? storedDaysLeft : daysLeft });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

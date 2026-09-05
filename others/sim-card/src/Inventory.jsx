@@ -10,7 +10,7 @@ const EXPIRY_FILTERS = ['All', 'Expired', 'Within 5 Days', 'Within 28 Days', 'Mo
 const SIM_NAME_FILTERS = ['Android', 'Nokia'];
 const OWNER_UFS = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Locker'];
 const normOwner = (v) => String(v || '').toLowerCase().replace(/\s+/g, '');
-const SORTABLE = ['mobile_id', 'device_model', 'imei', 'status', 'team', 'signature', 'issue_date', 'expiry_date', 'days_left', 'sim_1', 'sim_2', 'replacement_count'];
+const SORTABLE = ['mobile_id', 'calling_mobile', 'device_model', 'imei', 'status', 'use_for', 'team_leader_name', 'user_name', 'team', 'signature', 'remark', 'issue_date', 'expiry_date', 'days_left', 'sim_1', 'sim_2', 'replacement_count'];
 
 const COLUMNS = [
   { key: 'mobile_id', label: 'Mobile ID No.' },
@@ -19,6 +19,25 @@ const COLUMNS = [
   { key: 'status', label: 'Sim Card Status' },
   { key: 'team', label: 'Team' },
   { key: 'signature', label: 'Owner' },
+  { key: 'issue_date', label: 'Sim Card Issue Date' },
+  { key: 'expiry_date', label: 'Auto Expiry Date' },
+  { key: 'days_left', label: 'Sim Expiry Days Left', num: true },
+  { key: 'sim_1', label: 'Sim 1' },
+  { key: 'sim_2', label: 'Sim 2' },
+  { key: 'replacement_count', label: 'Sim Card Repla. Count', num: true },
+];
+
+const NOKIA_COLUMNS = [
+  { key: 'mobile_id', label: 'Mobile ID No.' },
+  { key: 'calling_mobile', label: 'Calling Mobile' },
+  { key: 'device_model', label: 'Device & Model Name' },
+  { key: 'imei', label: 'IMEI No.' },
+  { key: 'status', label: 'Sim Card Status' },
+  { key: 'use_for', label: 'USE FOR' },
+  { key: 'team_leader_name', label: 'TEAM LEADER Name' },
+  { key: 'user_name', label: 'USER NAME' },
+  { key: 'team', label: 'Team' },
+  { key: 'remark', label: 'Remark' },
   { key: 'issue_date', label: 'Sim Card Issue Date' },
   { key: 'expiry_date', label: 'Auto Expiry Date' },
   { key: 'days_left', label: 'Sim Expiry Days Left', num: true },
@@ -49,7 +68,9 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
 
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
   const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
-  const remarks = useMemo(() => [...new Set(enriched.map((c) => (c.signature || '').trim()).filter(Boolean))].sort(), [enriched]);
+  const remarkOf = (c) => (simName === 'Nokia' ? (c.remark ?? '') : (c.signature ?? '')).toString().trim();
+  const remarks = useMemo(() => [...new Set(enriched.map(remarkOf).filter(Boolean))].sort(), [enriched, simName]);
+  const nokiaStatuses = useMemo(() => [...new Set(enriched.filter((c) => (c.mobile_id || '').toLowerCase().startsWith('ufrs')).map((c) => c.status).filter(Boolean))].sort(), [enriched]);
 
   useEffect(() => { setPage(1); }, [search, status, owner, remark, team, device, simName, expiry]);
 
@@ -63,9 +84,9 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
         (c.imei || '').toLowerCase().includes(s)
       );
     }
-    if (status !== 'All') list = list.filter((c) => c._status === status);
+    if (status !== 'All') list = list.filter((c) => (simName === 'Nokia' ? c.status : c._status) === status);
     if (owner !== 'All') list = list.filter((c) => normOwner(c.team) === normOwner(owner));
-    if (remark !== 'All') list = list.filter((c) => (c.signature || '').trim() === remark);
+    if (remark !== 'All') list = list.filter((c) => remarkOf(c) === remark);
     if (team !== 'All') list = list.filter((c) => c.team === team);
     if (simType !== 'All') list = list.filter((c) => (c.sim_type || '').toLowerCase() === simType.toLowerCase());
     if (device !== 'All') list = list.filter((c) => c.device_model === device);
@@ -86,6 +107,11 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
     }
     if (sortKey) {
       list = [...list].sort((a, b) => {
+        if (sortKey === 'mobile_id') {
+          const numOf = (x) => { const m = String(x ?? '').match(/(\d+)\s*$/); return m ? Number(m[1]) : Infinity; };
+          const va = numOf(a.mobile_id), vb = numOf(b.mobile_id);
+          return sortDir === 'asc' ? va - vb : vb - va;
+        }
         let va = a[sortKey], vb = b[sortKey];
         if (sortKey === 'days_left') { va = va === null ? Infinity : va; vb = vb === null ? Infinity : vb; }
         if (sortKey === 'status') { va = a.status; vb = b.status; }
@@ -105,6 +131,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
   const start = (safePage - 1) * perPage;
   const pageRows = filtered.slice(start, start + perPage);
   const selectedCount = Object.values(selected).filter(Boolean).length;
+  const activeColumns = simName === 'Nokia' ? NOKIA_COLUMNS : COLUMNS;
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -154,7 +181,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
           <input className="sim-input search-input" placeholder="Search Mobile ID, Device, IMEI..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
         </div>
         <select className="sim-select" value={status} onChange={(e) => setStatus(e.target.value)}>
-          {STATUS_FILTERS.map((s) => <option key={s}>{s}</option>)}
+          {(simName === 'Nokia' ? ['All', ...nokiaStatuses] : STATUS_FILTERS).map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="sim-select" value={owner} onChange={(e) => setOwner(e.target.value)}>
           <option value="All">All Owners</option>
@@ -211,15 +238,12 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
                   <th className="check-cell">
                     <input type="checkbox" checked={selectedCount === pageRows.length && selectedCount > 0} onChange={toggleAll} />
                   </th>
-                  {COLUMNS.map((col) => {
-                    const nokiaLabel = simName === 'Nokia' && (col.key === 'team' || col.key === 'signature') ? (col.key === 'team' ? 'Owner' : 'Remark') : col.label;
-                    return (
-                      <th key={col.key} className={SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : '')} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
-                        {nokiaLabel}
-                        {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                      </th>
-                    );
-                  })}
+                  {activeColumns.map((col) => (
+                    <th key={col.key} className={SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : '')} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
+                      {col.label}
+                      {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                    </th>
+                  ))}
                   {simName === 'Android' && <th>GB</th>}
                   <th>Actions</th>
                 </tr>
@@ -228,7 +252,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
                 {pageRows.map((c) => (
                   <tr key={c.id} className={selected[c.id] ? 'selected' : ''}>
                     <td className="check-cell"><input type="checkbox" checked={!!selected[c.id]} onChange={() => toggleSelect(c.id)} /></td>
-                    {COLUMNS.map((col) => {
+                    {activeColumns.map((col) => {
                       const v = c[col.key];
                       switch (col.key) {
                         case 'mobile_id':

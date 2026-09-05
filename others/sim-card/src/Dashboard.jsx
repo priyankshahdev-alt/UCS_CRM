@@ -396,8 +396,11 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
           {(() => {
             const teamMap = {};
-            nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; if (t === 'HR') return; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
-            const teamRows = Object.entries(teamMap).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+            nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+            const teamRows = Object.entries(teamMap)
+              .filter(([team]) => /^ufs\s*\d+$/i.test((team || '').trim()))
+              .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+              .concat([['Locker', teamMap['Locker'] || 0], ['HR', teamMap['HR'] || 0]]);
             return (
               <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 12, justifyContent: 'space-between' }}>
                 {teamRows.map(([team, count]) => {
@@ -413,7 +416,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
                       <div style={{ width: 40, height: 40, borderRadius: 10, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{team[0] || '?'}</div>
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--sim-ink)', whiteSpace: 'nowrap' }}>{team}</div>
-                        <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} SIMs</div>
+                        <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} Mobile</div>
                       </div>
                     </div>
                   );
@@ -430,30 +433,33 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           {(() => {
             const teamMap = {};
             androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
-            const teamRows = Object.entries(teamMap)
-              .filter(([team]) => /^ufs\s*\d+$/i.test((team || '').trim()))
-              .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
-              .concat([['Locker', teamMap['Locker'] || 0]]);
+            const order = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Locker', 'Accounts', 'Social Media', 'Reception', 'Admin'];
+            const teamRows = order.map((team) => [team, teamMap[team] || 0]);
+            const rows = [teamRows.slice(0, 5), teamRows.slice(5, 10)];
             return (
-              <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 10, justifyContent: 'space-between', overflowX: 'auto' }}>
-                {teamRows.map(([team, count]) => {
-                  const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
-                  return (
-                    <div
-                      key={team}
-                      onClick={() => { if (isUfs) setAndroidUfsModal((team || '').trim().toUpperCase()); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: 10, padding: '10px', minWidth: 0, boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', cursor: isUfs ? 'pointer' : 'default', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: '1 1 0' }}
-                      onMouseEnter={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#93c5fd'; }}
-                      onMouseLeave={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#dbeafe'; }}
-                    >
-                      <div style={{ width: 30, height: 30, borderRadius: 8, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{team[0] || '?'}</div>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sim-ink)', whiteSpace: 'nowrap' }}>{team}</div>
-                        <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} SIMs</div>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {rows.map((row, ri) => (
+                  <div key={ri} style={{ display: 'flex', flexWrap: 'nowrap', gap: 10, justifyContent: 'space-between' }}>
+                    {row.map(([team, count]) => {
+                      const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
+                      return (
+                        <div
+                          key={team}
+                          onClick={() => { if (isUfs) setAndroidUfsModal((team || '').trim().toUpperCase()); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: 10, padding: '10px', minWidth: 0, boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', cursor: isUfs ? 'pointer' : 'default', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: '1 1 0' }}
+                          onMouseEnter={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#93c5fd'; }}
+                          onMouseLeave={(e) => { if (isUfs) e.currentTarget.style.borderColor = '#dbeafe'; }}
+                        >
+                          <div style={{ width: 30, height: 30, borderRadius: 8, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{team[0] || '?'}</div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sim-ink)', whiteSpace: 'nowrap' }}>{team}</div>
+                            <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>{count} Mobile</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             );
           })()}
