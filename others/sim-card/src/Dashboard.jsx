@@ -223,8 +223,8 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
 
     const buckets = {
       expired,
-      exp7: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d <= 7; }).length,
-      exp30: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d > 7 && d <= 28; }).length,
+      exp7: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d <= 5; }).length,
+      exp30: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d > 5 && d <= 28; }).length,
       ok30: enriched.filter((c) => { const d = c.days_left; return d !== null && d > 28; }).length,
     };
 
@@ -302,9 +302,9 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const statusSumAll = statusSegments.reduce((s, x) => s + x.value, 0) || 1;
   const expiryItems = [
     { label: 'Expired', val: data.buckets.expired, color: '#dc2626' },
-    { label: 'Expiring in 7 Days', val: data.buckets.exp7, color: '#d97706' },
-    { label: 'Expiring in 30 Days', val: data.buckets.exp30, color: '#f59e0b' },
-    { label: 'Active for 30+ Days', val: data.buckets.ok30, color: '#16a34a' },
+    { label: 'Expiring in 5 Days', val: data.buckets.exp7, color: '#d97706' },
+    { label: 'Expiring in 28 Days', val: data.buckets.exp30, color: '#f59e0b' },
+    { label: 'Active for 28+ Days', val: data.buckets.ok30, color: '#16a34a' },
   ];
   const expiryMax = Math.max(...expiryItems.map((i) => i.val), 1);
 
@@ -359,6 +359,10 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
         </div>
       )}
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 10px', padding: '0 2px' }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--sim-ink)' }}>SIM Cards Summary</h3>
+      </div>
+
       <div className="dash-kpi-grid">
         {summary.map((s) => (
           <div className="dash-kpi" key={s.label}>
@@ -393,7 +397,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
 
       <div className="dash-row">
         <section className="dash-panel">
-          <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
+          <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln" style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '3px 8px', borderRadius: 6 }}>total {nokiaCards.length}</span></div>
           {(() => {
             const teamMap = {};
             nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
@@ -429,7 +433,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
 
       <div className="dash-row">
         <section className="dash-panel">
-          <div className="panel-head"><h3>Android Mobile Summary</h3><span className="ln">{androidCards.reduce((s, c) => s + countSims(c), 0)} Android SIMs</span></div>
+          <div className="panel-head"><h3>Android Mobile Summary</h3><span className="ln" style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '3px 8px', borderRadius: 6 }}>total {androidCards.length}</span></div>
           {(() => {
             const teamMap = {};
             androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
