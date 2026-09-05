@@ -1020,6 +1020,20 @@ export default function Receipts() {
                       </td>
                     </tr>
                   )})}
+                  {!loading && filteredDonors.length > 0 && (
+                    <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7', fontWeight: 700 }}>
+                      <td style={{ padding: '9px 12px' }}>Total</td>
+                      <td></td>
+                      <td style={{ padding: '9px 12px', color: '#059669' }}>
+                        {formatIndianCurrency(filteredDonors.reduce((s, d) => s + Number(d['Amount'] || 0), 0))}
+                      </td>
+                      <td></td>
+                      <td></td>
+                      <td></td>
+                      <td></td>
+                      <td style={{ padding: '9px 12px' }}>{filteredDonors.length} rows</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               {filteredDonors && filteredDonors.length > PAGE_SIZE && (

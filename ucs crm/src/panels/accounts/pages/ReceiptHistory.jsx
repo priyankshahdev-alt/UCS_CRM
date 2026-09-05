@@ -927,6 +927,20 @@ export default function ReceiptHistory() {
                   );
                 })
               )}
+              {!loading && receipts.length > 0 && (
+                <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7', fontWeight: 700 }}>
+                  <td style={{ padding: '9px 12px' }}>Total</td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td style={{ padding: '9px 12px', color: '#059669' }}>
+                    {currency(receipts.reduce((s, r) => s + Number(r.amount || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', fontWeight: 700 }}>{receipts.length} rows</td>
+                  <td></td>
+                </tr>
+              )}
             </tbody>
           </table>
           {!loading && totalPages > 1 && (
