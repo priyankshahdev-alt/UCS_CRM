@@ -28,6 +28,7 @@ import ActivityDetail from './pages/ActivityDetail'
 import EventDetail from './pages/EventDetail'
 import MediaManagement from './pages/MediaManagement'
 import TechnicalTickets from '../../components/TechnicalTickets'
+import AllTicketsDashboard from './pages/AllTicketsDashboard'
 
 const NAV = [
   { id:'dashboard',      path:'/event-head/dashboard',        label:'Dashboard',             icon:Grid, section:'Overview' },
@@ -326,7 +327,7 @@ export default function EventHeadPanel() {
             <Route path="approvals" element={<ApprovalWorkflow />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="event_head" />} />
-            <Route path="all-tickets" element={<TechnicalTickets panel="event_head" viewOnly canRaise={false} />} />
+            <Route path="all-tickets" element={<AllTicketsDashboard />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

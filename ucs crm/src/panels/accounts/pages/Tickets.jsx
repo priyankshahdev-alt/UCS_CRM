@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiGet, apiPut, apiPost } from '../api/auth';
 import { toast } from '../../../components/Toast';
 
-const DEPARTMENTS = ['accounts', 'developers', 'hr'];
+const DEPARTMENTS = ['accounts', 'developers', 'hr', 'fro'];
 const CATEGORIES = [
   { value: 'suspense', label: 'Suspense' },
   { value: 'payment_issue', label: 'Payment Issue' },
@@ -23,9 +23,22 @@ const STATUS_COLORS = {
   closed: { bg: '#f3f4f6', color: '#6b7280' },
 };
 
+const PANEL_LABELS = {
+  fro: 'FRO',
+  accounts: 'Accounts',
+  hr: 'HR',
+  dev_panel: 'Developer',
+  ngo_admin: 'NGO Admin',
+  event_head: 'Event Head',
+  recruiter: 'Recruiter',
+  other: 'Other',
+};
+
 export default function AccountsTickets() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [showDetail, setShowDetail] = useState(null);
@@ -49,8 +62,9 @@ export default function AccountsTickets() {
   });
   const [formErrors, setFormErrors] = useState({});
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
@@ -75,11 +89,16 @@ export default function AccountsTickets() {
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
       setTickets(allTickets);
+      setLastUpdated(new Date());
     } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    finally { setRefreshing(false); setLoading(false); }
   };
 
   useEffect(() => { load(); }, [statusFilter, deptFilter]);
+  useEffect(() => {
+    const id = setInterval(() => load(true), 30000);
+    return () => clearInterval(id);
+  }, [statusFilter, deptFilter]);
 
   const fetchMyAsset = async () => {
     setDeskLoading(true);
@@ -102,6 +121,7 @@ export default function AccountsTickets() {
   const handleRaise = async () => {
     const errs = {};
     if (!form.subject.trim()) errs.subject = 'Subject is required';
+    if (!form.desk_number.trim()) errs.desk_number = 'Desk Number is required';
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     setFormErrors({});
     setSubmitting(true);
@@ -186,6 +206,11 @@ export default function AccountsTickets() {
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: refreshing ? '#2563eb' : '#16a34a', fontWeight: 600 }}>
+          ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ' · auto-refresh 30s'}
+        </span>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
         {[
           { label: 'Total', value: totalCount, color: '#6b7280' },
@@ -307,8 +332,9 @@ export default function AccountsTickets() {
               </div>
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Desk Number
-                  <input value={form.desk_number} onChange={e => setForm(p => ({ ...p, desk_number: e.target.value }))} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} />
+                  Desk Number *
+                  <input value={form.desk_number} onChange={e => { setForm(p => ({ ...p, desk_number: e.target.value })); if (formErrors.desk_number) setFormErrors(p => { const n = { ...p }; delete n.desk_number; return n; }); }} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} style={formErrors.desk_number ? { borderColor: '#dc2626' } : undefined} />
+                  {formErrors.desk_number && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 3 }}>{formErrors.desk_number}</div>}
                 </label>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   NGO
@@ -448,7 +474,17 @@ export default function AccountsTickets() {
                     {replies.map(r => (
                       <div key={r.id} style={{ padding: '10px 14px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 4 }}>
-                          {r.sender_type === 'user' ? 'Accounts' : 'FRO'} &middot; {new Date(r.created_at).toLocaleString('en-IN')}
+                          {r.sender_panel ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span className="pill" style={{ fontSize: 10, fontWeight: 700, textTransform: 'capitalize', background: '#eef2ff', color: '#4338ca' }}>
+                                {PANEL_LABELS[r.sender_panel] || r.sender_panel}
+                              </span>
+                              {r.sender_name && <span>{r.sender_name}</span>}
+                              <span>&middot; {new Date(r.created_at).toLocaleString('en-IN')}</span>
+                            </span>
+                          ) : (
+                            <>{r.sender_type === 'user' ? 'Accounts' : 'FRO'} &middot; {new Date(r.created_at).toLocaleString('en-IN')}</>
+                          )}
                         </div>
                         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{r.message}</div>
                       </div>

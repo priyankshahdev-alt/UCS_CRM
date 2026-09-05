@@ -5,6 +5,7 @@ import {
 } from '../models/developerTicketModel.js';
 
 import db from '../config/db.js';
+import { getSenderPanel } from '../utils/panel.js';
 
 export const listTickets = async (req, res) => {
   try {
@@ -50,7 +51,9 @@ export const getTicket = async (req, res) => {
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
     const isDigital = req.user.department === 'digital' || req.user.department === 'developers' || req.user.role === 'super_admin';
     const replies = await selectDeveloperTicketReplies(req.params.id, isDigital);
-    return res.json({ ...ticket, replies });
+    // Feedback/conversation is visible only to the person who raised the ticket.
+    const visibleReplies = req.user.id === ticket.raised_by ? replies : [];
+    return res.json({ ...ticket, replies: visibleReplies });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -60,6 +63,7 @@ export const createTicket = async (req, res) => {
   try {
     const { subject, description, category, priority, reference_id, raised_by_panel, desk_number, ngo } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
+    if (!desk_number || !String(desk_number).trim()) return res.status(400).json({ message: 'Desk Number is required' });
 
     const workerName = req.user.name || req.user.login_id || '';
     const data = await insertDeveloperTicket({
@@ -116,8 +120,7 @@ export const addReply = async (req, res) => {
     const ticket = await selectDeveloperTicketById(req.params.id);
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
 
-    const panelMap = { fro: 'fro', accounts: 'accounts', ngo_admin: 'ngo_admin', admin: 'ngo_admin', worker: 'fro' };
-    const senderPanel = panelMap[req.user.role] || panelMap[req.user.department] || 'dev_panel';
+    const senderPanel = getSenderPanel(req.user);
 
     const data = await insertDeveloperTicketReply({
       ticket_id: req.params.id,
