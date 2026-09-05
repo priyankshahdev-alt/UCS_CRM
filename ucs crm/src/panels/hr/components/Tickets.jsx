@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { fetchPendingTickets, fetchAllTickets, verifyTicket, rejectTicket } from '../store'
 import { SkeletonRows } from './ui'
+
+const TechnicalTickets = lazy(() => import('../../../components/TechnicalTickets'))
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000
 
@@ -106,6 +108,7 @@ export default function Tickets() {
           Pending {pending.length > 0 && <span className="badge badge-pending2" style={{marginLeft:6}}>{pending.length}</span>}
         </button>
         <button className={'tab' + (tab === 'all' ? ' active' : '')} onClick={() => setTab('all')}>All Tickets</button>
+        <button className={'tab' + (tab === 'technical' ? ' active' : '')} onClick={() => setTab('technical')}>Technical</button>
       </div>
 
       {tab === 'pending' && (
@@ -190,6 +193,12 @@ export default function Tickets() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'technical' && (
+        <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}>
+          <TechnicalTickets panel="hr" />
+        </Suspense>
       )}
 
       {verifyTicketId && (() => {

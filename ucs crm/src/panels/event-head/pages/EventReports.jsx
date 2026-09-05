@@ -531,10 +531,41 @@ export default function EventReports() {
   const exportMonthlyPDF = async () => {
     const el = monthlyReportElRef.current
     if (!el) return
-    const { default: jsPDF } = await import('jspdf')
-    const pdf = new jsPDF('p', 'mm', 'a4')
-    pdf.html(el, { margin: [8, 8, 8, 8], autoPaging: 'slice', x: 0, y: 0, width: 210 })
-      .then(() => pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`))
+    try {
+      const { default: html2canvas } = await import('html2canvas')
+      const { default: jsPDF } = await import('jspdf')
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pageW = 210
+      const pageH = 297
+      const margin = 6
+      const contentW = pageW - margin * 2
+      const contentH = pageH - margin * 2
+      const pxW = canvas.width
+      const pxH = canvas.height
+      const pxPerMm = pxW / contentW
+      const pageHeightPx = contentH * pxPerMm
+      let heightLeft = pxH
+      let position = 0
+      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, 0)
+      heightLeft -= pageHeightPx
+      while (heightLeft > 0) {
+        position = heightLeft - pageHeightPx
+        pdf.addPage()
+        pdf.addImage(imgData, 'JPEG', margin, position * -1 + margin, contentW, 0)
+        heightLeft -= pageHeightPx
+      }
+      pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`)
+    } catch (err) {
+      console.error('exportMonthlyPDF error:', err)
+      alert('Failed to generate monthly PDF')
+    }
   }
 
   const ev = reportData?.event || {}

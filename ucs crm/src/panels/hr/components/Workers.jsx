@@ -361,19 +361,19 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       // Column indices (0-based)
       const COL = {
-        NAME: 0, STATUS: 1, AC_HOLDER: 2, AC_REL: 3, BANK: 4, AC_NUM: 5, STATION: 6, DOJ: 7, SALARY: 8,
-        TARGET: 9, TOTAL_ACH: 10, BSCT_ACH: 11, AFLF_ACH: 12, MANN_ACH: 13,
-        BALANCE: 14, ACH_PCT: 15,
-        PRES_DAYS: 16, TRAIN_SUN_DED: 17, NET_PRES: 18,
-        MONTH_SAL: 19, INCENT_10: 20, TOTAL_AKI: 21, AKI: 22, GROSS: 23,
-        OT: 24, PENDING: 25, ADVANCE: 26, NET_PAY: 27,
-        FIRST_DAY_COL: 28
+        NAME: 0, STATUS: 1, AC_HOLDER: 2, AC_REL: 3, BANK: 4, AC_NUM: 5, IFSC: 6, STATION: 7, DOJ: 8, SALARY: 9,
+        TARGET: 10, TOTAL_ACH: 11, BSCT_ACH: 12, AFLF_ACH: 13, MANN_ACH: 14,
+        BALANCE: 15, ACH_PCT: 16,
+        PRES_DAYS: 17, TRAIN_SUN_DED: 18, NET_PRES: 19,
+        MONTH_SAL: 20, INCENT_10: 21, TOTAL_AKI: 22, AKI: 23, GROSS: 24,
+        OT: 25, PENDING: 26, ADVANCE: 27, NET_PAY: 28,
+        FIRST_DAY_COL: 29
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
 
       const headers = [
         'Agent Name', 'Status', 'Account Holder Name', 'Account Holder Relation',
-        'Bank Name', 'Bank Account Number', 'STATION', 'Date of Joining', 'Salary',
+        'Bank Name', 'Bank Account Number', 'IFSC Code', 'STATION', 'Date of Joining', 'Salary',
         'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
         'Balance', 'Achieved %',
         `${monthName} Present Days`, 'Training and Sunday Deduction', `Net ${monthName} Present Days`,
@@ -437,6 +437,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           r.account_holder_relation || '',
           r.bank_name || '',
           r.account_number || '',
+          r.ifsc_code || '',
           r.station || '',
           r.doj ? (() => { const d = r.doj.split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
           r.salary || 0,

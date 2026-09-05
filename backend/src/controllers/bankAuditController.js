@@ -1371,7 +1371,7 @@ export const manualVerifyEntry = async (req, res) => {
             .select('id')
             .eq('donor_id', donorId)
             .eq('fro_worker_id', credit_to_fro_worker_id)
-            .not('status', 'eq', 'reassigned')
+            .or('status.neq.reassigned,status.is.null')
             .order('assigned_at', { ascending: false })
             .limit(1);
           if (ngoId) ownerAsgnQuery = ownerAsgnQuery.eq('ngo_id', ngoId);
@@ -1390,12 +1390,25 @@ export const manualVerifyEntry = async (req, res) => {
             .select('id')
             .eq('donor_id', donorId)
             .eq('fro_worker_id', fro_worker_id)
-            .not('status', 'eq', 'reassigned')
+            .or('status.neq.reassigned,status.is.null')
             .order('assigned_at', { ascending: false })
             .limit(1);
           if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
           const { data: existingAsgn } = await asgnQuery.maybeSingle();
           assignment = existingAsgn || null;
+          if (!assignment && ngoId) {
+            const { data: anyActive } = await from('fro_assignments')
+              .select('id')
+              .eq('donor_id', donorId)
+              .eq('ngo_id', ngoId)
+              .or('status.neq.reassigned,status.is.null')
+              .order('assigned_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (anyActive) {
+              assignment = anyActive;
+            }
+          }
           if (!assignment) {
             const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
               donor_id: donorId,

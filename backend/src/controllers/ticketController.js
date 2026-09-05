@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { getSenderPanel, getSenderName } from '../utils/panel.js';
 
 export const listTickets = async (req, res) => {
   try {
@@ -53,7 +54,10 @@ export const getTicket = async (req, res) => {
       .order('created_at', { ascending: true });
     if (replyError) throw replyError;
 
-    return res.json({ ...ticket, replies: replies || [] });
+    // Feedback/conversation is visible only to the person who raised the ticket.
+    const visibleReplies = req.user.id === ticket.raised_by ? (replies || []) : [];
+
+    return res.json({ ...ticket, replies: visibleReplies });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -61,8 +65,9 @@ export const getTicket = async (req, res) => {
 
 export const createTicket = async (req, res) => {
   try {
-    const { department, category, subject, description, reference_id, priority } = req.body;
+    const { department, category, subject, description, reference_id, priority, desk_number, ngo, raised_by_panel } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
+    if (!desk_number || !String(desk_number).trim()) return res.status(400).json({ message: 'Desk Number is required' });
 
     const { data, error } = await db
       .from('support_tickets')
@@ -74,6 +79,9 @@ export const createTicket = async (req, res) => {
         description: description || null,
         reference_id: reference_id || null,
         priority: priority || 'medium',
+        desk_number: desk_number || null,
+        ngo: ngo || null,
+        raised_by_panel: raised_by_panel || null,
       })
       .select()
       .single();
@@ -134,6 +142,8 @@ export const addReply = async (req, res) => {
         ticket_id: id,
         sender_id: req.user.id,
         sender_type: req.user.role === 'fro' ? 'worker' : 'user',
+        sender_name: getSenderName(req.user) || null,
+        sender_panel: getSenderPanel(req.user),
         message,
       })
       .select()

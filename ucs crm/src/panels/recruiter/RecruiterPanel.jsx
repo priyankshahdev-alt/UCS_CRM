@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
@@ -8,15 +8,18 @@ import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { useRealtime } from '../../hooks/useRealtime'
 import { RecProvider, useRec, initials, avatarColor, avatarTint } from './store'
-import { Grid, Users, Bell } from './icons'
+import { Grid, Users, Bell, FileTxt } from './icons'
 import Dashboard from './components/Dashboard'
 import Leads from './components/Leads'
 import Candidates from './components/Candidates'
+
+const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 
 const NAV = [
   { id:'dashboard',  path:'/recruiter/dashboard',  label:'Dashboard',  icon:Grid,   eyebrow:'Overview',  sub:'Your hiring at a glance' },
   { id:'leads',      path:'/recruiter/leads',      label:'Leads',      icon:Users,  eyebrow:'Leads',    sub:'Manage incoming leads and track conversions' },
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
+  { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -158,13 +161,16 @@ function AppShell() {
           />
         </header>
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+          <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh',color:'var(--ink-soft)',fontSize:13}}>Loading...</div>}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="candidates" element={<Candidates />} />
+            <Route path="tickets" element={<TechnicalTickets panel="recruiter" />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
+          </Suspense>
         </div>
       </div>
     </div>

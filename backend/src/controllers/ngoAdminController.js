@@ -6,6 +6,7 @@ import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { updateNewDataStatusByNgoAndMobiles } from '../models/newDataModel.js';
 import {
   batchCreateAssignments,
+  getActiveAssignmentDonorIds,
   findAssignmentsByNgo,
   getStationDispositionStats,
   getDonorsByStationAndStatus,
@@ -369,6 +370,46 @@ export const getAccessibleNgos = async (req, res) => {
       return true;
     });
     return res.json(ngos);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const STANDARD_NGOS = [
+  { name: 'BSCT', code: 'BSCT' },
+  { name: 'AFLF', code: 'AFLF' },
+  { name: 'MANN', code: 'MANN' },
+];
+
+export const ensureStandardNgos = async (_req, res) => {
+  try {
+    const { data: existing, error: fetchErr } = await db.from('ngos').select('id, name');
+    if (fetchErr) throw fetchErr;
+    const nameSet = new Set((existing || []).map(n => (n.name || '').trim().toLowerCase()));
+    const missing = STANDARD_NGOS.filter(n => !nameSet.has(n.name.toLowerCase()));
+    const created = [];
+    for (const ngo of missing) {
+      const { data, error } = await db
+        .from('ngos')
+        .insert({ name: ngo.name, code: ngo.code })
+        .select('id, name')
+        .single();
+      if (error) { console.error('ensureStandardNgos insert error:', ngo.name, error.message); continue; }
+      if (data) created.push(data);
+    }
+    const { data: all } = await db.from('ngos').select('id, name');
+    return res.json({ created: created.length, ngos: all || [] });
+  } catch (error) {
+    console.error('ensureStandardNgos error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllNgosForTabs = async (_req, res) => {
+  try {
+    const { data: ngos, error } = await db.from('ngos').select('id, name');
+    if (error) throw error;
+    return res.json(ngos || []);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1272,8 +1313,8 @@ export const getStations = async (req, res) => {
       if (targetNgoIds.length === 0) return res.json([]);
     }
 
-    // Get all station assignments (including unassigned)
-    const assignments = await getStationAssignmentsByNgo(targetNgoIds, true);
+    // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
+    const assignments = await getStationAssignmentsByNgo(targetNgoIds, !ngo_id);
 
     // Get donor counts per station from fro_assignments (deduplicated by donor_id)
     const { data: faData, error: faErr } = await db
@@ -1513,18 +1554,20 @@ export const updateStationNgos = async (req, res) => {
     const { station } = req.params;
     const { ngo_id, fro_worker_id } = req.body;
 
-    const access = await getUserNgoAccess(req.user.id);
-    const allowedNgoIds = new Set(access.map(a => a.ngo_id));
+    // Look up the existing station assignment to preserve its ngo_id
+    const { data: existing } = await db
+      .from('fro_station_assignments')
+      .select('id, ngo_id')
+      .eq('station', station.trim())
+      .maybeSingle();
 
-    // Verify the NGO is accessible
-    const validNgoId = ngo_id && allowedNgoIds.has(ngo_id) ? ngo_id : null;
+    const resolvedNgoId = existing?.ngo_id || ngo_id || null;
 
-    // Upsert single assignment (avoids delete-then-insert race condition)
     const { error: upsertErr } = await db
       .from('fro_station_assignments')
       .upsert({
         station: station.trim(),
-        ngo_id: validNgoId,
+        ngo_id: resolvedNgoId,
         assigned_by: req.user.id,
         fro_worker_id: fro_worker_id || null,
       }, { onConflict: 'station,ngo_id' });
@@ -2117,34 +2160,12 @@ export const distributeNewData = async (req, res) => {
       console.log(`[${ngoName}] newProfileIds:`, newProfileIds.length, 'existingProfileIds:', existingProfileIds.length, 'allIds:', allIds.length);
       if (allIds.length === 0) { console.log(`[${ngoName}] SKIP — allIds empty`); continue; }
 
-      const { data: froAsgn } = await db
-        .from('fro_assignments')
-        .select('donor_id')
-        .in('donor_id', allIds)
-        .eq('ngo_id', ngoId)
-        .not('status', 'eq', 'reassigned');
+      const assignedSet = await getActiveAssignmentDonorIds(ngoId, allIds);
 
-      const assignedSet = new Set(froAsgn ? froAsgn.map(a => a.donor_id) : []);
-      const hasFdStations = selectedStations && selectedStations.some(s => /^(?:[BAM]?)FD-/i.test(String(s || '')));
-
-      let idsToAssign;
-      if (hasFdStations && assignedSet.size > 0) {
-        // Fresh data FD distribution: reassign ALL donors, mark existing as reassigned
-        const assignedIds = allIds.filter(id => assignedSet.has(id));
-        console.log(`[${ngoName}] Reassigning ${assignedIds.length} existing donors to FD stations`);
-        for (let i = 0; i < assignedIds.length; i += 500) {
-          const batch = assignedIds.slice(i, i + 500);
-          await db.from('fro_assignments')
-            .update({ status: 'reassigned', updated_at: new Date().toISOString() })
-            .in('donor_id', batch)
-            .eq('ngo_id', ngoId)
-            .not('status', 'eq', 'reassigned');
-        }
-        idsToAssign = allIds;
-      } else {
-        // Old station distribution: skip already-assigned donors
-        idsToAssign = allIds.filter(id => !assignedSet.has(id));
-      }
+      // Rule: never create a second assignment for the same (donor, NGO) pair —
+      // whether the donor already has an old-data OD assignment or an earlier
+      // fresh distribution for this NGO, it must NOT be assigned again.
+      const idsToAssign = allIds.filter(id => !assignedSet.has(id));
 
       console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'idsToAssign:', idsToAssign.length);
       if (idsToAssign.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
@@ -4068,14 +4089,9 @@ export const uploadOldDataForStation = async (req, res) => {
     const existingAssignmentKeys = new Set();
     if (donorIds.length > 0) {
       for (const { ngoId } of ngoEntries) {
-        const { data: existingAsgns } = await db
-          .from('fro_assignments')
-          .select('donor_id')
-          .eq('ngo_id', ngoId)
-          .in('donor_id', donorIds)
-          .not('status', 'eq', 'reassigned');
-        for (const a of existingAsgns || []) {
-          existingAssignmentKeys.add(`${a.donor_id}-${ngoId}`);
+        const assignedSet = await getActiveAssignmentDonorIds(ngoId, donorIds);
+        for (const donorId of assignedSet) {
+          existingAssignmentKeys.add(`${donorId}-${ngoId}`);
         }
       }
     }

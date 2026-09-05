@@ -27,6 +27,8 @@ import Activities from './pages/Activities'
 import ActivityDetail from './pages/ActivityDetail'
 import EventDetail from './pages/EventDetail'
 import MediaManagement from './pages/MediaManagement'
+import TechnicalTickets from '../../components/TechnicalTickets'
+import AllTicketsDashboard from './pages/AllTicketsDashboard'
 
 const NAV = [
   { id:'dashboard',      path:'/event-head/dashboard',        label:'Dashboard',             icon:Grid, section:'Overview' },
@@ -42,6 +44,8 @@ const NAV = [
   { id:'reports',        path:'/event-head/reports',          label:'Event Reports',         icon:FileTxt, section:'Reporting' },
   { id:'approvals',      path:'/event-head/approvals',        label:'Approval Workflow',     icon:SettingsIcon, section:'Reporting' },
   { id:'notifications',  path:'/event-head/notifications',    label:'Notifications',         icon:Bell, section:'Reporting' },
+  { id:'my-tickets',     path:'/event-head/my-tickets',       label:'My Tickets',            icon:Bell, section:'Reporting' },
+  { id:'all-tickets',    path:'/event-head/all-tickets',      label:'All Tickets',           icon:FileTxt, section:'Reporting' },
 ]
 
 const SECTIONS = [
@@ -322,6 +326,8 @@ export default function EventHeadPanel() {
             <Route path="reports" element={<EventReports />} />
             <Route path="approvals" element={<ApprovalWorkflow />} />
             <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="my-tickets" element={<TechnicalTickets panel="event_head" />} />
+            <Route path="all-tickets" element={<AllTicketsDashboard />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

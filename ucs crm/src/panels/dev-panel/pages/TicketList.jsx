@@ -37,6 +37,8 @@ export default function TicketList({ filter = 'all' }) {
   const { user } = useUcs();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [assignees, setAssignees] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [page, setPage] = useState(1);
@@ -55,8 +57,9 @@ export default function TicketList({ filter = 'all' }) {
   const [bulkTarget, setBulkTarget] = useState('');
   const [bulkExecuting, setBulkExecuting] = useState(false);
 
-  const loadTickets = useCallback(async () => {
-    setLoading(true);
+  const loadTickets = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       let data;
       if (filter === 'my') {
@@ -77,15 +80,21 @@ export default function TicketList({ filter = 'all' }) {
         data = await getUnifiedDevTickets(params);
       }
       setTickets(data || []);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
       setTickets([]);
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
   }, [filter, statusFilter, priorityFilter, categoryFilter, panelFilter, assignedFilter, search, dateFrom, dateTo]);
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => {
+    const id = setInterval(() => loadTickets(true), 30000);
+    return () => clearInterval(id);
+  }, [loadTickets]);
 
   useEffect(() => {
     getDevAssignees().then(setAssignees).catch(() => {});
@@ -249,7 +258,10 @@ export default function TicketList({ filter = 'all' }) {
           </button>
         )}
 
-        <button onClick={loadTickets} style={{ padding: '6px 10px', fontSize: 11, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'transparent', cursor: 'pointer', color: 'var(--ink-soft)', fontFamily: 'inherit', marginLeft: 'auto' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: refreshing ? '#2563eb' : '#16a34a', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+          ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+        </span>
+        <button onClick={loadTickets} style={{ padding: '6px 10px', fontSize: 11, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'transparent', cursor: 'pointer', color: 'var(--ink-soft)', fontFamily: 'inherit' }}>
           Refresh
         </button>
       </div>

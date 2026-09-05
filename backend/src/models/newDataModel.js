@@ -75,37 +75,58 @@ export const updateNewDataStatusByNgoAndMobiles = async (ngoName, mobiles, statu
   return data;
 };
 
-export const getExistingMobiles = async (mobiles) => {
+export const getExistingMobilesForNgo = async (mobiles, ngoName) => {
   const existing = new Set();
-  if (!mobiles || mobiles.length === 0) return existing;
+  if (!mobiles || mobiles.length === 0 || !ngoName) return existing;
   const BATCH = 1000;
+
+  // 1) Already imported for this NGO
   for (let i = 0; i < mobiles.length; i += BATCH) {
     const chunk = mobiles.slice(i, i + BATCH);
     const { data, error } = await db
       .from('new_data')
       .select('mobile_number')
-      .in('mobile_number', chunk);
+      .in('mobile_number', chunk)
+      .eq('ngo', ngoName);
     if (error) throw error;
     for (const r of data || []) existing.add(r.mobile_number);
   }
-  return existing;
-};
 
-export const getExistingMobilesGlobal = async (mobiles) => {
-  const existing = new Set();
-  if (!mobiles || mobiles.length === 0) return existing;
-  const BATCH = 1000;
-  for (let i = 0; i < mobiles.length; i += BATCH) {
-    const chunk = mobiles.slice(i, i + BATCH);
-    const [newDataRes, profileRes] = await Promise.all([
-      db.from('new_data').select('mobile_number').in('mobile_number', chunk),
-      db.from('donor_profiles').select('mobile_number').in('mobile_number', chunk),
-    ]);
-    if (newDataRes.error) throw newDataRes.error;
-    if (profileRes.error) throw profileRes.error;
-    for (const r of newDataRes.data || []) existing.add(r.mobile_number);
-    for (const r of profileRes.data || []) existing.add(r.mobile_number);
+  // 2) Already has an assignment in this NGO (old-data OD or earlier fresh FD)
+  const { data: ngoRows } = await db.from('ngos').select('id').eq('name', ngoName).limit(1);
+  const ngoRow = ngoRows && ngoRows.length > 0 ? ngoRows[0] : null;
+  if (ngoRow && ngoRow.id) {
+    const ngoId = ngoRow.id;
+    const donorIdToMobile = new Map();
+    for (let i = 0; i < mobiles.length; i += BATCH) {
+      const chunk = mobiles.slice(i, i + BATCH);
+      const { data: profiles } = await db
+        .from('donor_profiles')
+        .select('id, mobile_number')
+        .in('mobile_number', chunk);
+      if (profiles) {
+        for (const p of profiles) {
+          if (p.id) donorIdToMobile.set(p.id, p.mobile_number);
+        }
+      }
+    }
+    const donorIds = [...donorIdToMobile.keys()];
+    for (let i = 0; i < donorIds.length; i += BATCH) {
+      const idChunk = donorIds.slice(i, i + BATCH);
+      const { data: asgn, error } = await db
+        .from('fro_assignments')
+        .select('donor_id')
+        .in('donor_id', idChunk)
+        .eq('ngo_id', ngoId)
+        .not('status', 'eq', 'reassigned');
+      if (error) throw error;
+      for (const a of asgn || []) {
+        const m = donorIdToMobile.get(a.donor_id);
+        if (m) existing.add(m);
+      }
+    }
   }
+
   return existing;
 };
 

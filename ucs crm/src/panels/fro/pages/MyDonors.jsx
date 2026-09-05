@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonMyLeads } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
@@ -259,6 +259,9 @@ export default function MyDonors() {
   const [activeDonor, setActiveDonor] = useState(null);
   const [listStatusFilter, setListStatusFilter] = useState('all');
   const [listHideDonated, setListHideDonated] = useState(false);
+  const [listView, setListView] = useState('leads'); // 'leads' | 'history'
+  const [historyLeads, setHistoryLeads] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   // Preserves the list's vertical scroll position while the FRO opens a lead
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
@@ -518,6 +521,23 @@ export default function MyDonors() {
     if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
     debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
   }, [reloadDonors]);
+
+  // History: fetch all disposed leads for this FRO (leads already worked)
+  useEffect(() => {
+    if (listView !== 'history' || activeDonor) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    const opts = {};
+    if (selectedStation !== 'all') opts.station = selectedStation;
+    if (selectedNgo) opts.ngoId = selectedNgo;
+    getMyDisposedLeads(opts).then(r => {
+      if (cancelled) return;
+      const arr = Array.isArray(r) ? r : r?.data || [];
+      setHistoryLeads(arr);
+    }).catch(() => { if (!cancelled) setHistoryLeads([]); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [listView, activeDonor, selectedStation, selectedNgo]);
 
   const donorsRef = useRef(donors);
   const indexRef = useRef(index);
@@ -1257,10 +1277,22 @@ export default function MyDonors() {
       return true;
     });
 
-    // Searching an active query swaps the sequential queue for read-only results
-    // across the FRO's whole station scope (active + already dispositioned).
-    const searching = searchQuery.trim().length >= 2;
-    const listItems = searching ? disposedResults.map(r => ({
+    const isHistory = listView === 'history';
+    // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
+    const searching = !isHistory && searchQuery.trim().length >= 2;
+    const historyFiltered = isHistory ? historyLeads.filter(d => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (d.donor_name || '').toLowerCase().includes(q)
+        || (d.donor_mobile || '').includes(q)
+        || (d.disposition_detail || '').toLowerCase().includes(q)
+        || (d.station || '').toLowerCase().includes(q);
+    }) : [];
+    const listItems = isHistory ? historyFiltered.map(r => ({
+      ...r,
+      id: r.donor_id,
+      is_disposed: true,
+    })) : (searching ? disposedResults.map(r => ({
       ...r,
       id: r.donor_id,
       ngo_id: r.ngo_id,
@@ -1270,9 +1302,15 @@ export default function MyDonors() {
       is_disposed: !!r.disposed_at || r.status === 'disposed',
       disposition_detail: r.disposition_detail,
       disposed_at: r.disposed_at,
-    })) : visible;
+    })) : visible);
 
     const openLead = (d) => {
+      if (isHistory) {
+        if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
+        setActiveDonor(d);
+        setSelected(null); setNotes(''); setLeadAmount('');
+        return;
+      }
       // Search results can be opened to view/update the lead. When a hit also
       // exists in the current live queue, snap to that exact donor so the detail
       // panel receives the full (live) record; otherwise render the result record.
@@ -1305,6 +1343,15 @@ export default function MyDonors() {
         {/* Filter bar */}
         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 4, background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: 3 }}>
+            <button onClick={() => setListView('leads')} className={`fro-tab-btn ${listView === 'leads' ? 'fro-tab-active-new' : ''}`} style={{ fontSize: 10, fontWeight: 700 }}>
+              Leads{total ? ` (${total})` : ''}
+            </button>
+            <button onClick={() => setListView('history')} className={`fro-tab-btn ${listView === 'history' ? 'fro-tab-active-old' : ''}`} style={{ fontSize: 10, fontWeight: 700 }}>
+              History{historyLeads.length ? ` (${historyLeads.length})` : ''}
+            </button>
+          </div>
+          {listView === 'leads' && (
+          <div style={{ display: 'flex', gap: 4, background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: 3 }}>
             <button onClick={() => switchTab('new')} className={`fro-tab-btn ${dataTab === 'new' ? 'fro-tab-active-new' : ''}`} style={{ fontSize: 10 }}>
               New
             </button>
@@ -1312,6 +1359,7 @@ export default function MyDonors() {
               Old
             </button>
           </div>
+          )}
           {ngoList.length > 1 && (
             <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
               style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
@@ -1326,6 +1374,8 @@ export default function MyDonors() {
               {stationList.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
+          {listView === 'leads' && (
+          <>
           <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
             style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
             {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -1334,6 +1384,8 @@ export default function MyDonors() {
             <input type="checkbox" checked={listHideDonated} onChange={e => setListHideDonated(e.target.checked)} />
             Hide donated
           </label>
+          </>
+          )}
           <div style={{ position: 'relative', marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '3px 8px', minWidth: 200 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--ink-soft)' }}>search</span>
             <input
@@ -1369,7 +1421,11 @@ export default function MyDonors() {
               </tr>
             </thead>
             <tbody>
-              {searching && disposedSearchLoading ? (
+              {isHistory && historyLoading ? (
+                <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                  Loading history…
+                </td></tr>
+              ) : searching && disposedSearchLoading ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                   Searching leads…
                 </td></tr>
@@ -1379,7 +1435,7 @@ export default function MyDonors() {
                 </td></tr>
               ) : listItems.length === 0 ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
-                  No leads match the current filters.
+                  {isHistory ? 'No disposed leads yet. Work a lead and it will appear here.' : 'No leads match the current filters.'}
                 </td></tr>
               ) : listItems.map((d, i) => {
                 return (
@@ -1406,7 +1462,12 @@ export default function MyDonors() {
                     </td>
                     <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</td>
                     <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
-                    <td style={{ padding: '8px 8px' }}>{d.is_disposed ? 'Disposed' : fmtTrack(d)}</td>
+                    <td style={{ padding: '8px 8px' }}>{d.is_disposed ? (
+                      <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#6b7280' }}>{(d.disposition_detail || 'Disposed').replace(/_/g, ' ')}</span>
+                        {d.disposed_at && <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.disposed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
+                      </span>
+                    ) : fmtTrack(d)}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>
                     </td>
@@ -1417,9 +1478,11 @@ export default function MyDonors() {
           </table>
         </div>
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
-          {searching
-            ? `${listItems.length} lead(s) found`
-            : `Showing ${listItems.length} of ${total || donors.length} leads`}
+          {isHistory
+            ? `${listItems.length} disposed lead(s)${searchQuery.trim() ? ' found' : ''}`
+            : searching
+              ? `${listItems.length} lead(s) found`
+              : `Showing ${listItems.length} of ${total || donors.length} leads`}
         </div>
       </div>
     );

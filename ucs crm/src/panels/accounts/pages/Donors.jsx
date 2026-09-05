@@ -642,6 +642,7 @@ export default function Donors() {
   const [ngoFilter, setNgoFilter] = useState('')
   const [ngoOptions, setNgoOptions] = useState([])
   const [restoring, setRestoring] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [missingOnly, setMissingOnly] = useState(false)
   const [stationDonor, setStationDonor] = useState(null)
   const limit = 100
@@ -726,6 +727,20 @@ export default function Donors() {
     }
   }
 
+  const handleRepairSync = async () => {
+    if (!window.confirm('This sets each donor\'s NGO & station from their latest agent assignment, repairing profiles that were never kept in sync. Continue?')) return
+    setSyncing(true)
+    try {
+      const res = await apiPost('/accounts/donors/repair-sync' + (ngoFilter ? `?ngo=${encodeURIComponent(ngoFilter)}` : ''))
+      alert(`Repaired ${res?.repaired || 0} donor record(s)`)
+      load(search, page, ngoFilter, missingOnly)
+    } catch (e) {
+      alert('Failed: ' + e.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div>
       <div className="stats-grid">
@@ -763,6 +778,9 @@ export default function Donors() {
             </button>
             <button className="btn" onClick={handleRestoreWrong} disabled={restoring} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, background: restoring ? '#e5e7eb' : '#fef3c7', color: '#92400e', border: '1px solid #f59e0b' }}>
               {restoring ? 'Restoring...' : 'Restore Wrong Assignments'}
+            </button>
+            <button className="btn" onClick={handleRepairSync} disabled={syncing} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, background: syncing ? '#e5e7eb' : '#e8f0fe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+              {syncing ? 'Repairing...' : 'Repair Donor Sync'}
             </button>
           </div>
         </div>
