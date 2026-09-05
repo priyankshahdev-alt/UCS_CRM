@@ -1869,3 +1869,53 @@ export const getSuperAdminAlerts = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// Ticket counts for panel dashboards. Per-role:
+//   - Raisers (fro, hr, ngo_admin, recruiter, event_head) look at myRaisedOpen.
+//   - Handlers (accounts, digital/developers, super_admin) look at openForAction.
+export const getTicketStats = async (req, res) => {
+  try {
+    const OPEN = ['open', 'in_progress', 'under_review', 'pending'];
+
+    const countRows = async (table, filters) => {
+      let q = db.from(table).select('id', { count: 'exact', head: true });
+      for (const [col, val] of Object.entries(filters)) {
+        if (Array.isArray(val)) q = q.in(col, val);
+        else q = q.eq(col, val);
+      }
+      const { count, error } = await q;
+      if (error) throw error;
+      return count || 0;
+    };
+
+    const [supportRaisedByMe, devRaisedByMe, supportOpen, devOpen, supportOpenForAccounts] = await Promise.all([
+      countRows('support_tickets', { raised_by: req.user.id, status: OPEN }),
+      countRows('developer_tickets', { raised_by: req.user.id, status: OPEN }),
+      countRows('support_tickets', { status: OPEN }),
+      countRows('developer_tickets', { status: OPEN }),
+      countRows('support_tickets', { department: 'accounts', status: OPEN }),
+    ]);
+
+    let openForAction = 0;
+    const role = (req.user.role || '').toLowerCase();
+    const department = (req.user.department || '').toLowerCase();
+    if (role === 'accounts') {
+      openForAction = supportOpenForAccounts;
+    } else if (role === 'super_admin' || role === 'admin') {
+      openForAction = supportOpen + devOpen;
+    } else if (role === 'digital' || department === 'digital' || department === 'developers') {
+      openForAction = devOpen;
+    }
+
+    return res.json({
+      myRaisedOpen: supportRaisedByMe + devRaisedByMe,
+      supportRaisedByMe,
+      devRaisedByMe,
+      supportOpen,
+      devOpen,
+      openForAction,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};

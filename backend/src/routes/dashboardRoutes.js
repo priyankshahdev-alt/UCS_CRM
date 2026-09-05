@@ -11,8 +11,9 @@ import {
   getTelecallerDashboard,
   getTeamLeadDashboard,
   getFroWorkerDashboard,
+  getTicketStats,
 } from '../controllers/dashboardController.js';
-import { authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.get('/leads', authenticateRole('leads'), getLeadsDashboard);
 router.get('/telecaller', froTelecaller, getTelecallerDashboard);
 router.get('/team-lead', authenticateRole('team_lead'), getTeamLeadDashboard);
 router.get('/fro-worker/:workerId', authenticateRole('super_admin'), getFroWorkerDashboard);
+router.get('/ticket-stats', authenticate, getTicketStats);
 
 export default router;
