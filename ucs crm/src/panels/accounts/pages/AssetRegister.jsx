@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { api } from '../api/auth'
 import {
@@ -951,91 +951,10 @@ export default function AssetRegister() {
 
   const selected = assets.find(a => a.id === selectedId) || null
 
-  /* ---- summary ---- */
-  const summary = useMemo(() => {
-    const s = { total: assets.length, assigned: 0, available: 0, repair: 0, not_working: 0, lost: 0, scrapped: 0, value: 0, units: 0, valuedCount: 0 }
-    CATEGORIES.forEach(c => { s[c] = 0 })
-    CONDITIONS.forEach(c => { s['cond_' + c] = 0 })
-    assets.forEach(a => {
-      const qt = uq(a)
-      if (s[a.status] !== undefined) s[a.status]++
-      if (a.status !== 'scrapped' && a.status !== 'lost') {
-        s.value += Number(a.purchase_price || 0) * qt
-        s.units += qt
-        if (Number(a.purchase_price || 0) > 0) s.valuedCount++
-      }
-      if (s[a.category] !== undefined) s[a.category] += qt
-      if (a.condition && s['cond_' + a.condition] !== undefined) s['cond_' + a.condition] += qt
-    })
-    return s
-  }, [assets])
-
-  const warrantySoon = useMemo(() => assets.filter(a => { const d = daysUntil(a.warranty_expiry); return d !== null && d > 0 && d <= 30 }), [assets])
-  const longRepair = useMemo(() => assets.filter(a => a.status === 'repair' && daysSince(a.repair_date) > 30), [assets])
-
-  const allLocations = useMemo(() => {
-    const set = new Set(LOCATIONS)
-    assets.forEach(a => { const l = locOf(a); if (l) set.add(l) })
-    return [...set].sort()
-  }, [assets])
-
-  const locCounts = useMemo(() => {
-    const m = {}
-    assets.forEach(a => { const l = locOf(a); if (l) m[l] = (m[l] || 0) + uq(a) })
-    return Object.entries(m).sort((a, b) => b[1] - a[1])
-  }, [assets])
-
-  const catStats = useMemo(() => CATEGORIES.map((c, i) => {
-    const recs = assets.filter(a => a.category === c)
-    return { c, color: CAT_COLORS[i % CAT_COLORS.length], recs: recs.length, units: recs.reduce((s, a) => s + uq(a), 0), value: recs.reduce((s, a) => s + aval(a), 0) }
-  }).filter(x => x.recs > 0).sort((a, b) => b.units - a.units), [assets])
-
-  const condStats = useMemo(() => CONDITIONS.map(c => ({
-    label: c, value: summary['cond_' + c] || 0, color: CONDITION_COLORS[c],
-  })).filter(x => x.value > 0), [summary])
-
-  const timelineStats = useMemo(() => {
-    const m = {}
-    assets.forEach(a => { const y = a.purchase_date ? String(a.purchase_date).slice(0, 4) : 'Undated'; m[y] = (m[y] || 0) + uq(a) })
-    return Object.entries(m)
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-      .map(([label, value]) => ({ label, value, color: MINT }))
-  }, [assets])
-
-  const topValue = useMemo(() => [...assets]
-    .filter(a => a.status !== 'scrapped' && a.status !== 'lost' && Number(a.purchase_price || 0) > 0)
-    .sort((a, b) => aval(b) - aval(a)).slice(0, 6), [assets])
-
-  const warrantyStats = useMemo(() => {
-    let active = 0, expiring = 0, expired = 0, none = 0
-    assets.forEach(a => {
-      const d = daysUntil(a.warranty_expiry)
-      if (d === null) none++
-      else if (d <= 0) expired++
-      else if (d <= 30) expiring++
-      else active++
-    })
-    return { active, expiring, expired, none }
-  }, [assets])
-
-  const catBars = useMemo(() => catStats.map(x => (catView === 'value'
-    ? { label: x.c, value: x.value, sub: `${x.units} units · ${x.recs} records`, color: x.color }
-    : { label: x.c, value: x.units, sub: `${x.recs} records · ${money(x.value)}`, color: x.color })), [catStats, catView])
-
-  const statusData = useMemo(() => Object.keys(STATUS_META).map(k => ({
-    label: STATUS_META[k].label, value: summary[k] || 0, color: STATUS_META[k].color,
-  })), [summary])
-
-  const locBars = useMemo(() => locCounts.slice(0, 10).map(([l, n]) => ({ label: l, value: n, color: '#0d9488' })), [locCounts])
-
-  const snapshotBars = useMemo(() => catStats.slice(0, 8).map(x => ({
-    label: x.c, value: x.units, sub: `${x.recs} records · ${money(x.value)}`, color: x.color,
-  })), [catStats])
-
   /* ---- filtered + sorted list ---- */
   const filtered = useMemo(() => assets.filter(a => {
     if (fCat !== 'all' && a.category !== fCat) return false
-    if (fStatus !== 'all' && a.status !== fStatus) return false
+    if (fStatus !== 'all' && String(a.status || 'available').toLowerCase() !== fStatus) return false
     if (fLoc !== 'all' && locOf(a) !== fLoc) return false
     if (fCond !== 'all' && a.condition !== fCond) return false
     if (q.trim()) {
@@ -1063,20 +982,124 @@ export default function AssetRegister() {
     return sortDir === 'desc' ? s.reverse() : s
   }, [filtered, sortKey, sortDir])
 
-  const filteredCatStats = useMemo(() => {
-    const map = {}
+  /* ---- group filtered rows by category (total = sum of Qty) ---- */
+  const groups = useMemo(() => {
+    const map = new Map()
     sorted.forEach(a => {
-      const c = a.category
-      if (!map[c]) map[c] = { c, color: CAT_COLORS[CATEGORIES.indexOf(c) % CAT_COLORS.length] || '#64748b', recs: 0, units: 0 }
-      map[c].recs++
-      map[c].units += uq(a)
+      let g = map.get(a.category)
+      if (!g) { g = { category: a.category, records: [] }; map.set(a.category, g) }
+      g.records.push(a)
     })
-    return Object.values(map).sort((a, b) => b.units - a.units)
+    return [...map.values()].map(g => {
+      const color = catColor(g.category)
+      return {
+        category: g.category, records: g.records, color,
+        recs: g.records.length,
+        units: g.records.reduce((s, a) => s + uq(a), 0),
+        value: g.records.reduce((s, a) => s + aval(a), 0),
+      }
+    })
   }, [sorted])
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
+  /* ---- paginate whole groups so a category never splits across pages ---- */
+  const groupPages = useMemo(() => {
+    const pages = []
+    let cur = [], curCount = 0
+    groups.forEach(g => {
+      if (cur.length > 0 && curCount + g.records.length > pageSize) {
+        pages.push(cur); cur = []; curCount = 0
+      }
+      cur.push(g); curCount += g.records.length
+    })
+    if (cur.length > 0) pages.push(cur)
+    return pages.length === 0 ? [[]] : pages
+  }, [groups, pageSize])
+
+  const pageCount = groupPages.length
   const pageSafe = Math.min(page, pageCount)
-  const rows = sorted.slice((pageSafe - 1) * pageSize, pageSafe * pageSize)
+  const pageGroups = groupPages[pageSafe - 1] || []
+
+  /* ---- summary (filtered) ---- */
+  const summary = useMemo(() => {
+    const s = { total: sorted.length, assigned: 0, available: 0, repair: 0, not_working: 0, lost: 0, scrapped: 0, value: 0, units: 0, valuedCount: 0 }
+    CATEGORIES.forEach(c => { s[c] = 0 })
+    CONDITIONS.forEach(c => { s['cond_' + c] = 0 })
+    sorted.forEach(a => {
+      const st = String(a.status || 'available').toLowerCase()
+      const qt = uq(a)
+      if (s[st] !== undefined) s[st]++
+      if (st !== 'scrapped' && st !== 'lost') {
+        s.value += Number(a.purchase_price || 0) * qt
+        s.units += qt
+        if (Number(a.purchase_price || 0) > 0) s.valuedCount++
+      }
+      if (s[a.category] !== undefined) s[a.category] += qt
+      if (a.condition && s['cond_' + a.condition] !== undefined) s['cond_' + a.condition] += qt
+    })
+    return s
+  }, [sorted])
+
+  const warrantySoon = useMemo(() => assets.filter(a => { const d = daysUntil(a.warranty_expiry); return d !== null && d > 0 && d <= 30 }), [assets])
+  const longRepair = useMemo(() => assets.filter(a => a.status === 'repair' && daysSince(a.repair_date) > 30), [assets])
+
+  const allLocations = useMemo(() => {
+    const set = new Set(LOCATIONS)
+    assets.forEach(a => { const l = locOf(a); if (l) set.add(l) })
+    return [...set].sort()
+  }, [assets])
+
+  const locCounts = useMemo(() => {
+    const m = {}
+    sorted.forEach(a => { const l = locOf(a); if (l) m[l] = (m[l] || 0) + uq(a) })
+    return Object.entries(m).sort((a, b) => b[1] - a[1])
+  }, [sorted])
+
+  const catStats = useMemo(() => groups
+    .map(g => ({ c: g.category, color: g.color, recs: g.recs, units: g.units, value: g.value }))
+    .filter(x => x.recs > 0)
+    .sort((a, b) => b.units - a.units), [groups])
+
+  const condStats = useMemo(() => CONDITIONS.map(c => ({
+    label: c, value: summary['cond_' + c] || 0, color: CONDITION_COLORS[c],
+  })).filter(x => x.value > 0), [summary])
+
+  const timelineStats = useMemo(() => {
+    const m = {}
+    sorted.forEach(a => { const y = a.purchase_date ? String(a.purchase_date).slice(0, 4) : 'Undated'; m[y] = (m[y] || 0) + uq(a) })
+    return Object.entries(m)
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .map(([label, value]) => ({ label, value, color: MINT }))
+  }, [sorted])
+
+  const topValue = useMemo(() => [...sorted]
+    .filter(a => a.status !== 'scrapped' && a.status !== 'lost' && Number(a.purchase_price || 0) > 0)
+    .sort((a, b) => aval(b) - aval(a)).slice(0, 6), [sorted])
+
+  const warrantyStats = useMemo(() => {
+    let active = 0, expiring = 0, expired = 0, none = 0
+    sorted.forEach(a => {
+      const d = daysUntil(a.warranty_expiry)
+      if (d === null) none++
+      else if (d <= 0) expired++
+      else if (d <= 30) expiring++
+      else active++
+    })
+    return { active, expiring, expired, none }
+  }, [sorted])
+
+  const catBars = useMemo(() => catStats.map(x => (catView === 'value'
+    ? { label: x.c, value: x.value, sub: `${x.units} units · ${x.recs} records`, color: x.color }
+    : { label: x.c, value: x.units, sub: `${x.recs} records · ${money(x.value)}`, color: x.color })), [catStats, catView])
+
+  const statusData = useMemo(() => Object.keys(STATUS_META).map(k => ({
+    label: STATUS_META[k].label, value: summary[k] || 0, color: STATUS_META[k].color,
+  })), [summary])
+
+  const locBars = useMemo(() => locCounts.slice(0, 10).map(([l, n]) => ({ label: l, value: n, color: '#0d9488' })), [locCounts])
+
+  const snapshotBars = useMemo(() => catStats.slice(0, 8).map(x => ({
+    label: x.c, value: x.units, sub: `${x.recs} records · ${money(x.value)}`, color: x.color,
+  })), [catStats])
 
   const onSort = (k, dir) => { setSortKey(k); setSortDir(dir) }
 
@@ -1306,6 +1329,21 @@ export default function AssetRegister() {
         .arx-qty { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; background: #eef3f1; color: #33453e; border-radius: 8px; padding: 3px 8px; font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums; }
         .arx-tcat { display: inline-flex; align-items: center; gap: 7px; }
         .arx-root .ci { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+        /* ---------- category group headers ---------- */
+        .arx-table tbody tr.arx-ghead { cursor: pointer; animation: none; }
+        .arx-table tbody tr.arx-ghead:hover td:first-child { box-shadow: none; }
+        .arx-ghead td { padding: 0; }
+        .arx-ghead-inner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 16px; background: color-mix(in srgb, var(--gcol, var(--arx-mint)) 9%, #f9fcfb); border-bottom: 1px solid var(--arx-line); border-top: 1px solid color-mix(in srgb, var(--gcol, var(--arx-mint)) 45%, transparent); transition: background .15s ease; }
+        .arx-ghead:hover .arx-ghead-inner { background: color-mix(in srgb, var(--gcol, var(--arx-mint)) 15%, #fff); }
+        .arx-ghead-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12.5px; color: var(--arx-ink); letter-spacing: .3px; }
+        .arx-ghead-tot { display: inline-flex; align-items: baseline; gap: 8px; }
+        .arx-ghead-totval { font-size: 13px; font-weight: 800; color: var(--gcol, var(--arx-mint)); font-variant-numeric: tabular-nums; }
+        .arx-ghead-totsub { font-size: 11px; font-weight: 650; color: var(--arx-muted); }
+        .arx-mgroup { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 800; color: var(--arx-ink); padding: 6px 2px 2px; margin-top: 8px; border-top: 2px solid color-mix(in srgb, var(--mcol, var(--arx-mint)) 55%, transparent); }
+        .arx-mgroup b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .arx-mgroup-tot { font-size: 11px; font-weight: 700; color: var(--arx-muted); white-space: nowrap; }
+        .arx-mgroup-tot strong { color: var(--mcol, var(--arx-mint)); font-variant-numeric: tabular-nums; }
 
         /* ---------- totals bar ---------- */
         .arx-totals-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; background: #f6faf8; border-top: 1px solid var(--arx-line); font-size: 12px; }
@@ -1661,7 +1699,7 @@ export default function AssetRegister() {
           <h3 className="arx-card-title">
             <ListChecks size={14} /> Asset Inventory
             <span style={{ marginLeft: 'auto', fontWeight: 650, color: 'var(--arx-soft)', letterSpacing: 0, textTransform: 'none', fontSize: 11.5 }}>
-              {sorted.length.toLocaleString('en-IN')} record{sorted.length !== 1 ? 's' : ''}
+              {sorted.length.toLocaleString('en-IN')} record{sorted.length !== 1 ? 's' : ''} · {summary.units.toLocaleString('en-IN')} units
             </span>
           </h3>
           {loading ? (
@@ -1693,69 +1731,85 @@ export default function AssetRegister() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((a, i) => {
-                    const CIcon = catIcon(a.category)
+                  {pageGroups.map(g => {
+                    const GIcon = catIcon(g.category)
                     return (
-                      <tr key={a.id} style={{ animationDelay: `${Math.min(i, 14) * 25}ms` }} onClick={() => setSelectedId(a.id)}>
-                        <td className="arx-code">{a.code}</td>
-                        <td style={{ fontWeight: 700, color: 'var(--arx-ink)' }}>{isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}</td>
-                        <td>
-                          <span className="arx-tcat">
-                            <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={14} /></span>
-                            {a.category}
-                          </span>
-                        </td>
-                        <td className="col-loc">{locOf(a) || '—'}</td>
-                        <td><span className="arx-qty">{uq(a)}</span></td>
-                        <td className="col-tl">{a.team_leader || '—'}</td>
-                        <td>{a.owner_name || '—'}</td>
-                        <td>{a.assigned_to_name || '—'}</td>
-                        <td><StatusBadge status={a.status} /></td>
-                      </tr>
+                      <Fragment key={g.category}>
+                        <tr className="arx-ghead" style={{ '--gcol': g.color }} onClick={() => setFCat(fCat === g.category ? 'all' : g.category)}>
+                          <td colSpan={9}>
+                            <span className="arx-ghead-inner">
+                              <span className="arx-ghead-name">
+                                <span className="ci" style={{ background: g.color + '18', color: g.color }}><GIcon size={14} /></span>
+                                {g.category}
+                              </span>
+                              <span className="arx-ghead-tot">
+                                <span className="arx-ghead-totval">Total {g.units.toLocaleString('en-IN')}</span>
+                                <span className="arx-ghead-totsub">units · {g.recs} record{g.recs !== 1 ? 's' : ''}</span>
+                              </span>
+                            </span>
+                          </td>
+                        </tr>
+                        {g.records.map((a, i) => {
+                          const CIcon = catIcon(a.category)
+                          return (
+                            <tr key={a.id} style={{ animationDelay: `${Math.min(i, 14) * 25}ms` }} onClick={() => setSelectedId(a.id)}>
+                              <td className="arx-code">{a.code}</td>
+                              <td style={{ fontWeight: 700, color: 'var(--arx-ink)' }}>{isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}</td>
+                              <td>
+                                <span className="arx-tcat">
+                                  <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={14} /></span>
+                                  {a.category}
+                                </span>
+                              </td>
+                              <td className="col-loc">{locOf(a) || '—'}</td>
+                              <td><span className="arx-qty">{uq(a)}</span></td>
+                              <td className="col-tl">{a.team_leader || '—'}</td>
+                              <td>{a.owner_name || '—'}</td>
+                              <td>{a.assigned_to_name || '—'}</td>
+                              <td><StatusBadge status={a.status} /></td>
+                            </tr>
+                          )
+                        })}
+                      </Fragment>
                     )
                   })}
                 </tbody>
               </table>
-              {filteredCatStats.length > 0 && (
-                <div className="arx-totals-bar">
-                  {filteredCatStats.map(x => {
-                    const CI = catIcon(x.c)
-                    return (
-                      <span key={x.c} className="arx-totals-chip" style={{ borderColor: x.color + '40' }}>
-                        <span className="ci" style={{ background: x.color + '16', color: x.color }}><CI size={12} /></span>
-                        <span className="arx-totals-cat">{x.c}</span>
-                        <span className="arx-totals-qty" style={{ color: x.color }}>{x.units.toLocaleString('en-IN')}</span>
-                      </span>
-                    )
-                  })}
-                  <span className="arx-totals-grand">
-                    <b>Total</b> {filteredCatStats.reduce((s, x) => s + x.units, 0).toLocaleString('en-IN')} units
-                  </span>
-                </div>
-              )}
             </div>
             <div className="arx-mcards">
-              {rows.map((a, i) => {
-                const CIcon = catIcon(a.category)
+              {pageGroups.map(g => {
+                const GIcon = catIcon(g.category)
                 return (
-                  <button type="button" className="arx-mcard" key={a.id} style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }} onClick={() => setSelectedId(a.id)}>
-                    <div className="arx-mcard-top">
-                      <span className="arx-code">{a.code}</span>
-                      <StatusBadge status={a.status} />
+                  <Fragment key={g.category}>
+                    <div className="arx-mgroup" style={{ '--mcol': g.color }}>
+                      <span className="ci" style={{ background: g.color + '18', color: g.color }}><GIcon size={13} /></span>
+                      <b>{g.category}</b>
+                      <span className="arx-mgroup-tot">Total <strong>{g.units.toLocaleString('en-IN')}</strong> units · {g.recs} record{g.recs !== 1 ? 's' : ''}</span>
                     </div>
-                    <div className="arx-mcard-name">
-                      <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={15} /></span>
-                      {isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}
-                    </div>
-                    <div className="arx-mcard-meta">
-                      <span><MapPin size={12} /> {locOf(a) || '—'}</span>
-                      <span><Boxes size={12} /> {uq(a)} {uq(a) > 1 ? 'units' : 'unit'}</span>
-                      {a.team_leader && <span><UserCheck size={12} /> {a.team_leader}</span>}
-                      {a.owner_name && <span><UserCheck size={12} /> {a.owner_name}</span>}
-                      {a.assigned_to_name && <span><UserPlus size={12} /> {a.assigned_to_name}</span>}
-                    </div>
-                    <ChevronRight size={16} className="arx-mchev" />
-                  </button>
+                    {g.records.map((a, i) => {
+                      const CIcon = catIcon(a.category)
+                      return (
+                        <button type="button" className="arx-mcard" key={a.id} style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }} onClick={() => setSelectedId(a.id)}>
+                          <div className="arx-mcard-top">
+                            <span className="arx-code">{a.code}</span>
+                            <StatusBadge status={a.status} />
+                          </div>
+                          <div className="arx-mcard-name">
+                            <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={15} /></span>
+                            {isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}
+                          </div>
+                          <div className="arx-mcard-meta">
+                            <span><MapPin size={12} /> {locOf(a) || '—'}</span>
+                            <span><Boxes size={12} /> {uq(a)} {uq(a) > 1 ? 'units' : 'unit'}</span>
+                            {a.team_leader && <span><UserCheck size={12} /> {a.team_leader}</span>}
+                            {a.owner_name && <span><UserCheck size={12} /> {a.owner_name}</span>}
+                            {a.assigned_to_name && <span><UserPlus size={12} /> {a.assigned_to_name}</span>}
+                          </div>
+                          <ChevronRight size={16} className="arx-mchev" />
+                        </button>
+                      )
+                    })}
+                  </Fragment>
                 )
               })}
             </div>
