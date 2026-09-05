@@ -1,10 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/auth';
 
+const AUTO_REFRESH_MS = 30000;
+
+const TICKET_GATE = {
+  username: 'jatinsevak@ufs',
+  password: 'sevak123',
+  sessionKey: 'ucs_ticket_unlocked',
+};
+
 const DEPARTMENTS = [
   { value: 'accounts', label: 'Accounts' },
   { value: 'developers', label: 'Developers' },
   { value: 'hr', label: 'HR' },
+  { value: 'fro', label: 'FRO' },
 ];
 
 const CATEGORIES = [
@@ -51,6 +60,8 @@ const PANELS = [
   { key: 'other',      label: 'Other',      color: '#6b7280' },
 ];
 
+const PANEL_LABELS = Object.fromEntries(PANELS.map(p => [p.key, p.label]));
+
 function getTicketPanel(t) {
   if (t.raised_by_panel) {
     const p = String(t.raised_by_panel).toLowerCase();
@@ -69,9 +80,25 @@ function getTicketPanel(t) {
   return PANELS[7];
 }
 
-export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true }) {
+function renderPanel(t) {
+  const p = getTicketPanel(t);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>{p.label}</span>
+    </span>
+  );
+}
+
+export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [gateOpen, setGateOpen] = useState(() => sessionStorage.getItem(TICKET_GATE.sessionKey) === '1');
+  const [gateInput, setGateInput] = useState({ username: '', password: '' });
+  const [gateError, setGateError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [showRaise, setShowRaise] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
   const [replies, setReplies] = useState([]);
@@ -96,8 +123,9 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [search, setSearch] = useState('');
   const [deskLoading, setDeskLoading] = useState(false);
 
-  const loadTickets = useCallback(async () => {
-    setLoading(true);
+  const loadTickets = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       const endpoint = viewOnly ? '/tickets' : '/tickets/my';
       const devEndpoint = viewOnly ? '/developer-tickets' : '/developer-tickets/my';
@@ -110,15 +138,44 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
         ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTickets(allTickets);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error('Failed to load tickets:', err);
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
   }, [viewOnly]);
 
-  useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => {
+    if (requireUnlock && !gateOpen) return;
+    loadTickets();
+  }, [loadTickets, requireUnlock, gateOpen]);
+  useEffect(() => {
+    if (requireUnlock && !gateOpen) return;
+    const id = setInterval(() => loadTickets(true), AUTO_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [loadTickets, requireUnlock, gateOpen]);
   useEffect(() => { setPage(1); }, [tickets.length, statusFilter, search]);
+
+  const unlockSection = (e) => {
+    e.preventDefault();
+    if (gateInput.username.trim() === TICKET_GATE.username && gateInput.password === TICKET_GATE.password) {
+      sessionStorage.setItem(TICKET_GATE.sessionKey, '1');
+      setGateOpen(true);
+      setGateInput({ username: '', password: '' });
+      setGateError('');
+    } else {
+      setGateError('Invalid username or password');
+    }
+  };
+
+  const lockSection = () => {
+    sessionStorage.removeItem(TICKET_GATE.sessionKey);
+    setGateOpen(false);
+    setGateInput({ username: '', password: '' });
+    setGateError('');
+  };
 
   const fetchMyAsset = async () => {
     setDeskLoading(true);
@@ -160,6 +217,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const handleRaise = async () => {
     const errs = {};
     if (!form.subject.trim()) errs.subject = 'Subject is required';
+    if (!form.desk_number.trim()) errs.desk_number = 'Desk Number is required';
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     setFormErrors({});
     setSubmitting(true);
@@ -221,7 +279,9 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     finally { setSendingReply(false); }
   };
 
-  const filtered = tickets.filter(t => {
+  const visibleTickets = category ? tickets.filter(t => t.category === category) : tickets;
+
+  const filtered = visibleTickets.filter(t => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -251,11 +311,11 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     : [];
 
   const counts = {
-    all: tickets.length,
-    open: tickets.filter(t => t.status === 'open').length,
-    in_progress: tickets.filter(t => t.status === 'in_progress').length,
-    resolved: tickets.filter(t => t.status === 'resolved').length,
-    closed: tickets.filter(t => t.status === 'closed').length,
+    all: visibleTickets.length,
+    open: visibleTickets.filter(t => t.status === 'open').length,
+    in_progress: visibleTickets.filter(t => t.status === 'in_progress').length,
+    resolved: visibleTickets.filter(t => t.status === 'resolved').length,
+    closed: visibleTickets.filter(t => t.status === 'closed').length,
   };
 
   const formatDate = (d) => {
@@ -268,6 +328,50 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  if (requireUnlock && !gateOpen) {
+    return (
+      <div style={{ maxWidth: 420, margin: '40px auto', padding: '28px 24px', background: 'var(--card-bg, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
+          {viewOnly ? 'All Tickets' : 'My Tickets'} Section Locked
+        </div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 18, lineHeight: 1.5 }}>
+          This section is private. Enter the authorised username and password to view it.
+        </div>
+        <form onSubmit={unlockSection}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Username</label>
+            <input
+              value={gateInput.username}
+              onChange={e => setGateInput(p => ({ ...p, username: e.target.value }))}
+              placeholder="Username"
+              autoComplete="username"
+              style={{ width: '100%', padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 7, fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ marginBottom: gateError ? 8 : 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Password</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={gateInput.password}
+                onChange={e => setGateInput(p => ({ ...p, password: e.target.value }))}
+                placeholder="Password"
+                autoComplete="current-password"
+                style={{ flex: 1, padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 7, fontFamily: 'inherit' }}
+              />
+              <button type="button" onClick={() => setShowPassword(s => !s)}
+                style={{ padding: '0 12px', fontSize: 11, border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', cursor: 'pointer', color: '#374151', fontFamily: 'inherit' }}>
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
+          {gateError && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 10, background: '#fef2f2', border: '1px solid #fecaca', padding: '7px 10px', borderRadius: 6 }}>{gateError}</div>}
+          <button type="submit" className="btn btn-sm btn-primary" style={{ width: '100%' }}>Unlock Section</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Header */}
@@ -275,12 +379,23 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
         <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
           {viewOnly ? 'All Tickets' : 'My Tickets'}
           <span style={{ fontWeight: 400, fontSize: 12, color: '#6b7280', marginLeft: 8 }}>({filteredByPanel.length} shown)</span>
+          <span style={{ fontWeight: 400, fontSize: 11, color: refreshing ? '#2563eb' : '#16a34a', marginLeft: 10, verticalAlign: 'middle' }}>
+            ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+          </span>
         </h3>
-        {canRaise && !viewOnly && (
-          <button className="btn btn-sm btn-primary" onClick={openRaise}>
-            + Raise Ticket
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {requireUnlock && (
+            <button className="btn btn-sm" onClick={lockSection}
+              style={{ border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+              Lock
+            </button>
+          )}
+          {canRaise && !viewOnly && (
+            <button className="btn btn-sm btn-primary" onClick={openRaise}>
+              + Raise Ticket
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats Bar */}
@@ -369,6 +484,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                       <thead>
                         <tr>
                           <th style={{ textAlign: 'left', padding: '8px 10px', background: '#fff', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>Subject</th>
+                          <th style={{ textAlign: 'left', padding: '8px 10px', background: '#fff', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>Panel</th>
                           <th style={{ textAlign: 'left', padding: '8px 10px', background: '#fff', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>Raised By</th>
                           <th style={{ textAlign: 'left', padding: '8px 10px', background: '#fff', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>Desk #</th>
                           <th style={{ textAlign: 'left', padding: '8px 10px', background: '#fff', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>NGO</th>
@@ -383,6 +499,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                         {ptt.map(t => (
                           <tr key={t.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                             <td style={{ padding: '8px 10px', fontWeight: 600, fontSize: 12 }}>{t.subject}</td>
+                            <td style={{ padding: '8px 10px' }}>{renderPanel(t)}</td>
                             <td style={{ padding: '8px 10px', fontSize: 12, color: '#4b5563' }}>{t.workers?.name || t.raised_by_name || '—'}</td>
                             <td style={{ padding: '8px 10px', fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: '#1e40af' }}>{t.desk_number || '—'}</td>
                             <td style={{ padding: '8px 10px', fontSize: 12, color: '#6b7280' }}>{t.ngo || '—'}</td>
@@ -428,6 +545,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', padding: '8px 10px', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #d1d5db' }}>Subject</th>
+                {viewOnly && <th style={{ textAlign: 'left', padding: '8px 10px', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #d1d5db' }}>Panel</th>}
                 <th style={{ textAlign: 'left', padding: '8px 10px', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #d1d5db' }}>Raised By</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #d1d5db' }}>Desk #</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #d1d5db' }}>NGO</th>
@@ -440,13 +558,14 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: '#9ca3af' }}>Loading tickets...</td></tr>
+                <tr><td colSpan={viewOnly ? 10 : 9} style={{ textAlign: 'center', padding: 30, color: '#9ca3af' }}>Loading tickets...</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: '#9ca3af' }}>No tickets found</td></tr>
+                <tr><td colSpan={viewOnly ? 10 : 9} style={{ textAlign: 'center', padding: 30, color: '#9ca3af' }}>No tickets found</td></tr>
               ) : (
                 paginated.map(t => (
                   <tr key={t.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '8px 10px', fontWeight: 600, fontSize: 12 }}>{t.subject}</td>
+                    {viewOnly && <td style={{ padding: '8px 10px' }}>{renderPanel(t)}</td>}
                     <td style={{ padding: '8px 10px', fontSize: 12, color: '#4b5563' }}>{t.workers?.name || t.raised_by_name || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: '#1e40af' }}>{t.desk_number || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: 12, color: '#6b7280' }}>{t.ngo || '—'}</td>
@@ -529,9 +648,10 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                    Desk Number
-                    <input value={form.desk_number} onChange={e => setForm(p => ({ ...p, desk_number: e.target.value }))}
-                      placeholder="e.g. DESK-1 (AFLF)" style={{ fontSize: 12 }} />
+                    Desk Number *
+                    <input value={form.desk_number} onChange={e => { setForm(p => ({ ...p, desk_number: e.target.value })); if (formErrors.desk_number) setFormErrors(p => { const n = { ...p }; delete n.desk_number; return n; }); }}
+                      placeholder="e.g. DESK-1 (AFLF)" style={{ fontSize: 12, ...(formErrors.desk_number ? { borderColor: '#dc2626' } : {}) }} />
+                    {formErrors.desk_number && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 3 }}>{formErrors.desk_number}</div>}
                   </label>
                   <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                     NGO
@@ -679,7 +799,17 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                     {replies.map(r => (
                       <div key={r.id} style={{ padding: '10px 14px', background: '#f9fafb', borderRadius: 8, fontSize: 13, border: '1px solid #e5e7eb' }}>
                         <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
-                          {r.sender_type === 'user' ? 'Support' : 'You'} &middot; {formatDateTime(r.created_at)}
+                          {r.sender_panel ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'capitalize', background: '#eef2ff', color: '#4338ca' }}>
+                                {PANEL_LABELS[r.sender_panel] || r.sender_panel}
+                              </span>
+                              {r.sender_name && <span>{r.sender_name}</span>}
+                              <span>&middot; {formatDateTime(r.created_at)}</span>
+                            </span>
+                          ) : (
+                            <>{r.sender_type === 'user' ? 'Support' : 'You'} &middot; {formatDateTime(r.created_at)}</>
+                          )}
                         </div>
                         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{r.message}</div>
                       </div>

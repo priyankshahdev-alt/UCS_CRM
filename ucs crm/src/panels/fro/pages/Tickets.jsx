@@ -6,6 +6,7 @@ const DEPARTMENTS = [
   { value: 'accounts', label: 'Accounts' },
   { value: 'developers', label: 'Developers' },
   { value: 'hr', label: 'HR' },
+  { value: 'fro', label: 'FRO' },
 ];
 
 const CATEGORIES = [
@@ -28,12 +29,25 @@ const STATUS_COLORS = {
   closed: { bg: '#f3f4f6', color: '#6b7280' },
 };
 
+const PANEL_LABELS = {
+  fro: 'FRO',
+  accounts: 'Accounts',
+  hr: 'HR',
+  dev_panel: 'Developer',
+  ngo_admin: 'NGO Admin',
+  event_head: 'Event Head',
+  recruiter: 'Recruiter',
+  other: 'Other',
+};
+
 const apiGet = (p) => api(p, { _prefix: 'ucs' });
 const apiPost = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b), _prefix: 'ucs' });
 
 export default function FroTickets() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [showRaise, setShowRaise] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
   const [replies, setReplies] = useState([]);
@@ -55,8 +69,9 @@ export default function FroTickets() {
   const [pageSize, setPageSize] = useState(20);
   const [formErrors, setFormErrors] = useState({});
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       const [regularTickets, devTickets] = await Promise.all([
         apiGet('/tickets/my').catch(() => []),
@@ -67,8 +82,9 @@ export default function FroTickets() {
         ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTickets(allTickets);
+      setLastUpdated(new Date());
     } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    finally { setRefreshing(false); setLoading(false); }
   };
 
   const fetchMyAsset = async () => {
@@ -93,33 +109,23 @@ export default function FroTickets() {
 
   const totalPages = Math.ceil(tickets.length / pageSize);
   const paginatedTickets = tickets.slice((page - 1) * pageSize, page * pageSize);
+  const counts = {
+    open: tickets.filter(t => t.status === 'open').length,
+    in_progress: tickets.filter(t => t.status === 'in_progress').length,
+    resolved: tickets.filter(t => t.status === 'resolved').length,
+    closed: tickets.filter(t => t.status === 'closed').length,
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    async function fetchData() {
-      setLoading(true);
-      try {
-        const [regularTickets, devTickets] = await Promise.all([
-          apiGet('/tickets/my').catch(() => []),
-          apiGet('/developer-tickets/my').catch(() => []),
-        ]);
-        if (!cancelled) {
-          const allTickets = [
-            ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
-            ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
-          ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-          setTickets(allTickets);
-        }
-      } catch (err) { console.error(err); }
-      finally { if (!cancelled) setLoading(false); }
-    }
-    fetchData();
-    return () => { cancelled = true; };
+    load();
+    const id = setInterval(() => load(true), 30000);
+    return () => clearInterval(id);
   }, []);
 
   const handleRaise = async () => {
     const errs = {};
     if (!form.subject.trim()) errs.subject = 'Subject is required';
+    if (!form.desk_number.trim()) errs.desk_number = 'Desk Number is required';
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     setFormErrors({});
     setSubmitting(true);
@@ -173,10 +179,31 @@ export default function FroTickets() {
   return (
     <div>
       <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>My Tickets</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+          My Tickets
+          <span style={{ fontWeight: 400, fontSize: 11, color: refreshing ? '#2563eb' : '#16a34a', marginLeft: 10 }}>
+            ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+          </span>
+        </h3>
         <button className="btn btn-sm btn-primary" onClick={() => setShowRaise(true)}>
           + Raise Ticket
         </button>
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, padding: '14px 18px' }}>
+          {[
+            { label: 'Open', value: counts.open, color: '#a16207', bg: '#fefce8' },
+            { label: 'In Progress', value: counts.in_progress, color: '#1d4ed8', bg: '#eff6ff' },
+            { label: 'Resolved', value: counts.resolved, color: '#16a34a', bg: '#f0fdf4' },
+            { label: 'Closed', value: counts.closed, color: '#6b7280', bg: '#f3f4f6' },
+          ].map(s => (
+            <div key={s.label} style={{ padding: '10px 12px', borderRadius: 8, background: s.bg, border: '1px solid ' + s.color + '22' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: s.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="card">
@@ -305,8 +332,9 @@ export default function FroTickets() {
               </div>
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Desk Number
-                  <input value={form.desk_number} onChange={e => setForm(p => ({ ...p, desk_number: e.target.value }))} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} />
+                  Desk Number *
+                  <input value={form.desk_number} onChange={e => { setForm(p => ({ ...p, desk_number: e.target.value })); if (formErrors.desk_number) setFormErrors(p => { const n = { ...p }; delete n.desk_number; return n; }); }} placeholder={deskLoading ? 'Fetching your desk...' : 'Auto-filled from your desk'} style={formErrors.desk_number ? { borderColor: '#dc2626' } : undefined} />
+                  {formErrors.desk_number && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 3 }}>{formErrors.desk_number}</div>}
                 </label>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   NGO
@@ -394,7 +422,17 @@ export default function FroTickets() {
                     {replies.map(r => (
                       <div key={r.id} style={{ padding: '10px 14px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 4 }}>
-                          {r.sender_type === 'user' ? 'Accounts' : 'You'} &middot; {new Date(r.created_at).toLocaleString('en-IN')}
+                          {r.sender_panel ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span className="pill" style={{ fontSize: 10, fontWeight: 700, textTransform: 'capitalize', background: '#eef2ff', color: '#4338ca' }}>
+                                {PANEL_LABELS[r.sender_panel] || r.sender_panel}
+                              </span>
+                              {r.sender_name && <span>{r.sender_name}</span>}
+                              <span>&middot; {new Date(r.created_at).toLocaleString('en-IN')}</span>
+                            </span>
+                          ) : (
+                            <>{r.sender_type === 'user' ? 'Accounts' : 'You'} &middot; {new Date(r.created_at).toLocaleString('en-IN')}</>
+                          )}
                         </div>
                         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{r.message}</div>
                       </div>

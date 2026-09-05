@@ -16,7 +16,16 @@ const CATEGORIES = {
   bug: 'Bug', feature_request: 'Feature Request', enhancement: 'Enhancement',
   data_issue: 'Data Issue', payment_issue: 'Payment Issue', technical: 'Technical', other: 'Other',
 };
-const PANEL_LABELS = { fro: 'FRO', accounts: 'Accounts', ngo_admin: 'NGO Admin', dev_panel: 'Developer' };
+const PANEL_LABELS = {
+  fro: 'FRO',
+  accounts: 'Accounts',
+  ngo_admin: 'NGO Admin',
+  dev_panel: 'Developer',
+  hr: 'HR',
+  event_head: 'Event Head',
+  recruiter: 'Recruiter',
+  other: 'Other',
+};
 
 export default function TicketDetail() {
   const { id } = useParams();
@@ -338,7 +347,12 @@ export default function TicketDetail() {
                       maxWidth: '85%', alignSelf: isMe ? 'flex-end' : 'flex-start',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600 }}>{r.sender_name || panelLabel}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600 }}>{r.sender_name || panelLabel || 'Reply'}</span>
+                        {r.sender_panel && (
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'capitalize', padding: '1px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca' }}>
+                            {panelLabel || r.sender_panel}
+                          </span>
+                        )}
                         {isInternal && (
                           <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}>
                             Internal Note
