@@ -75,6 +75,7 @@ function MobileSummaryModal({ open, mobileType, cardType, records, onClose }) {
     active: { title: `${mobileType} \u2014 Active SIM Cards`, sub: `Currently active ${mobileType.toLowerCase()} records`, label: 'Active SIM Cards', sublabel: 'Currently active' },
     expiring: { title: `${mobileType} \u2014 Expiring Soon`, sub: `Expiring within 28 days`, label: 'Expiring Soon', sublabel: 'Within 28 days' },
     expired: { title: `${mobileType} \u2014 Expired SIM Cards`, sub: `Past expiry date`, label: 'Expired SIM Cards', sublabel: 'Past expiry date' },
+    inactive: { title: `${mobileType} \u2014 Inactive`, sub: `No longer in use`, label: 'Inactive', sublabel: 'No longer in use' },
   };
   const meta = cardMeta[cardType] || cardMeta.total;
 
@@ -82,6 +83,7 @@ function MobileSummaryModal({ open, mobileType, cardType, records, onClose }) {
     if (cardType === 'active') return c._status === 'Active' || c._status === 'Expiring Soon';
     if (cardType === 'expiring') return c._status === 'Expiring Soon';
     if (cardType === 'expired') return c._status === 'Expired';
+    if (cardType === 'inactive') return (c.status || 'Active') === 'Inactive';
     return true;
   });
 
@@ -204,6 +206,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const [modal, setModal] = useState(null);
   const [ufsModal, setUfsModal] = useState(null);
   const [androidUfsModal, setAndroidUfsModal] = useState(null);
+  const [expiryAlertDismissed, setExpiryAlertDismissed] = useState(false);
 
   const SIM_FIELDS = Array.from({ length: 20 }, (_, i) => `sim_${i + 1}`);
   function countSims(c) { return SIM_FIELDS.filter((f) => c[f] && String(c[f]).trim()).length; }
@@ -215,7 +218,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
     const expiring = enriched.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
     const expired = enriched.filter((c) => c._status === 'Expired').reduce((sum, c) => sum + countSims(c), 0);
     const replaced = enriched.filter((c) => c._status === 'Replaced').reduce((sum, c) => sum + countSims(c), 0);
-    const inactive = enriched.filter((c) => c._status === 'Inactive').reduce((sum, c) => sum + countSims(c), 0) + replaced;
+    const inactive = enriched.filter((c) => (c.status || 'Active') === 'Inactive').reduce((sum, c) => sum + countSims(c), 0);
     const noSim = enriched.filter((c) => countSims(c) === 0).length;
 
     const buckets = {
@@ -280,7 +283,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
     { label: 'All SIM Cards', val: data.total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
     { label: 'Active SIM Cards', val: data.active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
     { label: 'Expiring Soon', val: data.expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
-    { label: 'Inactive', val: data.expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
+    { label: 'Inactive', val: data.inactive, sub: 'No longer in use', icon: 'mobile', ic: { bg: '#f1f5f9', color: '#64748b' }, bar: '#94a3b8' },
   ];
 
   const statusSegments = [
@@ -312,7 +315,8 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const statusCardMap = {
     'Active SIM Cards': 'active',
     'Expiring Soon': 'expiring',
-    'Inactive': 'expired',
+    'Expired': 'expired',
+    'Inactive': 'inactive',
   };
 
   function openModal(deviceType, cardLabel) {
@@ -370,6 +374,23 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
         ))}
       </div>
 
+      {!expiryAlertDismissed && (() => {
+        const soon = data.expiring + data.buckets.expired;
+        if (soon <= 0) return null;
+        const urgent = data.urgent || [];
+        return (
+          <div className="dash-banner" style={{ background: 'linear-gradient(135deg, #fffbeb, #fef3c7)', borderColor: '#fcd34d' }}>
+            <div>
+              <div className="b-txt">⚠ {soon} SIM card{soon > 1 ? 's' : ''} expiring soon</div>
+              <div className="b-sub">{urgent.length > 0 ? `Nearest: ${urgent.map((c) => c.mobile_id).join(', ')}` : 'Check the table for details.'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="sim-btn" style={{ padding: '7px 12px', fontSize: 13 }} onClick={() => setExpiryAlertDismissed(true)}>Dismiss</button>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="dash-row">
         <section className="dash-panel">
           <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
@@ -409,7 +430,10 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           {(() => {
             const teamMap = {};
             androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
-            const teamRows = Object.entries(teamMap).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+            const teamRows = Object.entries(teamMap)
+              .filter(([team]) => /^ufs\s*\d+$/i.test((team || '').trim()))
+              .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+              .concat([['Locker', teamMap['Locker'] || 0]]);
             return (
               <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 10, justifyContent: 'space-between', overflowX: 'auto' }}>
                 {teamRows.map(([team, count]) => {

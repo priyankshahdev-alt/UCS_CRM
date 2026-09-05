@@ -6,7 +6,7 @@ import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from './Toast';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
-const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 28 Days', 'More than 28 Days'];
+const EXPIRY_FILTERS = ['All', 'Expired', 'Within 5 Days', 'Within 28 Days', 'More than 28 Days'];
 const SIM_NAME_FILTERS = ['Android', 'Nokia'];
 const OWNER_UFS = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Locker'];
 const normOwner = (v) => String(v || '').toLowerCase().replace(/\s+/g, '');
@@ -78,7 +78,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
       list = list.filter((c) => {
         const d = c.days_left;
         if (expiry === 'Expired') return c._status === 'Expired';
-        if (expiry === 'Within 7 Days') return d !== null && d >= 0 && d <= 7;
+        if (expiry === 'Within 5 Days') return d !== null && d >= 0 && d <= 5;
         if (expiry === 'Within 28 Days') return d !== null && d >= 0 && d <= 28;
         if (expiry === 'More than 28 Days') return d !== null && d > 28;
         return true;
