@@ -150,13 +150,7 @@ function PanelInner() {
           </div>
           <div className="rem-side-label">Navigation</div>
           <nav className="rem-nav">
-            <SidebarButton
-              label="Dashboard"
-              icon="dashboard"
-              active={!onSettings && activeFilter === ''}
-              onClick={() => { setActiveFilter(''); navigate('/rem') }}
-            />
-            <div className="rem-side-label" style={{ marginTop: 8 }}>Reminders</div>
+            <div className="rem-side-label">Reminders</div>
             <SidebarButton
               label="All Reminders"
               icon="list"

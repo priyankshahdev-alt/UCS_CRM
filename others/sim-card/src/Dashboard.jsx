@@ -396,11 +396,11 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           <div className="panel-head"><h3>Nokia Mobile Summary</h3><span className="ln">{nokiaCards.reduce((s, c) => s + countSims(c), 0)} Nokia SIMs</span></div>
           {(() => {
             const teamMap = {};
-            nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; if (t === 'HR') return; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+            nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
             const teamRows = Object.entries(teamMap)
               .filter(([team]) => /^ufs\s*\d+$/i.test((team || '').trim()))
               .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
-              .concat([['Locker', teamMap['Locker'] || 0]]);
+              .concat([['Locker', teamMap['Locker'] || 0], ['HR', teamMap['HR'] || 0]]);
             return (
               <div style={{ padding: '14px 18px', display: 'flex', flexWrap: 'nowrap', gap: 12, justifyContent: 'space-between' }}>
                 {teamRows.map(([team, count]) => {
