@@ -1,7 +1,6 @@
-import db from '../config/db.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { getStationAssignmentsByNgo, ensureStationsExist } from '../models/froStationAssignmentModel.js';
-import { batchCreateAssignments } from '../models/froAssignmentModel.js';
+import { getActiveAssignmentDonorIds, batchCreateAssignments } from '../models/froAssignmentModel.js';
 import { updateNewDataStatusByNgoAndMobiles } from '../models/newDataModel.js';
 
 export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
@@ -40,14 +39,7 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
     if (!profiles || profiles.length === 0) continue;
     const profileIds = profiles.map(p => p.id);
 
-    const { data: existing } = await db
-      .from('fro_assignments')
-      .select('donor_id')
-      .in('donor_id', profileIds)
-      .eq('ngo_id', ngoId)
-      .not('status', 'eq', 'reassigned');
-
-    const assignedSet = new Set((existing || []).map(a => a.donor_id));
+    const assignedSet = await getActiveAssignmentDonorIds(ngoId, profileIds);
     const unassignedProfiles = profiles.filter(p => !assignedSet.has(p.id));
     if (unassignedProfiles.length === 0) continue;
 
@@ -173,14 +165,7 @@ export async function roundRobinAssignToStations(ngoName, ngoId, pickedStations,
   if (!profiles || profiles.length === 0) return { assigned: 0, stationBreakdown: {} };
 
   const profileIds = profiles.map(p => p.id);
-  const { data: existing } = await db
-    .from('fro_assignments')
-    .select('donor_id')
-    .in('donor_id', profileIds)
-    .eq('ngo_id', ngoId)
-    .not('status', 'eq', 'reassigned');
-
-  const assignedSet = new Set((existing || []).map(a => a.donor_id));
+  const assignedSet = await getActiveAssignmentDonorIds(ngoId, profileIds);
   const unassignedProfiles = profiles.filter(p => !assignedSet.has(p.id));
   if (unassignedProfiles.length === 0) return { assigned: 0, stationBreakdown: {} };
 

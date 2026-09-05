@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobiles, getExistingMobilesGlobal } from '../models/newDataModel.js';
+import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobilesForNgo } from '../models/newDataModel.js';
 import { upsertDonorProfilesBatch } from '../models/donorProfileModel.js';
 import db from '../config/db.js';
 import {
@@ -67,26 +67,21 @@ export const uploadImport = async (req, res) => {
 
     const { deduped, duplicatesRemoved } = dedupRows(validRows);
 
-    // Cross-batch dedup: remove mobiles already existing in any previous import
-    let existingMobiles;
+    // Cross-batch dedup is applied PER-NGO: a mobile is skipped only for the
+    // NGOs that already have it (old-data OD assignment, prior new_data row or
+    // an earlier fresh distribution). NGOs that do NOT have it still receive it.
+    const allMobiles = deduped.map(r => r.mobile_number);
     let freshData = false;
     let ngoStations = null;
     try { freshData = req.body.fresh_data === true || req.body.fresh_data === 'true'; } catch {}
     try { ngoStations = req.body.ngo_stations ? (typeof req.body.ngo_stations === 'string' ? JSON.parse(req.body.ngo_stations) : req.body.ngo_stations) : null; } catch {}
-
-    if (freshData) {
-      existingMobiles = await getExistingMobilesGlobal(deduped.map(r => r.mobile_number));
-    } else {
-      existingMobiles = await getExistingMobiles(deduped.map(r => r.mobile_number));
-    }
-    const trulyNew = deduped.filter(r => !existingMobiles.has(r.mobile_number));
-    const crossBatchDups = deduped.length - trulyNew.length;
 
     if (freshData && ngoStations && typeof ngoStations === 'object' && Object.keys(ngoStations).length > 0) {
       const importBatchId = uuidv4();
       const ngoResults = {};
       let totalImported = 0;
       let totalAssigned = 0;
+      let crossBatchDups = 0;
       const allNgoNames = Object.keys(ngoStations);
 
       for (const ngoName of allNgoNames) {
@@ -97,9 +92,14 @@ export const uploadImport = async (req, res) => {
         if (!ngoRow) continue;
         const ngoId = ngoRow.id;
 
+        // Per-NGO dedup: skip only the mobiles THIS NGO already has
+        const existingForNgo = await getExistingMobilesForNgo(allMobiles, ngoName);
+        const allowed = deduped.filter(r => !existingForNgo.has(r.mobile_number));
+        crossBatchDups += deduped.length - allowed.length;
+
         // Insert rows into new_data for this NGO
         const dbRows = [];
-        for (const r of trulyNew) {
+        for (const r of allowed) {
           const row = {
             data_source_id,
             import_date: date,
@@ -157,7 +157,7 @@ export const uploadImport = async (req, res) => {
         totalImported += inserted;
 
         // Create donor_profiles for this NGO's fresh rows
-        const profiles = trulyNew.map(row => ({
+        const profiles = allowed.map(row => ({
           mobile_number: row.mobile_number,
           name: row.name || null,
           bank_donor_name: row.bank_donor_name || null,
@@ -239,12 +239,19 @@ export const uploadImport = async (req, res) => {
 
     const importBatchId = uuidv4();
 
-    // Send each record to selected NGOs (one row per NGO)
+    // Send each record to selected NGOs (one row per NGO), skipping per NGO a
+    // mobile that this specific NGO already has (old-data OD / earlier import).
     const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
     const dbRows = [];
+    let crossBatchDups = 0;
 
-    for (const r of trulyNew) {
-      for (const ngo of ngoNames) {
+    for (const ngo of ngoNames) {
+      const existingForNgo = await getExistingMobilesForNgo(allMobiles, ngo);
+      for (const r of deduped) {
+        if (existingForNgo.has(r.mobile_number)) {
+          crossBatchDups++;
+          continue;
+        }
         const row = {
           data_source_id,
           import_date: date,
@@ -312,7 +319,7 @@ export const uploadImport = async (req, res) => {
     let assignedDonors = 0;
     let stationBreakdown = {};
     try {
-      const result = await autoAssignDonorsToStations(trulyNew, importBatchId, selectedNgos, req.user?.id || 'system');
+      const result = await autoAssignDonorsToStations(deduped, importBatchId, selectedNgos, req.user?.id || 'system');
       assignedDonors = result.totalAssigned;
       stationBreakdown = result.breakdown;
     } catch (assignErr) {
@@ -334,7 +341,7 @@ export const uploadImport = async (req, res) => {
       distribution: distribution.join('; '),
       ngo_counts: ngoCounts,
       ngos_used: ngoNames.length,
-      per_ngo_count: trulyNew.length,
+      per_ngo_count: deduped.length,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -367,23 +374,22 @@ export const uploadChunk = async (req, res) => {
     try { parsedNgoStations = ngo_stations ? (typeof ngo_stations === 'string' ? JSON.parse(ngo_stations) : ngo_stations) : null; } catch {}
 
     if (isFreshData && parsedNgoStations && typeof parsedNgoStations === 'object' && Object.keys(parsedNgoStations).length > 0) {
-      // Fresh data mode: global dedup against donor_profiles too
-      const existingMobiles = await getExistingMobilesGlobal(validRows.map(r => r.mobile_number));
-      const trulyNewRows = validRows.filter(r => !existingMobiles.has(r.mobile_number));
-      const crossBatchDups = validRows.length - trulyNewRows.length;
-      if (trulyNewRows.length === 0) {
-        return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, cross_batch_duplicates: crossBatchDups, message: 'All mobiles already exist in donor_profiles', done: chunk_index === total_chunks - 1 });
-      }
-
-      // Fresh data mode: insert per-NGO from ngo_stations picker
+      // Fresh data mode: per-NGO dedup — skip only the mobiles this NGO already has
+      const allMobileNumbers = validRows.map(r => r.mobile_number);
       let totalInserted = 0;
+      let crossBatchDups = 0;
       const ngoResults = {};
 
       for (const [ngoName, pickedStations] of Object.entries(parsedNgoStations)) {
         if (!Array.isArray(pickedStations) || pickedStations.length === 0) continue;
 
+        const existingForNgo = await getExistingMobilesForNgo(allMobileNumbers, ngoName);
+        const allowed = validRows.filter(r => !existingForNgo.has(r.mobile_number));
+        crossBatchDups += validRows.length - allowed.length;
+        if (allowed.length === 0) continue;
+
         const dbRows = [];
-        for (const r of trulyNewRows) {
+        for (const r of allowed) {
           dbRows.push({
             data_source_id,
             import_date,
@@ -459,26 +465,18 @@ export const uploadChunk = async (req, res) => {
 
     const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
 
-    // Cross-batch dedup: skip mobiles already present in previous imports
-    const existingMobiles = await getExistingMobiles(validRows.map(r => r.mobile_number));
-    const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
-    const crossBatchDups = validRows.length - trulyNew.length;
-    if (trulyNew.length === 0) {
-      return res.json({
-        inserted: 0,
-        unique_donors: 0,
-        invalid_mobile_count: invalidMobileCount,
-        cross_batch_duplicates: crossBatchDups,
-        batch_id: importBatchId,
-        chunk_index,
-        total_chunks,
-        done: chunk_index === total_chunks - 1,
-      });
-    }
-
+    // Cross-batch dedup per NGO: skip a mobile only for the ones that already have it
+    const allMobileNumbers = validRows.map(r => r.mobile_number);
     const dbRows = [];
-    for (const r of trulyNew) {
-      for (const ngo of ngoNames) {
+    let crossBatchDups = 0;
+
+    for (const ngo of ngoNames) {
+      const existingForNgo = await getExistingMobilesForNgo(allMobileNumbers, ngo);
+      for (const r of validRows) {
+        if (existingForNgo.has(r.mobile_number)) {
+          crossBatchDups++;
+          continue;
+        }
         dbRows.push({
           data_source_id,
           import_date,
@@ -491,6 +489,19 @@ export const uploadChunk = async (req, res) => {
           data_category: r.data_category || bodyDataCategory || null,
         });
       }
+    }
+
+    if (dbRows.length === 0) {
+      return res.json({
+        inserted: 0,
+        unique_donors: 0,
+        invalid_mobile_count: invalidMobileCount,
+        cross_batch_duplicates: crossBatchDups,
+        batch_id: importBatchId,
+        chunk_index,
+        total_chunks,
+        done: chunk_index === total_chunks - 1,
+      });
     }
 
     // Dedup within chunk
@@ -518,7 +529,7 @@ export const uploadChunk = async (req, res) => {
     for (const row of deduped) {
       ngoCounts[row.ngo] = (ngoCounts[row.ngo] || 0) + 1;
     }
-    const uniqueDonors = new Set(trulyNew.map(r => r.mobile_number)).size;
+    const uniqueDonors = new Set(deduped.map(r => r.mobile_number)).size;
 
     return res.json({
       inserted,
@@ -573,11 +584,6 @@ export const uploadOldDataImport = async (req, res) => {
       return res.status(400).json({ message: 'No valid 10-digit mobile numbers found in file' });
     }
 
-    // Cross-batch dedup
-    const existingMobiles = await getExistingMobiles(validRows.map(r => r.mobile_number));
-    const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
-    const crossBatchDups = validRows.length - trulyNew.length;
-
     const { data: ngos, error: nErr } = await db
       .from('ngos')
       .select('id, name')
@@ -586,12 +592,21 @@ export const uploadOldDataImport = async (req, res) => {
 
     const importBatchId = uuidv4();
 
-    // Send to ALL active NGOs
+    // Send to ALL active NGOs — per-NGO dedup: skip a mobile only for the NGOs
+    // that already have it (old-data OD assignment / prior import), keep it for
+    // NGOs that do NOT have it yet.
     const ngoNames = ngos && ngos.length > 0 ? ngos.map(n => n.name) : ['Default'];
+    const allMobileNumbers = validRows.map(r => r.mobile_number);
     const dbRows = [];
+    let crossBatchDups = 0;
 
-    for (const r of trulyNew) {
-      for (const ngo of ngoNames) {
+    for (const ngo of ngoNames) {
+      const existingForNgo = await getExistingMobilesForNgo(allMobileNumbers, ngo);
+      for (const r of validRows) {
+        if (existingForNgo.has(r.mobile_number)) {
+          crossBatchDups++;
+          continue;
+        }
         const row = {
           data_source_id,
           import_date: date,
@@ -635,13 +650,18 @@ export const uploadOldDataImport = async (req, res) => {
       }
     }
 
+    const uniqueImportedMobiles = new Set(dbRows.map(r => r.mobile_number)).size;
+
     const inserted = await insertNewDataBatch(dbRows);
 
     let profilesCreated = 0;
     const errors = [];
     // Only create profiles for first NGO entry to avoid duplicates
     const firstNgoName = ngoNames[0] || 'Default';
-    const profiles = trulyNew.map(row => ({
+    const firstNgoExisting = await getExistingMobilesForNgo(allMobileNumbers, firstNgoName);
+    const profiles = validRows
+      .filter(row => !firstNgoExisting.has(row.mobile_number))
+      .map(row => ({
       mobile_number: row.mobile_number,
       name: row.name || null,
       bank_donor_name: row.bank_donor_name || null,
@@ -680,7 +700,7 @@ export const uploadOldDataImport = async (req, res) => {
     let assignedDonors = 0;
     let stationBreakdown = {};
     try {
-      const result = await autoAssignDonorsToStations(trulyNew, importBatchId, ngos, req.user?.id || 'system');
+      const result = await autoAssignDonorsToStations(validRows, importBatchId, ngos, req.user?.id || 'system');
       assignedDonors = result.totalAssigned;
       stationBreakdown = result.breakdown;
     } catch (assignErr) {
@@ -696,7 +716,7 @@ export const uploadOldDataImport = async (req, res) => {
       total_in_file: extracted.length,
       invalid_mobile_count: invalidMobileCount,
       cross_batch_duplicates: crossBatchDups,
-      valid_rows: trulyNew.length,
+      valid_rows: uniqueImportedMobiles,
       imported: inserted.length,
       profiles_created: profilesCreated,
       assigned_donors: assignedDonors,

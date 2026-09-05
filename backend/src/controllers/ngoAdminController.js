@@ -6,6 +6,7 @@ import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { updateNewDataStatusByNgoAndMobiles } from '../models/newDataModel.js';
 import {
   batchCreateAssignments,
+  getActiveAssignmentDonorIds,
   findAssignmentsByNgo,
   getStationDispositionStats,
   getDonorsByStationAndStatus,
@@ -2159,34 +2160,12 @@ export const distributeNewData = async (req, res) => {
       console.log(`[${ngoName}] newProfileIds:`, newProfileIds.length, 'existingProfileIds:', existingProfileIds.length, 'allIds:', allIds.length);
       if (allIds.length === 0) { console.log(`[${ngoName}] SKIP — allIds empty`); continue; }
 
-      const { data: froAsgn } = await db
-        .from('fro_assignments')
-        .select('donor_id')
-        .in('donor_id', allIds)
-        .eq('ngo_id', ngoId)
-        .not('status', 'eq', 'reassigned');
+      const assignedSet = await getActiveAssignmentDonorIds(ngoId, allIds);
 
-      const assignedSet = new Set(froAsgn ? froAsgn.map(a => a.donor_id) : []);
-      const hasFdStations = selectedStations && selectedStations.some(s => /^(?:[BAM]?)FD-/i.test(String(s || '')));
-
-      let idsToAssign;
-      if (hasFdStations && assignedSet.size > 0) {
-        // Fresh data FD distribution: reassign ALL donors, mark existing as reassigned
-        const assignedIds = allIds.filter(id => assignedSet.has(id));
-        console.log(`[${ngoName}] Reassigning ${assignedIds.length} existing donors to FD stations`);
-        for (let i = 0; i < assignedIds.length; i += 500) {
-          const batch = assignedIds.slice(i, i + 500);
-          await db.from('fro_assignments')
-            .update({ status: 'reassigned', updated_at: new Date().toISOString() })
-            .in('donor_id', batch)
-            .eq('ngo_id', ngoId)
-            .not('status', 'eq', 'reassigned');
-        }
-        idsToAssign = allIds;
-      } else {
-        // Old station distribution: skip already-assigned donors
-        idsToAssign = allIds.filter(id => !assignedSet.has(id));
-      }
+      // Rule: never create a second assignment for the same (donor, NGO) pair —
+      // whether the donor already has an old-data OD assignment or an earlier
+      // fresh distribution for this NGO, it must NOT be assigned again.
+      const idsToAssign = allIds.filter(id => !assignedSet.has(id));
 
       console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'idsToAssign:', idsToAssign.length);
       if (idsToAssign.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
@@ -4110,14 +4089,9 @@ export const uploadOldDataForStation = async (req, res) => {
     const existingAssignmentKeys = new Set();
     if (donorIds.length > 0) {
       for (const { ngoId } of ngoEntries) {
-        const { data: existingAsgns } = await db
-          .from('fro_assignments')
-          .select('donor_id')
-          .eq('ngo_id', ngoId)
-          .in('donor_id', donorIds)
-          .not('status', 'eq', 'reassigned');
-        for (const a of existingAsgns || []) {
-          existingAssignmentKeys.add(`${a.donor_id}-${ngoId}`);
+        const assignedSet = await getActiveAssignmentDonorIds(ngoId, donorIds);
+        for (const donorId of assignedSet) {
+          existingAssignmentKeys.add(`${donorId}-${ngoId}`);
         }
       }
     }

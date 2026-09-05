@@ -73,7 +73,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     .eq('donor_id', donorId)
     .is('fro_worker_id', null)
     .eq('ngo_id', ngoId)
-    .not('status', 'eq', 'reassigned')
+    .or('status.neq.reassigned,status.is.null')
     .maybeSingle();
   if (unassigned) {
     await db
@@ -101,7 +101,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
       .select('id, station, fro_worker_id')
       .eq('donor_id', donorId)
       .eq('ngo_id', ngoId)
-      .not('status', 'eq', 'reassigned')
+      .or('status.neq.reassigned,status.is.null')
       .limit(20);
     for (const c of candidates || []) {
       if (!c.fro_worker_id || c.fro_worker_id === workerId) continue;

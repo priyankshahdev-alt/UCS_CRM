@@ -89,6 +89,25 @@ export const updateAssignmentStatus = async (id, updates) => {
   return data;
 };
 
+export const getActiveAssignmentDonorIds = async (ngoId, donorIds) => {
+  const ids = Array.isArray(donorIds) ? donorIds : [donorIds];
+  const activeSet = new Set();
+  if (!ngoId || ids.length === 0) return activeSet;
+  const BATCH = 500;
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH);
+    const { data, error } = await db
+      .from('fro_assignments')
+      .select('donor_id')
+      .eq('ngo_id', ngoId)
+      .in('donor_id', chunk)
+      .or('status.neq.reassigned,status.is.null');
+    if (error) throw error;
+    for (const a of data || []) activeSet.add(a.donor_id);
+  }
+  return activeSet;
+};
+
 export const getUnassignedDonorIds = async (ngoId, ngoName) => {
   let donorMobiles;
 
@@ -114,15 +133,7 @@ export const getUnassignedDonorIds = async (ngoId, ngoName) => {
   const allIds = allDonors.map(d => d.id);
   if (allIds.length === 0) return [];
 
-  const { data: assigned, error: aErr } = await db
-    .from('fro_assignments')
-    .select('donor_id')
-    .in('donor_id', allIds)
-    .eq('ngo_id', ngoId)
-    .not('status', 'eq', 'reassigned');
-  if (aErr) throw aErr;
-
-  const assignedSet = new Set(assigned.map(a => a.donor_id));
+  const assignedSet = await getActiveAssignmentDonorIds(ngoId, allIds);
   return allIds.filter(id => !assignedSet.has(id));
 };
 

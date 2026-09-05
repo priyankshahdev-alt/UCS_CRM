@@ -4176,7 +4176,7 @@ export const createDonorAssignment = async (req, res) => {
     if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
 
     const { data: existing, error: existingErr } = await db.from('fro_assignments')
-      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).not('status', 'eq', 'reassigned').maybeSingle();
+      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).or('status.neq.reassigned,status.is.null').maybeSingle();
     if (existingErr) throw existingErr;
     if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
 
