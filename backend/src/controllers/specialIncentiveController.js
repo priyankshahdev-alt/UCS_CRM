@@ -13,6 +13,7 @@ import {
   listVerifiedClaims,
   claimSpecialIncentive,
   publishWinnerCelebration,
+  archiveSpecialIncentive,
   deleteSpecialIncentive,
 } from '../services/specialIncentiveService.js';
 
@@ -36,6 +37,8 @@ const pretty = (inc) => (inc ? {
   winner_photo_url: inc.winner_photo_url || null,
   congrats_message: inc.congrats_message || null,
   celebrated_at: inc.celebrated_at || null,
+  archived_at: inc.archived_at || null,
+  archived_by: inc.archived_by || null,
   created_at: inc.created_at,
 } : null);
 
@@ -102,6 +105,7 @@ export async function activeHandler(req, res) {
         .from('special_incentives')
         .select('*')
         .not('status', 'eq', 'active')
+        .is('archived_at', null)
         .gte('created_at', new Date(now - 24 * 60 * 60 * 1000).toISOString())
         .order('created_at', { ascending: false })
         .limit(1);
@@ -133,6 +137,7 @@ export async function activeHandler(req, res) {
         .from('special_incentives')
         .select('*')
         .eq('status', 'won')
+        .is('archived_at', null)
         .not('celebrated_at', 'is', null)
         .gte('celebrated_at', new Date(now - 48 * 60 * 60 * 1000).toISOString())
         .order('celebrated_at', { ascending: false })
@@ -325,6 +330,16 @@ export async function celebrateHandler(req, res) {
       return res.status(400).json({ message: 'Unable to post — winner celebration already published' });
     }
     return res.json({ incentive: pretty(celebrated) });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function archiveHandler(req, res) {
+  try {
+    const archived = await archiveSpecialIncentive(req.params.id, req.user?.id || null);
+    if (!archived) return res.status(404).json({ message: 'Incentive not found' });
+    return res.json({ incentive: pretty(archived) });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

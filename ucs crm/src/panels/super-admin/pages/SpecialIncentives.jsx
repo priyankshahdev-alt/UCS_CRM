@@ -213,6 +213,20 @@ function HistoryList({ history, loading, onRefresh }) {
     }
   }
 
+  const archive = async (id) => {
+    if (busyId) return
+    if (!window.confirm('Archive this incentive? Its winner and photo popups will stop showing on all panels.')) return
+    setBusyId(id)
+    try {
+      await api(`/incentive/special/${id}/archive`, { method: 'POST', _prefix: 'ucs', body: JSON.stringify({}) })
+      onRefresh()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const remove = async (id) => {
     if (busyId) return
     if (!window.confirm('Delete this incentive permanently? This cannot be undone.')) return
@@ -239,8 +253,9 @@ function HistoryList({ history, loading, onRefresh }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {history.map(inc => {
         const meta = STATUS_META[inc.status] || STATUS_META.ended
+        const isArchived = !!inc.archived_at
         return (
-          <div key={inc.id} style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)' }}>
+          <div key={inc.id} style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)', opacity: isArchived ? .72 : 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{inc.title}</div>
@@ -249,10 +264,23 @@ function HistoryList({ history, loading, onRefresh }) {
               <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: meta.bg, color: meta.text }}>
                 {(inc.status === 'won' || inc.status === 'verified') ? `🏆 ${meta.label} · ${inc.winner_name || '—'}` : meta.label}
               </span>
-              {(inc.status === 'active' || inc.status === 'won') && (
-                <button onClick={() => cancel(inc.id)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fecaca', background: '#fef2f2', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
-                  {busyId === inc.id ? '…' : inc.status === 'active' ? 'Cancel' : 'Archive'}
-                </button>
+              {isArchived ? (
+                <span style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink-soft)', fontSize: 11.5, fontWeight: 800 }}>
+                  ✓ ARCHIVED
+                </span>
+              ) : (
+                <>
+                  {inc.status === 'active' && (
+                    <button onClick={() => cancel(inc.id)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fecaca', background: '#fef2f2', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
+                      {busyId === inc.id ? '…' : 'Cancel'}
+                    </button>
+                  )}
+                  {inc.status !== 'active' && (
+                    <button onClick={() => archive(inc.id)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
+                      {busyId === inc.id ? '…' : 'Archive'}
+                    </button>
+                  )}
+                </>
               )}
               <button onClick={() => remove(inc.id)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fff', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
                 Delete

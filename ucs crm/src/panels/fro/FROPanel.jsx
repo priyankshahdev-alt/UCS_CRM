@@ -23,6 +23,7 @@ import Donors from './pages/Donors'
 import IncentiveInfo from './pages/IncentiveInfo'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive from '../../components/SpecialIncentive'
+import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
@@ -966,6 +967,7 @@ export default function FROPanel() {
         onItemClick={handleDrawerItemClick}
       />
       <SpecialIncentive />
+      <LeadChampionCelebration />
       <NoticePopup />
       <ToastContainer />
     </div>

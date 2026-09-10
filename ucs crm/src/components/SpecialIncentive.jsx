@@ -370,7 +370,7 @@ export function useSpecialIncentive() {
   // Celebration when an incentive resolves as "won" — once per id.
   useEffect(() => {
     const closed = (data.recent || [])[0];
-    if (closed && closed.status === 'won' && !celebrationShownRef.current.has(closed.id) && !hasInSet(CELEB_KEY, closed.id)) {
+    if (closed && closed.status === 'won' && !closed.archived_at && !celebrationShownRef.current.has(closed.id) && !hasInSet(CELEB_KEY, closed.id)) {
       celebrationShownRef.current.add(closed.id);
       addToSet(CELEB_KEY, closed.id);
       setCelebrate(closed);
@@ -383,7 +383,7 @@ export function useSpecialIncentive() {
   // on every panel (once per id per device).
   useEffect(() => {
     const c = data.celeb;
-    if (c && c.celebrated_at && !photoShownRef.current.has(c.id) && !hasInSet(CELEB_PHOTO_KEY, c.id)) {
+    if (c && c.celebrated_at && !c.archived_at && !photoShownRef.current.has(c.id) && !hasInSet(CELEB_PHOTO_KEY, c.id)) {
       photoShownRef.current.add(c.id);
       addToSet(CELEB_PHOTO_KEY, c.id);
       setPhotoCeleb(c);

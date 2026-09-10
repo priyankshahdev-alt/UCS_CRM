@@ -132,21 +132,23 @@
 
 /* Two-column section layout */
 .dash-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 20px;
   margin-bottom: 24px;
-  align-items: start;
 }
-.dash-row.triple {
-  grid-template-columns: 1fr 1fr 1fr;
+.dash-row > .dash-section {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 0;
 }
-.dash-row.asymmetric {
-  grid-template-columns: 1fr 1fr;
-  align-items: start;
+.dash-row.triple > .dash-section {
+  flex: 1 1 calc(33.333% - 14px);
+}
+.dash-row.asymmetric > .dash-section {
+  flex: 1 1 calc(50% - 10px);
 }
 .dash-row .full {
-  grid-column: 1 / -1;
+  flex: 0 0 100%;
 }
 
 /* Section blocks */
@@ -595,14 +597,8 @@
   .dash-summary {
     grid-template-columns: repeat(2, 1fr);
   }
-  .dash-row {
-    grid-template-columns: 1fr;
-  }
-  .dash-row.triple {
-    grid-template-columns: 1fr;
-  }
-  .dash-row.asymmetric {
-    grid-template-columns: 1fr;
+  .dash-row > .dash-section {
+    flex: 0 0 100%;
   }
 }
 @media (max-width: 600px) {

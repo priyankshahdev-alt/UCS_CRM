@@ -11,6 +11,8 @@ import {
 import {
   getDailySummary,
   getFroDetail,
+  getCurrentChampion,
+  announceChampion,
 } from '../services/leadIncentiveService.js';
 
 // ─── Settings ──────────────────────────────────────────────
@@ -143,6 +145,31 @@ export async function froDetailHandler(req, res) {
     const detail = await getFroDetail(req.params.id, date);
     if (!detail) return res.status(404).json({ message: 'FRO not found' });
     return res.json(detail);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Get the current/announced champion (FRO-facing, any role).
+export async function currentChampionHandler(req, res) {
+  try {
+    const date = req.query.date || null;
+    const champion = await getCurrentChampion(date);
+    return res.json({ announcement: champion });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Admin declares today's champion. Locks snapshot + notifies all panels.
+export async function announceChampionHandler(req, res) {
+  try {
+    const { date, message } = req.body || {};
+    const result = await announceChampion({ date, message, userId: req.user?.id });
+    if (result.error) {
+      return res.status(400).json({ message: result.error });
+    }
+    return res.status(201).json(result);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

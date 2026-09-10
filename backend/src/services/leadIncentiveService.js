@@ -1,6 +1,31 @@
 import db, { sql } from '../config/db.js';
 import { getActiveSlabs } from '../models/incentiveSlabModel.js';
 import { getSettings } from '../models/incentiveSettingsModel.js';
+import {
+  getAnnouncementByDate,
+  insertAnnouncement,
+} from '../models/leadChampionModel.js';
+
+// Recipients for champion announcement: FROs, Accounts, HR, Admin, Super Admin.
+const RECIPIENT_SQL = `
+  SELECT id FROM workers
+  WHERE is_active = true
+    AND (
+      lower(coalesce(department, '')) IN ('fro', 'accounts', 'hr', 'admin', 'ngo admin')
+      OR lower(coalesce(role, '')) IN ('super_admin', 'admin')
+    )
+`;
+
+const sendNotificationLogs = async (rows) => {
+  if (!rows || rows.length === 0) return;
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200);
+    const { error } = await db.from('notification_log').insert(chunk);
+    if (error) console.error('[lead champion] notification insert:', error.message);
+  }
+};
+
+const fmtMoney = (n) => Number(n || 0).toLocaleString('en-IN');
 
 // Query: all active FRO workers
 const ACTIVE_FROS_SQL = `
@@ -189,22 +214,23 @@ export const getFroDetail = async (froId, date) => {
 
   const calc = await calculateFroLeadIncentive(froId, date, slabs, settings);
 
-  // Enrich leads with donor names
+  // Enrich leads with donor names + mobile
   const leadIds = calc.leads.map(l => l.donor_id).filter(Boolean);
   let donorMap = {};
   if (leadIds.length > 0) {
     const { data: donors } = await db
       .from('donor_profiles')
-      .select('id, name')
+      .select('id, name, mobile_number')
       .in('id', leadIds);
     for (const d of donors || []) {
-      donorMap[d.id] = d.name;
+      donorMap[d.id] = { name: d.name, mobile: d.mobile_number };
     }
   }
 
   const enrichedLeads = calc.leads.map(l => ({
     ...l,
-    donor_name: donorMap[l.donor_id] || 'Unknown',
+    donor_name: donorMap[l.donor_id]?.name || 'Unknown',
+    donor_mobile: donorMap[l.donor_id]?.mobile || null,
   }));
 
   return {
@@ -222,4 +248,75 @@ export const getFroDetail = async (froId, date) => {
     total_incentive: calc.lead_incentive + calc.slab_bonus,
     leads: enrichedLeads,
   };
+};
+
+// Get the current/latest champion announcement for FRO-facing display.
+export const getCurrentChampion = async (date) => {
+  let q = db
+    .from('lead_champion_announcements')
+    .select('*')
+    .order('announcement_date', { ascending: false })
+    .limit(1);
+  if (date) q = q.eq('announcement_date', date);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data && data[0]) || null;
+};
+
+// Admin announces the champion for a date. Locks the current top FRO into a
+// snapshot and broadcasts a notification to every panel.
+export const announceChampion = async ({ date, message, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+
+  // Refuse if already announced for this date.
+  const existing = await getAnnouncementByDate(targetDate);
+  if (existing) {
+    return { error: 'Champion already announced for this date' };
+  }
+
+  const summary = await getDailySummary(targetDate);
+  const champion = summary.champion;
+  if (!champion) {
+    return { error: 'No leads found for this date to announce' };
+  }
+
+  const settings = summary.settings;
+  const froRow = summary.fros.find(f => f.fro_id === champion.fro_id);
+
+  const announcement = await insertAnnouncement({
+    announcement_date: targetDate,
+    fro_worker_id: champion.fro_id,
+    fro_name: champion.fro_name,
+    total_leads: froRow?.total_leads || 0,
+    qualified_leads: froRow?.qualified_leads || 0,
+    total_amount: champion.total_amount,
+    lead_incentive: froRow?.lead_incentive || 0,
+    slab_bonus: froRow?.slab_bonus || 0,
+    champion_bonus: settings.champion_bonus,
+    total_incentive: froRow ? froRow.total_incentive : champion.total_amount,
+    message: typeof message === 'string' && message.trim() ? message.trim() : null,
+    announced_by: userId || null,
+  });
+
+  // Broadcast to all recipients via notification_log.
+  try {
+    const rows = await sql(RECIPIENT_SQL);
+    if (rows && rows.length > 0) {
+      const title = `🏆 Champion: ${champion.fro_name}`;
+      const body = message && String(message).trim()
+        ? String(message).trim()
+        : `${champion.fro_name} collected ₹${fmtMoney(champion.total_amount)} from ${froRow?.qualified_leads || 0} qualified leads → total incentive ₹${fmtMoney(announcement.total_incentive)}! 🎉`;
+      await sendNotificationLogs(rows.map(r => ({
+        worker_id: r.id,
+        type: 'lead_champion',
+        title,
+        body,
+        reference_id: String(announcement.id),
+      })));
+    }
+  } catch (e) {
+    console.error('[lead champion] notify:', e.message);
+  }
+
+  return { announcement };
 };

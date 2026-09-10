@@ -11,6 +11,7 @@ import {
   claimsHandler,
   verifyClaimHandler,
   celebrateHandler,
+  archiveHandler,
   deleteHandler,
 } from '../controllers/specialIncentiveController.js';
 
@@ -32,6 +33,7 @@ router.post('/:id/refresh', popupLevel, refreshHandler);
 router.post('/:id/cancel', sirLevel, cancelHandler);
 router.post('/:id/claim', claimLevel, verifyClaimHandler);
 router.post('/:id/celebrate', sirLevel, celebrateHandler);
+router.post('/:id/archive', sirLevel, archiveHandler);
 router.delete('/:id', sirLevel, deleteHandler);
 
 export default router;

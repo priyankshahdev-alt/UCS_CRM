@@ -40,6 +40,11 @@ ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS winner_name TEXT;
 ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS winner_photo_url TEXT;
 ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS congrats_message TEXT;
 ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS celebrated_at TIMESTAMPTZ;
+
+-- Archive: admins can archive a resolved incentive so its winner/photo popups
+-- stop being delivered to panels entirely.
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS archived_by UUID REFERENCES workers(id) ON DELETE SET NULL;
 `;
 
 const LEAD_INCENTIVE_SQL = `
@@ -60,6 +65,7 @@ CREATE TABLE IF NOT EXISTS incentive_settings (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_incentive_slabs_range ON incentive_slabs(min_amount, max_amount);
 CREATE INDEX IF NOT EXISTS idx_incentive_slabs_active ON incentive_slabs(is_active);
 CREATE INDEX IF NOT EXISTS idx_incentive_settings_key ON incentive_settings(setting_key);
 
@@ -69,14 +75,39 @@ INSERT INTO incentive_settings (setting_key, setting_value) VALUES
   ('champion_bonus', 250)
 ON CONFLICT (setting_key) DO NOTHING;
 
-INSERT INTO incentive_slabs (min_amount, max_amount, incentive_amount) VALUES
+-- Only seed slabs if table is empty (prevents duplicates on restart)
+INSERT INTO incentive_slabs (min_amount, max_amount, incentive_amount)
+SELECT * FROM (VALUES
   (0, 20000, 0),
   (20000, 50000, 500),
   (50000, 80000, 1000),
   (80000, 135000, 2000),
   (135000, 200000, 3500),
   (200000, 350000, 5000)
-ON CONFLICT DO NOTHING;
+) AS v(min_amount, max_amount, incentive_amount)
+WHERE NOT EXISTS (SELECT 1 FROM incentive_slabs LIMIT 1);
+`;
+
+const CHAMPION_ANNOUNCEMENT_SQL = `
+CREATE TABLE IF NOT EXISTS lead_champion_announcements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  announcement_date DATE NOT NULL UNIQUE,
+  fro_worker_id UUID REFERENCES workers(id) ON DELETE SET NULL,
+  fro_name TEXT,
+  total_leads INT DEFAULT 0,
+  qualified_leads INT DEFAULT 0,
+  total_amount NUMERIC(12,2) DEFAULT 0,
+  lead_incentive NUMERIC(12,2) DEFAULT 0,
+  slab_bonus NUMERIC(12,2) DEFAULT 0,
+  champion_bonus NUMERIC(12,2) DEFAULT 0,
+  total_incentive NUMERIC(12,2) DEFAULT 0,
+  message TEXT,
+  announced_by UUID REFERENCES workers(id) ON DELETE SET NULL,
+  announced_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_champion_date ON lead_champion_announcements(announcement_date);
 `;
 
 export async function ensureSpecialIncentiveSchema() {
@@ -91,5 +122,11 @@ export async function ensureSpecialIncentiveSchema() {
     console.log('incentive_slabs + incentive_settings tables ready');
   } catch (e) {
     console.warn('[lead incentive schema] skip:', e?.message || String(e));
+  }
+  try {
+    await db._pool.query(CHAMPION_ANNOUNCEMENT_SQL);
+    console.log('lead_champion_announcements table ready');
+  } catch (e) {
+    console.warn('[lead champion schema] skip:', e?.message || String(e));
   }
 }

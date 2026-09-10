@@ -235,38 +235,8 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
   )
 }
 
-// ─── Champion Banner ──────────────────────────────────────
-function ChampionBanner({ champion }) {
-  if (!champion) return null
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
-      borderRadius: 14, background: 'linear-gradient(135deg,#fef3c7,#fde68a)',
-      border: '2px solid #f59e0b', boxShadow: '0 4px 14px rgba(245,158,11,.2)',
-    }}>
-      <span style={{ fontSize: 28 }}>🏆</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>
-          Today's Champion: {champion.fro_name}
-        </div>
-        <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
-          Highest collection: ₹{fmt(champion.total_amount)} from qualified leads
-        </div>
-      </div>
-      <div style={{
-        padding: '6px 14px', borderRadius: 999, background: '#f59e0b', color: '#fff',
-        fontSize: 14, fontWeight: 900, whiteSpace: 'nowrap',
-      }}>
-        +₹{fmt(champion.bonus)}
-      </div>
-    </div>
-  )
-}
-
 // ─── FRO Lead Summary ─────────────────────────────────────
-function FroLeadSummary({ fros, champion, settings, onSelectFro }) {
-  const [expanded, setExpanded] = useState(null)
-
+function FroLeadSummary({ fros, champion, settings, date, onSelectFro }) {
   return (
     <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, background: 'var(--card-bg)', overflow: 'hidden' }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -297,7 +267,6 @@ function FroLeadSummary({ fros, champion, settings, onSelectFro }) {
           <tbody>
             {fros.map(fro => {
               const isChampion = champion && champion.fro_id === fro.fro_id
-              const isExpanded = expanded === fro.fro_id
               const slabLabel = fro.slab
                 ? `₹${fmt(fro.slab.min_amount)} – ₹${fmt(fro.slab.max_amount)}`
                 : '—'
@@ -307,10 +276,8 @@ function FroLeadSummary({ fros, champion, settings, onSelectFro }) {
                   key={fro.fro_id}
                   fro={fro}
                   isChampion={isChampion}
-                  isExpanded={isExpanded}
                   slabLabel={slabLabel}
-                  settings={settings}
-                  onToggle={() => setExpanded(isExpanded ? null : fro.fro_id)}
+                  onSelect={onSelectFro}
                 />
               )
             })}
@@ -326,120 +293,207 @@ function FroLeadSummary({ fros, champion, settings, onSelectFro }) {
       </div>
 
       <div style={{ padding: '8px 18px', borderTop: '1px solid var(--line)', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>
-        Leads auto-calculated from verified lead_done dispositions · Click row to see individual leads
+        Leads auto-calculated from verified lead_done dispositions · Click a row to view individual leads
       </div>
     </div>
   )
 }
 
-// ─── FRO Row (with expandable leads) ──────────────────────
-function FroRow({ fro, isChampion, isExpanded, slabLabel, settings }) {
-  const [leads, setLeads] = useState(null)
-  const [loadingLeads, setLoadingLeads] = useState(false)
+// ─── FRO Row (click to open detail modal) ─────────────────
+function FroRow({ fro, isChampion, slabLabel, onSelect }) {
+  return (
+    <tr
+      onClick={() => onSelect && onSelect(fro.fro_id)}
+      style={{
+        borderBottom: '1px solid var(--line)',
+        cursor: 'pointer',
+        background: isChampion ? '#fffdf5' : 'transparent',
+      }}
+    >
+      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--ink)' }}>
+        <span style={{ marginRight: 6, fontSize: 11, color: 'var(--ink-soft)' }}>👁</span>
+        {fro.fro_name}
+        {isChampion && <span style={{ marginLeft: 6, fontSize: 12 }}>🏆</span>}
+      </td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>₹{fmt(fro.target)}</td>
+      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{slabLabel}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--ink)' }}>{fro.total_leads}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{fro.qualified_leads}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>₹{fmt(fro.total_amount)}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink)' }}>₹{fmt(fro.lead_incentive)}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', color: '#b45309' }}>₹{fmt(fro.slab_bonus)}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', color: isChampion ? '#f59e0b' : 'var(--ink-soft)' }}>
+        {fro.champion_bonus > 0 ? `₹${fmt(fro.champion_bonus)}` : '—'}
+      </td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: '#b45309', fontSize: 14 }}>
+        ₹{fmt(fro.total_incentive)}
+      </td>
+    </tr>
+  )
+}
 
-  const toggleExpand = async () => {
-    if (isExpanded) {
-      setLeads(null)
-      return
-    }
-    // Leads are already in the fro object from daily summary
-    setLeads(fro.leads || [])
+// ─── FRO Detail Modal ─────────────────────────────────────
+function FroDetailModal({ froId, date, champion, onClose }) {
+  const [detail, setDetail] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setError(null)
+    api(`/incentive/lead/lead-summary/fro/${froId}?date=${date}`, { _prefix: 'ucs' })
+      .then(data => { if (alive) setDetail(data) })
+      .catch(e => { if (alive) setError(e.message || 'Failed to load detail') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [froId, date])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (loading) {
+    return (
+      <div style={overlayStyle} onClick={onClose}>
+        <div style={modalCardStyle} onClick={e => e.stopPropagation()}>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>Loading leads…</div>
+        </div>
+      </div>
+    )
   }
 
-  const slabFmt = (n) => {
-    const v = Number(n)
-    if (v >= 100000) return `₹${(v / 100000).toFixed(v % 100000 === 0 ? 0 : 1)}L`
-    if (v >= 1000) return `₹${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K`
-    return `₹${v}`
+  if (error) {
+    return (
+      <div style={overlayStyle} onClick={onClose}>
+        <div style={modalCardStyle} onClick={e => e.stopPropagation()}>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 20 }}>
+            <button onClick={onClose} style={btnStyle('var(--line)', 'var(--ink)')}>Close</button>
+          </div>
+        </div>
+      </div>
+    )
   }
+
+  if (!detail) return null
+
+  const isChampion = champion && champion.fro_id === detail.fro_id
+  const slabLabel = detail.slab
+    ? `₹${fmt(detail.slab.min_amount)} – ₹${fmt(detail.slab.max_amount)}`
+    : '—'
+
+  const stat = (label, value, color) => (
+    <div style={{
+      borderRadius: 12, padding: '12px 14px', background: 'var(--bg)',
+      border: '1.5px solid var(--line)', textAlign: 'center', minWidth: 110, flex: 1,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 900, color: color || 'var(--ink)', marginTop: 4 }}>{value}</div>
+    </div>
+  )
 
   return (
-    <>
-      <tr
-        onClick={() => toggleExpand()}
-        style={{
-          borderBottom: '1px solid var(--line)',
-          cursor: 'pointer',
-          background: isChampion ? '#fffdf5' : isExpanded ? 'var(--bg)' : 'transparent',
-        }}
-      >
-        <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--ink)' }}>
-          <span style={{ marginRight: 6, fontSize: 11, color: 'var(--ink-soft)' }}>{isExpanded ? '▼' : '▶'}</span>
-          {fro.fro_name}
-          {isChampion && <span style={{ marginLeft: 6, fontSize: 12 }}>🏆</span>}
-        </td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>₹{fmt(fro.target)}</td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{slabLabel}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--ink)' }}>{fro.total_leads}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{fro.qualified_leads}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>₹{fmt(fro.total_amount)}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink)' }}>₹{fmt(fro.lead_incentive)}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#b45309' }}>₹{fmt(fro.slab_bonus)}</td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', color: isChampion ? '#f59e0b' : 'var(--ink-soft)' }}>
-          {fro.champion_bonus > 0 ? `₹${fmt(fro.champion_bonus)}` : '—'}
-        </td>
-        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: '#b45309', fontSize: 14 }}>
-          ₹{fmt(fro.total_incentive)}
-        </td>
-      </tr>
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalCardStyle, width: 'min(760px, 100%)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        {/* Modal header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg,#fffdf5,#fef3c7)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🏆</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>
+              {detail.fro_name}
+              {isChampion && <span style={{ marginLeft: 6, fontSize: 13 }}>🏆</span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+              {fmtDate(detail.date)} · Lead detail
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 50, background: 'var(--line)', border: 'none', fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontSize: 14 }}>✕</button>
+        </div>
 
-      {/* Expanded leads detail */}
-      {isExpanded && (
-        <tr>
-          <td colSpan={10} style={{ padding: 0 }}>
-            <div style={{ padding: '12px 18px 16px', background: 'var(--bg)', borderBottom: '2px solid var(--line)' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 8 }}>
-                Individual Leads ({fro.leads?.length || 0})
-              </div>
-              {fro.leads && fro.leads.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {fro.leads.map((lead, i) => (
-                    <div key={lead.id || i} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
-                      borderRadius: 8, background: 'var(--card-bg)', fontSize: 12,
-                      border: lead.qualified ? '1px solid #bbf7d0' : '1px solid var(--line)',
-                    }}>
-                      <span style={{
-                        width: 20, height: 20, borderRadius: 50,
-                        background: lead.qualified ? '#dcfce7' : '#f1f5f9',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, color: lead.qualified ? '#16a34a' : '#94a3b8',
-                      }}>
-                        {lead.qualified ? '✓' : '✗'}
-                      </span>
-                      <span style={{ flex: 1, fontWeight: 600, color: 'var(--ink)' }}>
-                        {lead.donor_name || `Donor #${lead.donor_id || '—'}`}
-                      </span>
-                      <span style={{ fontWeight: 800, color: lead.qualified ? '#16a34a' : 'var(--ink-soft)' }}>
-                        ₹{fmt(lead.amount)}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-                        {fmtDate(lead.verified_at)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
-                  No leads for this date
-                </div>
-              )}
+        <div style={{ overflowY: 'auto', padding: '16px 20px 20px' }}>
+          {/* Stats grid */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+            {stat('Target', `₹${fmt(detail.target)}`)}
+            {stat('Slab', slabLabel)}
+            {stat('Leads', detail.total_leads)}
+            {stat('Qualified', detail.qualified_leads, '#16a34a')}
+            {stat('Amount', `₹${fmt(detail.total_amount)}`)}
+            {stat('Lead Inc.', `₹${fmt(detail.lead_incentive)}`)}
+            {stat('Slab Bonus', `₹${fmt(detail.slab_bonus)}`, '#b45309')}
+            {detail.champion_bonus > 0 && stat('Champion', `₹${fmt(detail.champion_bonus)}`, '#f59e0b')}
+            {stat('Total', `₹${fmt(detail.total_incentive)}`, '#b45309')}
+          </div>
 
-              {/* Summary */}
-              <div style={{ display: 'flex', gap: 16, marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--ink-soft)' }}>
-                <span>Total: <b style={{ color: 'var(--ink)' }}>{fro.total_leads}</b> leads</span>
-                <span>Qualified: <b style={{ color: '#16a34a' }}>{fro.qualified_leads}</b></span>
-                <span>Amount: <b style={{ color: 'var(--ink)' }}>₹{fmt(fro.total_amount)}</b></span>
-                <span>Lead Inc: <b style={{ color: 'var(--ink)' }}>₹{fmt(fro.lead_incentive)}</b></span>
-                <span>Slab Bonus: <b style={{ color: '#b45309' }}>₹{fmt(fro.slab_bonus)}</b></span>
-                {fro.champion_bonus > 0 && <span>Champion: <b style={{ color: '#f59e0b' }}>₹{fmt(fro.champion_bonus)}</b></span>}
+          {/* Leads list */}
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 8 }}>
+            Individual Leads ({detail.leads?.length || 0})
+          </div>
+          {detail.leads && detail.leads.length > 0 ? (
+            <div style={{ border: '1.5px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 11 }}>Status</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 11 }}>Donor</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 11 }}>Mobile</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 11 }}>Amount</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 11 }}>Verified</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.leads.map((lead, i) => (
+                      <tr key={lead.id || i} style={{ borderBottom: '1px solid var(--line)', background: lead.qualified ? 'rgba(220,252,231,.35)' : 'transparent' }}>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 22, height: 22, borderRadius: 50,
+                            background: lead.qualified ? '#dcfce7' : '#f1f5f9',
+                            fontSize: 12, fontWeight: 800, color: lead.qualified ? '#16a34a' : '#94a3b8',
+                          }}>
+                            {lead.qualified ? '✓' : '✗'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--ink)' }}>
+                          {lead.donor_name || `Donor #${lead.donor_id || '—'}`}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                          {lead.donor_mobile || '—'}
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: lead.qualified ? '#16a34a' : 'var(--ink-soft)' }}>
+                          ₹{fmt(lead.amount)}
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                          {fmtDate(lead.verified_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </td>
-        </tr>
-      )}
-    </>
+          ) : (
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12, border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+              No leads for this date
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
+}
+
+const overlayStyle = {
+  position: 'fixed', inset: 0, zIndex: 99992, background: 'rgba(15,23,42,.55)',
+  backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+}
+
+const modalCardStyle = {
+  width: 'min(500px, 100%)', borderRadius: 16, background: 'var(--card-bg)',
+  boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden',
 }
 
 // ─── Main Component ───────────────────────────────────────
@@ -451,6 +505,11 @@ export default function LeadIncentive() {
   const [loading, setLoading] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [savingSlab, setSavingSlab] = useState(false)
+  const [announced, setAnnounced] = useState(null)
+  const [announceOpen, setAnnounceOpen] = useState(false)
+  const [announceMsg, setAnnounceMsg] = useState('')
+  const [announcing, setAnnouncing] = useState(false)
+  const [detailFroId, setDetailFroId] = useState(null)
 
   const loadSettings = useCallback(async () => {
     try {
@@ -475,8 +534,16 @@ export default function LeadIncentive() {
     finally { setLoading(false) }
   }, [date])
 
+  const loadAnnouncement = useCallback(async () => {
+    try {
+      const r = await api(`/incentive/lead/champion/current?date=${date}`, { _prefix: 'ucs' })
+      if (r && r.announcement) setAnnounced(r.announcement)
+      else setAnnounced(null)
+    } catch { /* ignore */ }
+  }, [date])
+
   useEffect(() => { loadSettings(); loadSlabs() }, [loadSettings, loadSlabs])
-  useEffect(() => { loadSummary() }, [loadSummary])
+  useEffect(() => { loadSummary(); loadAnnouncement() }, [loadSummary, loadAnnouncement])
 
   const saveSettings = async (newSettings) => {
     setSavingSettings(true)
@@ -538,6 +605,23 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
+  const confirmAnnounce = async () => {
+    setAnnouncing(true)
+    try {
+      const r = await api('/incentive/lead/champion/announce', {
+        method: 'POST', _prefix: 'ucs',
+        body: JSON.stringify({ date, message: announceMsg.trim() }),
+      })
+      if (r && r.announcement) {
+        setAnnounced(r.announcement)
+        setAnnounceOpen(false)
+        setAnnounceMsg('')
+      }
+    } catch (e) {
+      alert(e.message || 'Failed to announce')
+    } finally { setAnnouncing(false) }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Header */}
@@ -566,7 +650,45 @@ export default function LeadIncentive() {
       <SlabConfig slabs={slabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} />
 
       {/* Champion */}
-      {summary?.champion && <ChampionBanner champion={summary.champion} />}
+      {announced ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
+          borderRadius: 14, background: 'linear-gradient(135deg,#dcfce7,#bbf7d0)',
+          border: '2px solid #22c55e',
+        }}>
+          <span style={{ fontSize: 24 }}>🏆</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>
+              Champion Announced: {announced.fro_name}
+            </div>
+            <div style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>
+              ₹{fmt(announced.total_amount)} · {announced.qualified_leads || 0} qualified leads · Total ₹{fmt(announced.total_incentive)}
+            </div>
+          </div>
+          <span style={{ padding: '5px 12px', borderRadius: 999, background: '#22c55e', color: '#fff', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
+            ✓ ANNOUNCED
+          </span>
+        </div>
+      ) : summary?.champion && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
+          borderRadius: 14, background: 'linear-gradient(135deg,#fef3c7,#fde68a)',
+          border: '2px solid #f59e0b', boxShadow: '0 4px 14px rgba(245,158,11,.2)',
+        }}>
+          <span style={{ fontSize: 28 }}>🏆</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>
+              Today's Leader: {summary.champion.fro_name}
+            </div>
+            <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
+              Highest collection: ₹{fmt(summary.champion.total_amount)} from qualified leads
+            </div>
+          </div>
+          <button onClick={() => setAnnounceOpen(true)} style={btnStyle('linear-gradient(90deg,#b45309,#f59e0b)')}>
+            🎉 Announce Champion
+          </button>
+        </div>
+      )}
 
       {/* FRO Summary */}
       {loading ? (
@@ -578,7 +700,49 @@ export default function LeadIncentive() {
           fros={summary?.fros || []}
           champion={summary?.champion || null}
           settings={settings}
+          date={date}
+          onSelectFro={id => setDetailFroId(id)}
         />
+      )}
+
+      {/* FRO Detail Modal */}
+      {detailFroId && (
+        <FroDetailModal
+          froId={detailFroId}
+          date={date}
+          champion={summary?.champion || null}
+          onClose={() => setDetailFroId(null)}
+        />
+      )}
+
+      {/* Announce Champion Modal */}
+      {announceOpen && summary?.champion && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99991, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ width: 'min(400px,100%)', borderRadius: 16, padding: 22, background: 'var(--card-bg)', border: '2px solid #f59e0b', boxShadow: '0 24px 60px rgba(0,0,0,.35)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>🏆 Announce Champion for {date}?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 8 }}>
+              <b style={{ color: 'var(--ink)' }}>{summary.champion.fro_name}</b> has the highest collection (₹{fmt(summary.champion.total_amount)}).
+              This will lock them as today's champion and notify every panel.
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Message (optional)</label>
+              <textarea
+                value={announceMsg}
+                onChange={e => setAnnounceMsg(e.target.value)}
+                placeholder="e.g. Great work today everyone! 🎉"
+                style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button onClick={() => setAnnounceOpen(false)} disabled={announcing} style={{ ...btnStyle('var(--line)', 'var(--ink)'), flex: 1 }}>
+                Cancel
+              </button>
+              <button onClick={confirmAnnounce} disabled={announcing} style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), flex: 1 }}>
+                {announcing ? 'Announcing…' : '🏆 Confirm Announce'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

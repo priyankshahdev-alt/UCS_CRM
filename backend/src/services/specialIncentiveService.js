@@ -42,6 +42,7 @@ export const getActiveIncentives = async () => {
     .from('special_incentives')
     .select('*')
     .eq('status', 'active')
+    .is('archived_at', null)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -334,6 +335,32 @@ export const cancelSpecialIncentive = async (incentiveId) => {
     .update({ status: 'cancelled' })
     .eq('id', incentiveId)
     .eq('status', 'active')
+    .select();
+  if (error) throw error;
+  return (data && data[0]) || null;
+};
+
+// Permanently silence an incentive's popups everywhere. For a still-running one
+// it is also cancelled (closed with no winner); for resolved ones it is simply
+// flagged so /active stops shipping it as a winner/photo celebration. Idempotent.
+export const archiveSpecialIncentive = async (incentiveId, userId) => {
+  const inc = await getIncentiveById(incentiveId);
+  if (!inc) return null;
+
+  if (inc.archived_at) return inc;
+
+  const updates = {
+    archived_at: new Date().toISOString(),
+    archived_by: userId || inc.archived_by || null,
+  };
+  if (inc.status === 'active') {
+    updates.status = 'cancelled';
+  }
+
+  const { data, error } = await db
+    .from('special_incentives')
+    .update(updates)
+    .eq('id', incentiveId)
     .select();
   if (error) throw error;
   return (data && data[0]) || null;

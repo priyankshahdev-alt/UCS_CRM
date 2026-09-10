@@ -558,6 +558,91 @@
 .panel-accounts .sim-scope .activity-item .dt { font-size: 12px; color: var(--sim-ink-soft); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-accounts .sim-scope .activity-item .md { font-size: 11px; color: var(--sim-blue); margin-top: 2px; }
 
+/* --- Nokia / Android Mobile Summary card grids --- */
+.panel-accounts .sim-scope .team-cards {
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.panel-accounts .sim-scope .team-cards.row-2 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.panel-accounts .sim-scope .team-tile {
+  display: flex; align-items: center; gap: 10px;
+  background: #ffffff; border: 1px solid #e2e8f0;
+  border-radius: 10px; padding: 10px 12px; min-width: 0;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.panel-accounts .sim-scope .team-tile.nokia-tile {
+  border-color: #dbeafe; border-radius: 12px; padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(37,99,235,0.08);
+}
+.panel-accounts .sim-scope .team-tile.nokia-tile .tile-ic {
+  width: 36px; height: 36px; border-radius: 10px; font-size: 15px;
+}
+.panel-accounts .sim-scope .team-tile.nokia-tile .tile-lbl { font-size: 13px; }
+.panel-accounts .sim-scope .team-tile.nokia-tile .tile-ngo { font-size: 11px; }
+.panel-accounts .sim-scope .team-tile .tile-ic {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  background: #e0f2fe; color: #2563eb;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px;
+}
+.panel-accounts .sim-scope .team-tile .tile-body {
+  display: flex; flex-direction: column; min-width: 0; flex: 1;
+}
+.panel-accounts .sim-scope .team-tile .tile-lbl {
+  font-size: 12px; font-weight: 600; color: var(--sim-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-accounts .sim-scope .team-tile .tile-ngo {
+  font-size: 11px; color: var(--sim-ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-accounts .sim-scope .team-tile .tile-cnt {
+  font-size: 11px; color: var(--sim-ink-soft); white-space: nowrap;
+  margin-left: auto; flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .panel-accounts .sim-scope .team-cards {
+    grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px;
+  }
+  .panel-accounts .sim-scope .team-cards.row-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .panel-accounts .sim-scope .team-tile.nokia-tile {
+    padding: 10px 12px; gap: 8px;
+  }
+  .panel-accounts .sim-scope .team-tile.nokia-tile .tile-ic {
+    width: 32px; height: 32px; border-radius: 8px; font-size: 13px;
+  }
+  .panel-accounts .sim-scope .team-tile.nokia-tile .tile-lbl { font-size: 12px; }
+}
+@media (max-width: 560px) {
+  .panel-accounts .sim-scope .team-cards {
+    grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px;
+  }
+  .panel-accounts .sim-scope .team-cards.row-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .panel-accounts .sim-scope .team-tile { padding: 8px; gap: 6px; border-radius: 8px; }
+  .panel-accounts .sim-scope .team-tile .tile-ic {
+    width: 24px; height: 24px; border-radius: 6px; font-size: 11px;
+  }
+  .panel-accounts .sim-scope .team-tile .tile-lbl { font-size: 11px; }
+  .panel-accounts .sim-scope .team-tile .tile-ngo { font-size: 10px; }
+  .panel-accounts .sim-scope .team-tile .tile-cnt { font-size: 10px; }
+  .panel-accounts .sim-scope .team-tile.nokia-tile { padding: 8px 10px; gap: 6px; }
+  .panel-accounts .sim-scope .team-tile.nokia-tile .tile-ic {
+    width: 28px; height: 28px; font-size: 12px;
+  }
+  .panel-accounts .sim-scope .team-tile.nokia-tile .tile-lbl { font-size: 11px; }
+  .panel-accounts .sim-scope .team-tile.nokia-tile .tile-ngo { font-size: 10px; }
+}
+
 @media (max-width: 900px) {
   .panel-accounts .sim-scope .stats-row { grid-template-columns: repeat(2, 1fr); }
   .panel-accounts .sim-scope .exp-row { flex-wrap: wrap; gap: 10px; }

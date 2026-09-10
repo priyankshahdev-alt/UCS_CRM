@@ -450,38 +450,30 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
               .concat([['Locker', nokiaCards.filter((c) => normUfs(c.team) === 'LOCKER').length], ['HR', teamMap['HR'] || 0], ['Accounts', teamMap['Accounts'] || 0]]);
             const rows = [teamRows.slice(0, 5), teamRows.slice(5, 8)];
             return (
-              <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <>
                 {rows.map((row, ri) => (
-                  <div key={ri} style={{ display: 'flex', flexWrap: 'nowrap', gap: 12, justifyContent: ri === 0 ? 'space-between' : 'flex-start' }}>
+                  <div key={ri} className={`team-cards${ri === 1 ? ' row-2' : ''}`}>
                     {row.map(([team, count]) => {
                       const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
                       const ngoLines = isUfs ? UFS_NGOS.map((ngo) => [ngo, 0]) : [];
                       return (
-                        <div
-                          key={team}
-                          style={{ display: 'flex', alignItems: 'center', gap: isUfs ? 12 : 8, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: isUfs ? 12 : 10, padding: isUfs ? '14px 18px' : '10px 14px', boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: isUfs ? '1 1 0' : '0 0 calc((100% - 48px) / 5)' }}
-                        >
-                          <div style={{ width: isUfs ? 40 : 30, height: isUfs ? 40 : 30, borderRadius: isUfs ? 10 : 8, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: isUfs ? 16 : 13, flexShrink: 0 }}>{team[0] || '?'}</div>
-                          <div style={{ whiteSpace: 'nowrap' }}>
-                            <div style={{ fontSize: isUfs ? 14 : 12, fontWeight: 600, color: 'var(--sim-ink)' }}>{team}</div>
+                        <div key={team} className={`team-tile${isUfs ? ' nokia-tile' : ''}`}>
+                          <div className="tile-ic">{team[0] || '?'}</div>
+                          <div className="tile-body">
+                            <div className="tile-lbl">{team}</div>
+                            {isUfs ? ngoLines.map(([ngo, n]) => (
+                              <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
+                            )) : (
+                              <div className="tile-cnt">{count} Mobile</div>
+                            )}
                           </div>
-                          {isUfs ? (
-                            <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                              {ngoLines.map(([ngo, n]) => (
-                                <div key={ngo} style={{ fontSize: 12, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>
-                                  {ngo}: {n || 0}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{count} Mobile</div>
-                          )}
+                          {!isUfs && <div className="tile-cnt">{count} Mobile</div>}
                         </div>
                       );
                     })}
                   </div>
                 ))}
-              </div>
+              </>
             );
           })()}
         </section>
@@ -497,38 +489,28 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
             const teamRows = order.map((team) => team === 'Accounts' ? [3, team] : [/^ufs\s*\d+$/i.test(team) ? androidCards.filter((c) => normUfs(c.team) === normUfs(team)).length : (teamMap[team] || 0), team]);
             const rows = [teamRows.slice(0, 5).map(([count, t]) => [t, count]), teamRows.slice(5, 10).map(([count, t]) => [t, count])];
             return (
-              <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <>
                 {rows.map((row, ri) => (
-                  <div key={ri} style={{ display: 'flex', flexWrap: 'nowrap', gap: 10, justifyContent: 'space-between' }}>
+                  <div key={ri} className={`team-cards${ri === 1 ? ' row-2' : ''}`}>
                     {row.map(([team, count]) => {
                       const isUfs = /^ufs\s*\d+$/i.test((team || '').trim());
                       const ngoLines = isUfs ? UFS_NGOS.map((ngo) => [ngo, countSlotNgo(androidNgoCards, team, ngo)]) : [];
                       return (
-                        <div
-                          key={team}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: `1px solid ${isUfs ? '#dbeafe' : '#e2e8f0'}`, borderRadius: 10, padding: '10px', minWidth: 0, boxShadow: isUfs ? '0 1px 3px rgba(37,99,235,0.08)' : '0 1px 2px rgba(15,23,42,0.04)', transition: 'box-shadow 0.15s ease, border-color 0.15s ease', flex: '1 1 0' }}
-                        >
-                          <div style={{ width: 30, height: 30, borderRadius: 8, background: '#e0f2fe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{team[0] || '?'}</div>
-                          <div style={{ whiteSpace: 'nowrap' }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sim-ink)' }}>{team}</div>
+                        <div key={team} className="team-tile">
+                          <div className="tile-ic">{team[0] || '?'}</div>
+                          <div className="tile-body">
+                            <div className="tile-lbl">{team}</div>
+                            {isUfs ? ngoLines.map(([ngo, n]) => (
+                              <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
+                            )) : null}
                           </div>
-                          {isUfs ? (
-                            <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                              {ngoLines.map(([ngo, n]) => (
-                                <div key={ngo} style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap' }}>
-                                  {ngo}: {n || 0}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: 11, color: 'var(--sim-ink-soft)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{count} Mobile</div>
-                          )}
+                          {!isUfs && <div className="tile-cnt">{count} Mobile</div>}
                         </div>
                       );
                     })}
                   </div>
                 ))}
-              </div>
+              </>
             );
           })()}
         </section>
