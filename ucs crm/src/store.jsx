@@ -100,7 +100,19 @@ export function UcsProvider({ children }) {
       const u = getUser('ucs');
       if (u?.id) releaseWorkAs().catch(() => {});
     } catch {}
+    const keep = [];
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('nc_seen_v1') || k.startsWith('nc_bar_dismissed'))) {
+          keep.push([k, localStorage.getItem(k)]);
+        }
+      }
+    } catch {}
     localStorage.clear()
+    for (const [k, v] of keep) {
+      try { localStorage.setItem(k, v) } catch {}
+    }
     clearSession('ucs')
     setToken(null)
     setUser(null)
