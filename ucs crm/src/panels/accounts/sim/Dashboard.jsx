@@ -459,14 +459,14 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
                       return (
                         <div key={team} className={`team-tile${isUfs ? ' nokia-tile' : ''}`}>
                           <div className="tile-ic">{team[0] || '?'}</div>
-                          <div className="tile-body">
-                            <div className="tile-lbl">{team}</div>
-                            {isUfs ? ngoLines.map(([ngo, n]) => (
-                              <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
-                            )) : (
-                              <div className="tile-cnt">{count} Mobile</div>
-                            )}
-                          </div>
+                          <div className="tile-lbl">{team}</div>
+                          {isUfs && (
+                            <div className="tile-body">
+                              {ngoLines.map(([ngo, n]) => (
+                                <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
+                              ))}
+                            </div>
+                          )}
                           {!isUfs && <div className="tile-cnt">{count} Mobile</div>}
                         </div>
                       );
@@ -498,12 +498,14 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
                       return (
                         <div key={team} className="team-tile">
                           <div className="tile-ic">{team[0] || '?'}</div>
-                          <div className="tile-body">
-                            <div className="tile-lbl">{team}</div>
-                            {isUfs ? ngoLines.map(([ngo, n]) => (
-                              <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
-                            )) : null}
-                          </div>
+                          <div className="tile-lbl">{team}</div>
+                          {isUfs && (
+                            <div className="tile-body">
+                              {ngoLines.map(([ngo, n]) => (
+                                <div key={ngo} className="tile-ngo">{ngo}: {n || 0}</div>
+                              ))}
+                            </div>
+                          )}
                           {!isUfs && <div className="tile-cnt">{count} Mobile</div>}
                         </div>
                       );

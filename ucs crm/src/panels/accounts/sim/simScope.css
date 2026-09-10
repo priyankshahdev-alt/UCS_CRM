@@ -566,7 +566,7 @@
   gap: 12px;
 }
 .panel-accounts .sim-scope .team-cards.row-2 {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
 }
 .panel-accounts .sim-scope .team-tile {
   display: flex; align-items: center; gap: 10px;
@@ -600,6 +600,7 @@
 .panel-accounts .sim-scope .team-tile .tile-ngo {
   font-size: 11px; color: var(--sim-ink-soft);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
 }
 .panel-accounts .sim-scope .team-tile .tile-cnt {
   font-size: 11px; color: var(--sim-ink-soft); white-space: nowrap;

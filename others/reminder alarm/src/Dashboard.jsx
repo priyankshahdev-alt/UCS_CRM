@@ -567,27 +567,19 @@ export default function Dashboard() {
           <div className="sec-body">
             {categorySummary.length === 0 ? (
               <div className="dash-empty"><div className="big">No data</div></div>
-            ) : categorySummary.map(c => {
-              const maxCount = Math.max(...categorySummary.map(x => x.count), 1)
-              return (
-                <div key={c.key} className="cat-row">
-                  <div className="cat-icon" style={{ background: 'var(--rem-blue-soft)', color: 'var(--rem-blue)' }}>
-                    <Icon name={c.icon} size={14} />
+            ) : (
+              <div className="cat-grid">
+                {categorySummary.map(c => (
+                  <div key={c.key} className="cat-card">
+                    <span className="cat-card-badge">{c.count}</span>
+                    <div className="cat-card-icon" style={{ background: 'var(--rem-blue-soft)', color: 'var(--rem-blue)' }}>
+                      <Icon name={c.icon} size={22} />
+                    </div>
+                    <div className="cat-card-label">{c.label}</div>
                   </div>
-                  <div className="cat-body">
-                    <div className="cat-name">{c.label}</div>
-                    <div className="cat-count">{c.count} item{c.count !== 1 ? 's' : ''}</div>
-                  </div>
-                  <div className="cat-bar">
-                    <div className="cat-bar-fill" style={{ width: `${(c.count / maxCount) * 100}%` }} />
-                  </div>
-                  <div className="cat-amount">
-                    {c.pendingAmt > 0 && <div>{formatCurrency(c.pendingAmt)}</div>}
-                    {c.paidAmt > 0 && <div style={{ color: 'var(--rem-green)', fontSize: 11 }}>Paid: {formatCurrency(c.paidAmt)}</div>}
-                  </div>
-                </div>
-              )
-            })}
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
