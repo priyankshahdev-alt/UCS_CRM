@@ -45,10 +45,6 @@
 }
 .field input:focus, .field select:focus, .field textarea:focus { border-color:#5B6B4E; }
 .login-error { color:#d9534f; font-size:12px; text-align:center; padding:8px; background:#fef2f2; border-radius:8px; }
-.login-demo { margin-top:18px; padding-top:16px; border-top:1px dashed #e5e7eb; text-align:center; }
-.login-demo p { font-size:11px; color:#9ca3af; margin:8px 0 0; }
-.btn-demo { width:100%; background:#5B6B4E1A; border:1px solid #5B6B4E; color:#5B6B4E; }
-.btn-demo:hover { background:#5B6B4E; color:#fff; }
 
 .btn {
   display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 15px; border-radius:8px;
