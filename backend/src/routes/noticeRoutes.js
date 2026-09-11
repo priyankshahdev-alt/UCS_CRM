@@ -18,6 +18,6 @@ router.get('/', authenticate, listNotices);
 router.post('/:id/seen', authenticate, markSeen);
 router.get('/:id', adminOrHr, getNotice);
 router.put('/:id', adminOrHr, editNotice);
-router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr', 'master'), removeNotice);
+router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr', 'master', 'fro', 'worker'), removeNotice);
 
 export default router;
