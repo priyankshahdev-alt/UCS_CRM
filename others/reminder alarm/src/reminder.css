@@ -411,4 +411,111 @@
   .rem-brand h1, .rem-brand span, .rem-side-label, .rem-nav a span, .rem-nav .side-link span, .rem-sidebar-footer .u span { display: none; }
   .rem-brand { justify-content: center; padding: 16px 8px; }
   .rem-nav a, .rem-nav .side-link { justify-content: center; padding: 10px; }
+  .rem-topbar { padding: 12px 16px; flex-wrap: wrap; }
+  .rem-topbar h2 { font-size: 18px; }
+  .rem-content { padding: 16px; }
+}
+
+@media (max-width: 640px) {
+  .rem-sidebar { width: 56px; }
+  .rem-brand { padding: 12px 4px; }
+  .rem-brand .mark { width: 30px; height: 30px; }
+  .rem-nav { padding: 2px 6px 8px; }
+  .rem-nav a, .rem-nav .side-link { padding: 9px 6px; }
+  .rem-sidebar-footer { padding: 10px 8px; }
+  .rem-topbar { padding: 10px 12px; }
+  .rem-topbar p { font-size: 11px; }
+  .rem-content { padding: 12px; }
+  .rem-actions { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .rem-btn { padding: 7px 10px; font-size: 12px; white-space: nowrap; }
+  .search-input { min-width: 0; width: 100%; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar .rem-select, .toolbar .rem-input { width: 100%; }
+  .form-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .modal-overlay { padding: 10px 8px; align-items: flex-end; }
+  .modal { border-radius: 14px 14px 0 0; }
+  .modal-body { max-height: 80vh; }
+  .modal-foot { padding: 12px 16px; flex-wrap: wrap; }
+  .dc-modal { padding: 24px 16px 18px; }
+  .stat-card { padding: 14px; }
+  .stat-card .num { font-size: 22px; }
+  .notif-panel {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 60px;
+    width: auto;
+    max-width: none;
+  }
+  .alarm-toast {
+    left: 8px;
+    right: 8px;
+    bottom: 78px;
+    width: auto;
+  }
+  .rem-table { min-width: 900px; }
+  .pagination { justify-content: center; }
+  .card-block .tb { flex-wrap: wrap; padding: 12px 14px; }
+  .card-block .tb > div { flex-wrap: wrap; }
+  .card-block .tb .ln { display: none; }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grid-3 { grid-template-columns: 1fr; gap: 10px; }
+  .rem-select, .rem-input { width: 100%; }
+  .detail-sections { gap: 14px; }
+  .dc-overlay { padding: 10px; }
+  .alarm-toast-actions { gap: 4px; }
+
+  .rem-shell { display: block; }
+  .rem-sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: stretch;
+    border-right: none;
+    border-top: 1px solid var(--rem-line);
+    background: var(--rem-white);
+    z-index: 100;
+    overflow: visible;
+    padding: 0;
+  }
+  .rem-brand,
+  .rem-sidebar-footer,
+  .rem-side-label {
+    display: none;
+  }
+  .rem-nav {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    width: 100%;
+    padding: 5px 6px;
+    gap: 4px;
+  }
+  .rem-nav a,
+  .rem-nav .side-link {
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 3px;
+    padding: 7px 2px;
+    font-size: 10px;
+    justify-content: center;
+    text-align: center;
+    border-radius: 8px;
+    width: auto;
+  }
+  .rem-nav a span,
+  .rem-nav .side-link span {
+    display: block;
+    font-size: 9px;
+    line-height: 1.15;
+  }
+  .rem-main { min-height: 100vh; }
+  .rem-topbar { padding-bottom: 10px; }
+  .rem-content { padding-bottom: 84px; }
 }

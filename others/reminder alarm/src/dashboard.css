@@ -846,8 +846,13 @@
     flex: 0 0 100%;
   }
   .dash-cat-bar {
-    grid-template-columns: repeat(10, 1fr);
+    grid-template-columns: repeat(5, 1fr);
+    overflow-x: visible;
   }
+  .dash-header h2 { font-size: 18px; }
+  .dash-header p { font-size: 11px; }
+  .dash-cal { padding: 12px 12px 14px; }
+  .dash-item { padding: 7px 12px; }
 }
 @media (max-width: 600px) {
   .dash-summary {
@@ -863,8 +868,32 @@
     grid-template-columns: 1fr;
   }
   .dash-cat-bar {
-    grid-template-columns: repeat(10, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
   }
+  .dash-financial-hero { padding: 14px 14px; }
+  .fin-hero-amount { font-size: 22px; }
+  .fin-hero-pct { font-size: 24px; }
+  .fin-cards { grid-template-columns: 1fr; }
+  .dash-row { gap: 14px; margin-bottom: 18px; }
+  .dash-section .sec-head { padding: 8px 12px; }
+  .dash-section .sec-head h3 { font-size: 13px; }
+  .dash-tabs { padding: 0 12px; overflow-x: auto; }
+  .dash-tab { padding: 9px 12px; font-size: 11px; white-space: nowrap; }
+  .dash-item { padding: 7px 10px; gap: 8px; }
+  .dash-item .di-icon { display: none; }
+  .dash-item .di-title { font-size: 11px; }
+  .dash-cal-day { font-size: 10px; min-height: 26px; padding: 4px 0; }
+  .dash-cal-dow { font-size: 8px; padding: 4px 0; }
+  .dash-cal-day .cal-dot { width: 3px; height: 3px; }
+  .dash-cal-head { padding: 8px 10px; margin-bottom: 8px; }
+  .dash-cal-head h4 { font-size: 13px; }
+  .cat-modal { max-width: 100%; border-radius: 14px 14px 0 0; max-height: 92vh; }
+  .cat-modal-head { padding: 12px 16px; }
+  .cat-modal-body { padding: 6px 10px; }
+  .cat-modal-overlay { padding: 0; align-items: flex-end; }
+  .dash-cat-chip { font-size: 10px; aspect-ratio: auto; min-height: 64px; }
+  .dash-cat-chip .cat-chip-icon { width: 26px; height: 26px; }
 }
 
 /* Category Modal */
