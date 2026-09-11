@@ -104,7 +104,7 @@ export function UcsProvider({ children }) {
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith('nc_seen_v1') || k.startsWith('nc_bar_dismissed'))) {
+        if (k && (k.startsWith('nc_seen_v1') || k.startsWith('nc_bar_dismissed') || k.startsWith('si_'))) {
           keep.push([k, localStorage.getItem(k)]);
         }
       }
