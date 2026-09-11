@@ -217,7 +217,10 @@ export const resetWorkerPassword = async (req, res) => {
 
 export const getWorkers = async (req, res) => {
   try {
-    const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
+    const allScope = req.query.scope === 'all';
+    const ngoId = allScope
+      ? null
+      : (['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id));
     const status = req.query.status || 'active';
     const workers = await getAllWorkers(ngoId, status);
     const salaries = await Promise.all(workers.map(w =>

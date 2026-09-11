@@ -52,13 +52,6 @@ const ALLOWED_ROLES = {
   'Event Head': 'Event Head',
 }
 
-const DEMO_ACCOUNTS = {
-  ngo: { name: 'Demo User', email: 'demo@beingsevak.org', title: 'Beneficiaries' },
-  accounts: { name: 'Accounts Demo', email: 'demo.accounts@beingsevak.org', title: 'Accounts' },
-  fro: { name: 'FRO Demo', email: 'demo.fro@beingsevak.org', title: 'FRO' },
-  event_head: { name: 'Event Head Demo', email: 'demo.event@beingsevak.org', title: 'Event Head' },
-}
-
 export const UcsContext = createContext(null)
 
 export function UcsProvider({ children }) {
@@ -77,22 +70,6 @@ export function UcsProvider({ children }) {
     setToken(data.token)
     setUser(userData)
     return { token: data.token, user: userData }
-  }, [])
-
-  const loginAsDemo = useCallback((roleKey) => {
-    const info = DEMO_ACCOUNTS[roleKey] || { name: 'Demo User', email: `demo.${roleKey}@beingsevak.org`, title: 'Demo' }
-    const userData = {
-      id: `demo-${roleKey}`,
-      name: info.name,
-      email: info.email,
-      role: roleKey,
-      department: roleKey,
-      demo: true,
-    }
-    setSession('ucs', `demo:${roleKey}`, userData)
-    setToken(`demo:${roleKey}`)
-    setUser(userData)
-    return { token: `demo:${roleKey}`, user: userData }
   }, [])
 
   const logout = useCallback(() => {
@@ -119,7 +96,7 @@ export function UcsProvider({ children }) {
   }, [])
 
   return (
-    <UcsContext.Provider value={{ user, token, login, loginAsDemo, logout }}>
+    <UcsContext.Provider value={{ user, token, login, logout }}>
       {children}
     </UcsContext.Provider>
   )

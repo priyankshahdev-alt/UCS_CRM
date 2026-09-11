@@ -447,7 +447,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
             nokiaCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
             const teamRows = [1, 2, 3, 4, 5]
               .map((n) => [`UFS ${n}`, getUfsCount(nokiaCards, `UFS ${n}`, countSims)])
-              .concat([['Locker', nokiaCards.filter((c) => normUfs(c.team) === 'LOCKER').length], ['HR', teamMap['HR'] || 0], ['Accounts', teamMap['Accounts'] || 0]]);
+              .concat([['Locker', nokiaCards.filter((c) => normUfs(c.team) === 'LOCKER').length], ['HR', teamMap['HR'] || 0]]);
             const rows = [teamRows.slice(0, 5), teamRows.slice(5, 8)];
             return (
               <>
@@ -485,7 +485,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           {(() => {
             const teamMap = {};
             androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
-            const order = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Locker', 'Accounts', 'Social Media', 'Reception', 'Admin'];
+            const order = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Accounts', 'Social Media', 'HR', 'Admin'];
             const teamRows = order.map((team) => team === 'Accounts' ? [3, team] : [/^ufs\s*\d+$/i.test(team) ? androidCards.filter((c) => normUfs(c.team) === normUfs(team)).length : (teamMap[team] || 0), team]);
             const rows = [teamRows.slice(0, 5).map(([count, t]) => [t, count]), teamRows.slice(5, 10).map(([count, t]) => [t, count])];
             return (

@@ -1098,6 +1098,357 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
   );
 }
 
+// Compact summary tile used inside the Non-Connected Fresh modal.
+function NcfSummaryTile({ label, value, color }) {
+  return (
+    <div style={{ minWidth: 82, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px', textAlign: 'center', flex: '0 0 auto' }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>{label}</div>
+    </div>
+  );
+}
+
+function ncfTimeSince(iso) {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (isNaN(days)) return '—';
+  if (days <= 0) return 'today';
+  if (days === 1) return '1d ago';
+  return `${days}d ago`;
+}
+
+// Pulls non-connected donors from fresh (FD) stations and lets the admin
+// review & delete their fresh-data (new_data) records. Disposition history
+// (assignments, donor logs, receipts) is preserved — only new_data is removed.
+function NonConnectedFreshModal({ ngoId, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [donors, setDonors] = useState([]);
+  const [summary, setSummary] = useState({ total: 0, by_station: {}, by_category: {}, by_fro: {} });
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [stationOptions, setStationOptions] = useState([]);
+  const [statusOptions, setStatusOptions] = useState([]);
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterStation, setFilterStation] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [pendingIds, setPendingIds] = useState([]);
+  const [preview, setPreview] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setDeleteResult(null);
+    const params = [];
+    if (ngoId && ngoId !== 'all') params.push(`ngo_id=${ngoId}`);
+    if (filterCategory) params.push(`category=${encodeURIComponent(filterCategory)}`);
+    if (filterStation) params.push(`station=${encodeURIComponent(filterStation)}`);
+    if (filterStatus) params.push(`status=${encodeURIComponent(filterStatus)}`);
+    const url = `/ngo-admin/non-connected-fresh${params.length ? '?' + params.join('&') : ''}`;
+
+    apiGet(url).then(data => {
+      if (cancelled) return;
+      setDonors(Array.isArray(data.donors) ? data.donors : []);
+      setSummary(data.summary || { total: 0, by_station: {}, by_category: {}, by_fro: {} });
+      setCategoryOptions(Array.isArray(data.category_options) ? data.category_options : []);
+      setStationOptions(Array.isArray(data.station_options) ? data.station_options : []);
+      setStatusOptions(Array.isArray(data.status_options) ? data.status_options : []);
+      setSelected([]);
+    }).catch(err => {
+      if (!cancelled) toast(err.message, 'error');
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [ngoId, filterCategory, filterStation, filterStatus, refreshKey]);
+
+  const selectedIds = new Set(selected);
+  const allSelected = donors.length > 0 && selected.length === donors.length;
+
+  const toggleSelect = (id) => {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? [] : donors.map(d => d.donor_profile_id));
+  };
+
+  const openDeleteConfirm = (ids) => {
+    if (ids.length === 0) return;
+    setSelected(ids);
+    setPendingIds(ids);
+    setConfirmOpen(true);
+    setPreview({ loading: true, rows: [], matched: 0, per_category: {}, truncated: false, error: null });
+    apiPost('/ngo-admin/non-connected-fresh/delete?dry_run=true', {
+      ngo_id: ngoId && ngoId !== 'all' ? ngoId : undefined,
+      donor_profile_ids: ids,
+      category: filterCategory || undefined,
+    }).then(res => {
+      setPreview({
+        loading: false,
+        rows: Array.isArray(res.rows) ? res.rows : [],
+        matched: res.matched || 0,
+        per_category: res.per_category || {},
+        truncated: !!res.truncated,
+        error: null,
+      });
+    }).catch(err => {
+      setPreview(p => ({ ...p, loading: false, error: err.message }));
+    });
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await apiPost('/ngo-admin/non-connected-fresh/delete', {
+        ngo_id: ngoId && ngoId !== 'all' ? ngoId : undefined,
+        donor_profile_ids: pendingIds,
+        category: filterCategory || undefined,
+      });
+      setDeleteResult(res);
+      if (res && res.message) toast(res.message, 'success');
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+      setPreview(null);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 960 }}>
+        <div className="modal-head">
+          <h3>Manage Non-Connected Fresh Data</h3>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ fontSize: 13 }}>
+
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              <option value="">All Categories</option>
+              {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={filterStation} onChange={e => setFilterStation(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              <option value="">All Stations</option>
+              {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              <option value="">All Statuses</option>
+              {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
+              {loading ? 'Loading…' : `${donors.length} non-connected donor${donors.length === 1 ? '' : 's'}`}
+            </span>
+          </div>
+
+          {/* Summary */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <NcfSummaryTile label="Total" value={summary.total || 0} color="#dc2626" />
+            {Object.entries(summary.by_category || {}).slice(0, 4).map(([k, v]) => (
+              <NcfSummaryTile key={k} label={k.length > 10 ? k.slice(0, 10) : k} value={v} color="#6366f1" />
+            ))}
+            {(Object.keys(summary.by_fro || {}).length > 0) && (
+              <div style={{ flex: '1 1 200px', minWidth: 170, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 2 }}>Per FRO</div>
+                {Object.entries(summary.by_fro).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '1px 0' }}>
+                    <span style={{ fontWeight: 500 }}>{k}</span>
+                    <span style={{ fontWeight: 700, color: '#6366f1', fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Confirm dialog with data preview */}
+          {confirmOpen && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
+                  {preview?.loading ? 'Fetching records…' : preview ? `Review: ${preview.matched} new_data record${preview.matched === 1 ? '' : 's'} to delete` : 'Confirm deletion'}
+                </div>
+                <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
+              </div>
+
+              {preview?.loading && (
+                <div style={{ padding: 16, textAlign: 'center', color: '#9a3412' }}>Matching fresh-data records…</div>
+              )}
+
+              {preview?.error && (
+                <p style={{ color: '#b91c1c', margin: '4px 0 0' }}>Error: {preview.error}</p>
+              )}
+
+              {preview && !preview.loading && !preview.error && (
+                <>
+                  {preview.matched === 0 ? (
+                    <p style={{ margin: 0, color: '#166534', padding: '4px 0' }}>
+                      No <code>new_data</code> rows found for the selection — nothing will be deleted.
+                    </p>
+                  ) : (
+                    <>
+                      <p style={{ margin: '0 0 10px', color: '#78350f', lineHeight: 1.5 }}>
+                        {preview.truncated
+                          ? <>Showing first <strong>{preview.rows.length}</strong> of <strong>{preview.matched}</strong> — <strong>ALL {preview.matched}</strong> fresh-data record{preview.matched === 1 ? '' : 's'} will be deleted.</>
+                          : <>Exactly <strong>{preview.matched}</strong> fresh-data record{preview.matched === 1 ? '' : 's'} matched for deletion.</>
+                        }
+                        {' '}Disposition history (donor logs, FRO assignments, receipts, follow-ups) is <strong>preserved</strong>.
+                      </p>
+
+                      {Object.keys(preview.per_category).length > 0 && (
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                          {Object.entries(preview.per_category).map(([k, v]) => (
+                            <NcfSummaryTile key={k} label={k.length > 12 ? k.slice(0, 12) : k} value={v} color="#ea580c" />
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                        <table className="nga-st" style={{ fontSize: 11.5 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ width: '6%' }}>ID</th>
+                              <th style={{ width: '16%' }}>Name</th>
+                              <th style={{ width: '12%' }}>Mobile</th>
+                              <th style={{ width: '12%' }}>Category</th>
+                              <th style={{ width: '10%' }}>Station</th>
+                              <th style={{ width: '11%' }}>Status</th>
+                              <th style={{ width: '14%' }}>NGO</th>
+                              <th style={{ width: '10%' }}>Created</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.rows.map(r => (
+                              <tr key={r.id}>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
+                                <td style={{ fontWeight: 600 }}>{r.name || '—'}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.mobile_number}</td>
+                                <td><span className="pill" style={{ fontSize: 10 }}>{String(r.data_category || r.category || '').trim() || '—'}</span></td>
+                                <td style={{ fontWeight: 600 }}>{r.station || '—'}</td>
+                                <td>{r.status || 'pending'}</td>
+                                <td style={{ fontSize: 11, color: '#6b7280' }}>{r.ngo || '—'}</td>
+                                <td style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                                  {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                        <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
+                        <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }} onClick={handleDelete} disabled={deleting}>
+                          {deleting ? 'Deleting…' : `Confirm Delete ${preview.matched} Record${preview.matched === 1 ? '' : 's'}`}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {deleteResult && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12.5, color: '#166534' }}>
+              ✓ {deleteResult.message} {deleteResult.per_category && Object.keys(deleteResult.per_category).length > 0 && (
+                <span>({Object.entries(deleteResult.per_category).map(([k, v]) => `${k}: ${v}`).join(', ')})</span>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-sm btn-outline" onClick={toggleSelectAll} disabled={donors.length === 0}>
+              {allSelected ? 'Clear All' : 'Select All'}
+            </button>
+            {selected.length > 0 && (
+              <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }}
+                onClick={() => openDeleteConfirm(selected)} disabled={deleting}>
+                Delete Selected ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-sm btn-outline" style={{ color: '#b91c1c', borderColor: '#fca5a5' }}
+              onClick={() => openDeleteConfirm(donors.map(d => d.donor_profile_id))}
+              disabled={deleting || donors.length === 0}>
+              Delete All ({donors.length})
+            </button>
+          </div>
+
+          {/* Donor table */}
+          {loading ? (
+            <div className="loading" style={{ padding: 24 }}>Loading non-connected donors…</div>
+          ) : donors.length === 0 ? (
+            <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ color: '#16a34a', margin: 0 }}>No non-connected fresh-data donors found for the current filters.</p>
+            </div>
+          ) : (
+            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+              <table className="nga-st" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '4%' }}></th>
+                    <th style={{ width: '17%' }}>Donor</th>
+                    <th style={{ width: '12%' }}>Mobile</th>
+                    <th style={{ width: '12%' }}>Category</th>
+                    <th style={{ width: '9%' }}>Station</th>
+                    <th style={{ width: '13%' }}>Status</th>
+                    <th style={{ width: '13%' }}>FRO</th>
+                    <th style={{ width: '12%' }}>Last Contacted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {donors.map(d => {
+                    const isSel = selectedIds.has(d.donor_profile_id);
+                    return (
+                      <tr key={d.donor_profile_id} onClick={() => toggleSelect(d.donor_profile_id)}
+                        style={{ background: isSel ? '#eff6ff' : 'transparent', cursor: 'pointer' }}>
+                        <td style={{ padding: '6px 4px' }}>
+                          <input type="checkbox" checked={isSel} readOnly aria-label="select" />
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{d.name}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{d.mobile_number}</td>
+                        <td>
+                          <span className="pill" style={{ fontSize: 10, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {d.category || '—'}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{d.station}</td>
+                        <td>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef2f2', color: '#dc2626', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {d.status}
+                          </span>
+                        </td>
+                        <td>{d.fro_name}</td>
+                        <td style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>{ncfTimeSince(d.last_contacted_at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '12px 0 0', lineHeight: 1.5 }}>
+            Only the fresh-data (<code>new_data</code>) record is removed. FRO disposition history, donor logs, receipts and follow-ups remain in the database.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -1126,6 +1477,7 @@ export default function StationManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef(null);
+  const [ncfOpen, setNcfOpen] = useState(false);
 
   useEffect(() => {
     if (!toolsOpen) return;
@@ -1450,6 +1802,10 @@ export default function StationManagement() {
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: '#b45309', fontFamily: 'inherit' }}>
                       Bulk Rename
                     </button>
+                    <button onClick={() => { setToolsOpen(false); setNcfOpen(true); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: '#b91c1c', fontFamily: 'inherit' }}>
+                      ⚠ Manage Non-Connected (Fresh)
+                    </button>
                   </div>
                 )}
               </div>
@@ -1684,6 +2040,13 @@ export default function StationManagement() {
           adding={adding}
           onCreate={handleAddStation}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+
+      {ncfOpen && (
+        <NonConnectedFreshModal
+          ngoId={selectedNgoId}
+          onClose={() => { setNcfOpen(false); fetchData(); }}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRem } from './store'
 import { CATEGORIES, derivedStatus, statusPillClass, formatDate, daysLeft, categoryLabel, categoryIcon } from './helpers'
+import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 
 const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Completed', 'Snoozed']
@@ -24,7 +25,8 @@ function isCategoryKey(val) {
 
 function matchesView(r, viewKey) {
   if (r.completed_at) return viewKey === 'completed'
-  const dl = daysLeft(r.due_date)
+  const effectiveDate = computeEffectiveDueDate(r)
+  const dl = effectiveDate ? daysLeft(effectiveDate) : daysLeft(r.due_date)
   switch (viewKey) {
     case 'completed': return !!r.completed_at
     case 'overdue': return dl !== null && dl < 0
@@ -65,7 +67,8 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory, onCom
   const enriched = useMemo(() => {
     return reminders.map(r => {
       const status = r.status || 'Upcoming'
-      const dl = daysLeft(r.due_date)
+      const effectiveDate = computeEffectiveDueDate(r)
+      const dl = effectiveDate ? daysLeft(effectiveDate) : daysLeft(r.due_date)
       return { ...r, _status: status, _daysLeft: dl }
     })
   }, [reminders])

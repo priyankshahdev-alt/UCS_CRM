@@ -64,7 +64,7 @@ export const createStation = async (ngo_id, station, assigned_by) => {
 export const getStationAssignmentsByNgo = async (ngoIds, includeNull = false) => {
   let query = db
     .from('fro_station_assignments')
-    .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id)');
+    .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id, is_test)');
 
   if (includeNull && ngoIds.length > 0) {
     query = query.or(`ngo_id.in.(${ngoIds.join(',')}),ngo_id.is.null`);

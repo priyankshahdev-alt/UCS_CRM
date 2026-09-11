@@ -77,7 +77,7 @@ class ApiService {
 
   static Future<List<dynamic>> getAllWorkers() async {
     final res = await _get(
-      Uri.parse('${Config.apiBaseUrl}/workers'),
+      Uri.parse('${Config.apiBaseUrl}/workers?scope=all'),
       headers: await _headers(),
     );
     if (res.statusCode != 200) {

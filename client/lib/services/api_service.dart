@@ -801,27 +801,4 @@ class ApiService {
     if (res.statusCode != 200) throw Exception('Failed to get calendar data');
     return body;
   }
-
-  // ---- Attendance Correction Tickets ----
-
-  static Future<Map<String, dynamic>> raiseCorrectionTicket(Map<String, dynamic> data) async {
-    final res = await _post(
-      Uri.parse('$baseUrl/attendance-corrections'),
-      headers: await _headers(),
-      body: jsonEncode(data),
-    );
-    final body = jsonDecode(res.body);
-    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to raise ticket');
-    return body;
-  }
-
-  static Future<List<dynamic>> getMyCorrectionTickets() async {
-    final res = await _get(
-      Uri.parse('$baseUrl/attendance-corrections/my'),
-      headers: await _headers(),
-    );
-    final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception('Failed to get tickets');
-    return body is List ? body : [];
-  }
 }

@@ -23,6 +23,7 @@ import {
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
+import { notifyWorker } from '../services/fcmService.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
@@ -62,12 +63,14 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now) {
 
   const { data: stationAssigns } = await db
     .from('fro_station_assignments')
-    .select('station, ngo_id, fro_worker_id')
+    .select('station, ngo_id, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
     .in('ngo_id', ngoIds);
 
   const liveCutoff = new Date(now.getTime() - 2 * 60 * 1000);
   const onlineFroIds = new Set();
-  const assignedFroIds = [...new Set((stationAssigns || []).map(a => a.fro_worker_id).filter(Boolean))];
+  const assignedFroIds = [...new Set((stationAssigns || [])
+    .filter(a => a.fro_worker_id && a.workers?.is_test !== true)
+    .map(a => a.fro_worker_id))];
   if (assignedFroIds.length > 0) {
     const { data: liveRows } = await db
       .from('fro_live_status')
@@ -132,6 +135,13 @@ const CONNECTED_STATUSES = [
   'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
   'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
   'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback',
+];
+// Donors that could not be reached / engaged. Mirrors froController.js so the
+// "non-connected" pull is consistent everywhere.
+const NOT_CONNECTED_STATUSES = [
+  'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off',
+  'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected',
+  'temporary_network_issue', 'voicemail',
 ];
 
 export const getDonors = async (req, res) => {
@@ -475,7 +485,7 @@ export const getFroWorkers = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     const allWorkers = [];
     for (const ngoId of ngoIds) {
-      const workers = await getFroWorkersByNgo(ngoId, { includeTest: true });
+      const workers = await getFroWorkersByNgo(ngoId);
       allWorkers.push(...workers);
     }
     const seen = new Set();
@@ -1063,35 +1073,43 @@ export const getFroPerformance = async (req, res) => {
 
     const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
     const seen = new Set();
-    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; }).filter(w => w.is_active !== false);
 
+    const { from, to } = req.query;
     const period = req.query.period || 'month';
     const now = new Date();
     let startDate, endDate;
+    let isTodayRange = false;
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
 
-    if (period === 'today') {
+    if (from || to) {
+      startDate = from ? new Date(`${from}T00:00:00`) : todayStart;
+      endDate = to ? new Date(`${to}T23:59:59.999`) : todayEnd;
+    } else if (period === 'today') {
       startDate = todayStart;
       endDate = todayEnd;
+      isTodayRange = true;
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
+    const includesToday = startDate <= todayEnd && endDate >= todayStart;
+    const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const workerIds = froWorkers.map(w => w.id);
     const batchStats = await getBatchCollectionStats(workerIds, startDate.toISOString(), endDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = localDateStr(now);
     const attendanceMap = {};
     if (workerIds.length > 0) {
-      if (period === 'today') {
+      if (isTodayRange) {
         const { data: att } = await db.from('attendance').select('worker_id, status').eq('date', todayStr).in('worker_id', workerIds);
         for (const a of att || []) attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
       } else {
-        const monthStr = startDate.toISOString().slice(0, 7);
-        const endStr = endDate.toISOString().slice(0, 10);
-        const { data: att } = await db.from('attendance').select('worker_id, status').gte('date', monthStr + '-01').lte('date', endStr).in('worker_id', workerIds);
+        const startStr = localDateStr(startDate);
+        const endStr = localDateStr(endDate);
+        const { data: att } = await db.from('attendance').select('worker_id, status').gte('date', startStr).lte('date', endStr).in('worker_id', workerIds);
         const counts = {};
         for (const a of att || []) {
           if (!counts[a.worker_id]) counts[a.worker_id] = { present: 0, total: 0 };
@@ -1125,11 +1143,9 @@ export const getFroPerformance = async (req, res) => {
 
     const performance = froWorkers.map(w => {
       const bs = batchStats;
-      const coll = period === 'today' ? (bs.todayCollection[w.id] || 0) : (bs.monthCollection[w.id] || 0);
-      const leads = period === 'today'
-        ? (bs.verifiedToday[w.id]?.count || 0) + (bs.unverifiedToday[w.id]?.count || 0)
-        : (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
-      const talkSec = period === 'today' ? (liveStatusMap[w.id] || 0) : 0;
+      const coll = bs.monthCollection[w.id] || 0;
+      const leads = (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
+      const talkSec = includesToday ? (liveStatusMap[w.id] || 0) : 0;
       const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
       const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
       return {
@@ -1154,18 +1170,16 @@ export const getFroPerformance = async (req, res) => {
       ...p,
       score: isSingleWorker
         ? Math.round((
-            (p.collection_amount > 0 ? 0.4 : 0) +
-            (p.lead_done_count > 0 ? 0.25 : 0) +
-            (p.avg_talk_seconds > 0 ? 0.1 : 0) +
-            (p.data_used > 0 ? 0.1 : 0) +
-            ((p.attendance_pct != null && p.attendance_pct > 0) ? 0.15 : 0)
+            (p.collection_amount > 0 ? 0.35 : 0) +
+            (p.lead_done_count > 0 ? 0.30 : 0) +
+            (p.avg_talk_seconds > 0 ? 0.175 : 0) +
+            (p.data_used > 0 ? 0.175 : 0)
           ) * 100) / 100
         : Math.round((
-            (p.collection_amount / maxColl) * 0.30 +
-            (p.lead_done_count / maxLeads) * 0.25 +
-            (p.avg_talk_seconds / maxTalk) * 0.15 +
-            (p.data_used / maxData) * 0.15 +
-            ((p.attendance_pct != null ? p.attendance_pct : 0) / 100) * 0.15
+            (p.collection_amount / maxColl) * 0.35 +
+            (p.lead_done_count / maxLeads) * 0.30 +
+            (p.avg_talk_seconds / maxTalk) * 0.175 +
+            (p.data_used / maxData) * 0.175
           ) * 100) / 100,
     }));
 
@@ -1408,6 +1422,8 @@ export const getStations = async (req, res) => {
 
     // Group by station name — one row per station
     const stationMap = {};
+    const displayFroId = (a) => (a.fro_worker_id && a.workers?.is_test !== true) ? a.fro_worker_id : null;
+    const displayFroName = (a) => (displayFroId(a) ? (a.workers?.name || null) : null);
 
     for (const a of assignments) {
       const s = a.station.trim();
@@ -1415,8 +1431,8 @@ export const getStations = async (req, res) => {
         stationMap[s] = {
           station: s,
           ngos: [],
-          fro_worker_id: a.fro_worker_id || null,
-          fro_worker_name: a.workers?.name || null,
+          fro_worker_id: displayFroId(a),
+          fro_worker_name: displayFroName(a),
         };
       }
       stationMap[s].ngos.push({
@@ -1425,9 +1441,9 @@ export const getStations = async (req, res) => {
         assignment_id: a.id,
       });
       // Update FRO if this assignment has one (first non-null wins)
-      if (!stationMap[s].fro_worker_id && a.fro_worker_id) {
-        stationMap[s].fro_worker_id = a.fro_worker_id;
-        stationMap[s].fro_worker_name = a.workers?.name || null;
+      if (!stationMap[s].fro_worker_id && displayFroId(a)) {
+        stationMap[s].fro_worker_id = displayFroId(a);
+        stationMap[s].fro_worker_name = displayFroName(a);
       }
     }
 
@@ -1814,10 +1830,12 @@ export const getDonorsByFro = async (req, res) => {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       }
+    }
 
+    if (startDate && endDate) {
       const { data: logs, error: logErr } = await db
         .from('fro_donor_logs')
-        .select('donor_id, disposition_detail, disposition_category, remark, notes, created_at')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, remark, notes, created_at')
         .eq('fro_worker_id', fro_worker_id)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
@@ -1828,19 +1846,10 @@ export const getDonorsByFro = async (req, res) => {
       const donorIds = [...new Set((logs || []).map(l => l.donor_id).filter(Boolean))];
       if (donorIds.length === 0) return res.json([]);
 
-      let query = db
-        .from('fro_assignments')
-        .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
-        .in('ngo_id', ngoIds)
-        .eq('fro_worker_id', fro_worker_id)
-        .in('donor_id', donorIds);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
       const logStatusMap = {};
       const logCategoryMap = {};
       const logRemarkMap = {};
+      const donorAssignmentMap = {};
       for (const l of logs || []) {
         if (l.disposition_detail && !logStatusMap[l.donor_id]) {
           logStatusMap[l.donor_id] = l.disposition_detail;
@@ -1848,23 +1857,53 @@ export const getDonorsByFro = async (req, res) => {
         }
         const rm = (l.remark && String(l.remark).trim()) || (l.notes && String(l.notes).trim()) || '';
         if (rm && !logRemarkMap[l.donor_id]) logRemarkMap[l.donor_id] = rm;
+        if (l.assignment_id && !donorAssignmentMap[l.donor_id]) donorAssignmentMap[l.donor_id] = l.assignment_id;
       }
 
-      const result = (data || []).map(a => ({
-        id: a.id,
-        donor_id: a.donor_id,
-        donor_mobile: a.donor_profiles?.mobile_number || '',
-        donor_name: a.donor_profiles?.name || 'Unknown',
-        donor_city: a.donor_profiles?.city || '',
-        status: a.status,
-        call_status: logStatusMap[a.donor_id] || a.status,
-        call_category: logCategoryMap[a.donor_id] || '',
-        call_remark: logRemarkMap[a.donor_id] || a.notes || '',
-        station: a.station || '',
-        notes: a.notes || '',
-        next_follow_up: a.next_follow_up,
-        assigned_at: a.assigned_at,
-      }));
+      // Work-as rows: fro_donor_logs.fro_worker_id is the operator (credit)
+      // while the assignment stays with the impersonated FRO. Fetch
+      // assignments by donor within NGO scope — WITHOUT the ownership filter —
+      // so work-as activity is visible; each donor is matched to the
+      // assignment their latest log was actually made on.
+      const { data, error } = await db
+        .from('fro_assignments')
+        .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+        .in('ngo_id', ngoIds)
+        .in('donor_id', donorIds);
+      if (error) throw error;
+
+      const byDonor = new Map();
+      for (const a of data || []) {
+        if (!byDonor.has(a.donor_id)) byDonor.set(a.donor_id, []);
+        byDonor.get(a.donor_id).push(a);
+      }
+
+      // One row per donor (matches the dashboard count, which counts DISTINCT
+      // donors by their latest disposition). Donors appear latest-activity
+      // first because logs are ordered created_at DESC.
+      const result = [];
+      for (const donorId of donorIds) {
+        const list = byDonor.get(donorId);
+        if (!list || list.length === 0) continue;
+        const wanted = donorAssignmentMap[donorId];
+        const a = (wanted && list.find(x => String(x.id) === String(wanted))) || list[0];
+        result.push({
+          id: a.id,
+          donor_id: a.donor_id,
+          donor_mobile: a.donor_profiles?.mobile_number || '',
+          donor_name: a.donor_profiles?.name || 'Unknown',
+          donor_city: a.donor_profiles?.city || '',
+          status: a.status,
+          call_status: logStatusMap[a.donor_id] || a.status,
+          call_category: logCategoryMap[a.donor_id] || '',
+          call_remark: logRemarkMap[a.donor_id] || a.notes || '',
+          station: a.station || '',
+          notes: a.notes || '',
+          next_follow_up: a.next_follow_up,
+          assigned_at: a.assigned_at,
+          owner_name: a.workers?.name || '',
+        });
+      }
 
       const finalRows = status
         ? result.filter(r => r.call_status === status || (MERGED_DISPOSITION_GROUPS[status] || []).includes(r.call_status))
@@ -2453,6 +2492,232 @@ export const resetFreshData = async (req, res) => {
     });
   } catch (error) {
     console.error('resetFreshData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ── Non-connected fresh-data pull ─────────────────────────────────────────────
+// GET  /api/ngo-admin/non-connected-fresh   – preview list + summary + options
+// POST /api/ngo-admin/non-connected-fresh/delete – delete matching new_data rows
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getNonConnectedFresh = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ donors: [], summary: { total: 0, by_station: {}, by_category: {}, by_fro: {} }, category_options: [], station_options: [], status_options: [] });
+    }
+
+    let ngoIds = ngoEntries.map(e => e.ngoId);
+    const { ngo_id: filterNgoId, station, status, category } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+    }
+
+    const normalizedCategory = category ? String(category).trim() : '';
+
+    const params = [ngoIds, NOT_CONNECTED_STATUSES];
+    const conds = [
+      'fa.ngo_id = ANY($1)',
+      'fa.status = ANY($2)',
+      '(fa.batch_type = \'new_data\' OR fa.station ILIKE \'%FD-%\')',
+    ];
+    if (station && station !== 'all') {
+      params.push(station);
+      conds.push(`fa.station = $${params.length}`);
+    }
+    if (status && status !== 'all') {
+      params.push(status);
+      conds.push(`fa.status = $${params.length}`);
+    }
+    if (normalizedCategory) {
+      params.push(normalizedCategory);
+      conds.push(`(LOWER(dp.data_category) = LOWER($${params.length}) OR LOWER(dp.category) = LOWER($${params.length}))`);
+    }
+
+    const rows = await sql(`
+      SELECT fa.donor_id, fa.ngo_id, fa.station, fa.status,
+             fa.batch_type, fa.last_contacted_at, fa.assigned_at,
+             dp.id AS donor_profile_id, dp.name, dp.mobile_number,
+             dp.data_category, dp.category, dp.city,
+             w.name AS fro_name
+      FROM fro_assignments fa
+      JOIN donor_profiles dp ON dp.id = fa.donor_id
+      LEFT JOIN workers w ON w.id = fa.fro_worker_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY fa.last_contacted_at ASC NULLS LAST, fa.assigned_at ASC NULLS LAST
+      LIMIT 20000
+    `, params);
+
+    const donors = rows.map(r => ({
+      donor_profile_id: r.donor_profile_id,
+      donor_id: r.donor_id,
+      name: r.name || 'Unknown',
+      mobile_number: r.mobile_number || '',
+      category: String(r.data_category || r.category || '').trim(),
+      station: r.station || '',
+      status: r.status,
+      fro_name: r.fro_name || 'Unassigned',
+      last_contacted_at: r.last_contacted_at,
+      assigned_at: r.assigned_at,
+    }));
+
+    const byStation = {};
+    const byCategory = {};
+    const byFro = {};
+    for (const d of donors) {
+      byStation[d.station] = (byStation[d.station] || 0) + 1;
+      const cat = d.category || '(none)';
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+      byFro[d.fro_name] = (byFro[d.fro_name] || 0) + 1;
+    }
+
+    return res.json({
+      donors,
+      summary: { total: donors.length, by_station: byStation, by_category: byCategory, by_fro: byFro },
+      category_options: Object.keys(byCategory).sort(),
+      station_options: Object.keys(byStation).sort(),
+      status_options: [...new Set(donors.map(d => d.status))].sort(),
+    });
+  } catch (error) {
+    console.error('getNonConnectedFresh ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteNonConnectedFresh = async (req, res) => {
+  try {
+    const { ngo_id: filterNgoId, donor_profile_ids, category } = req.body || {};
+    const dryRun = req.query.dry_run === 'true';
+
+    let access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    if (filterNgoId && filterNgoId !== 'all') {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
+    }
+    if (ngoEntries.length === 0) {
+      return res.status(403).json({ message: 'No NGO access', deleted: 0 });
+    }
+
+    const ids = Array.isArray(donor_profile_ids)
+      ? donor_profile_ids.map(Number).filter(Boolean)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ message: 'donor_profile_ids array is required', deleted: 0 });
+    }
+
+    const normalizedCategory = category ? String(category).trim() : '';
+
+    // Fetch donor profiles to get mobile numbers
+    const { data: profiles, error: pErr } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number')
+      .in('id', ids);
+    if (pErr) throw pErr;
+    const mobiles = (profiles || []).map(p => p.mobile_number).filter(Boolean);
+    if (mobiles.length === 0) {
+      return res.json({ deleted: 0, skipped: ids.length, message: 'No matching donor profiles' });
+    }
+
+    // Resolve NGO name(s) to delete against
+    const ngoNameSet = new Set();
+    for (const e of ngoEntries) {
+      if (e.ngoName) {
+        ngoNameSet.add(e.ngoName);
+      } else {
+        const { data: ngo } = await db.from('ngos').select('name').eq('id', e.ngoId).single();
+        if (ngo?.name) ngoNameSet.add(ngo.name);
+      }
+    }
+
+    // Preview: match new_data rows to get per-category counts
+    const perCategory = {};
+    let totalMatched = 0;
+    for (const ngoName of ngoNameSet) {
+      let pq = db
+        .from('new_data')
+        .select('id, data_category, category, status')
+        .eq('ngo', ngoName)
+        .in('mobile_number', mobiles);
+      if (normalizedCategory) {
+        pq = pq.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const { data: matched } = await pq;
+      for (const m of matched || []) {
+        const cat = String(m.data_category || m.category || '').trim() || '(none)';
+        perCategory[cat] = (perCategory[cat] || 0) + 1;
+        totalMatched++;
+      }
+    }
+
+    if (dryRun) {
+      const previewRows = [];
+      for (const ngoName of ngoNameSet) {
+        let pr = db
+          .from('new_data')
+          .select('id, name, mobile_number, data_category, category, status, station, ngo, created_at')
+          .eq('ngo', ngoName)
+          .in('mobile_number', mobiles)
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        if (normalizedCategory) {
+          pr = pr.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+        }
+        const { data: rows } = await pr;
+        if (rows && rows.length) previewRows.push(...rows);
+      }
+      return res.json({
+        dry_run: true,
+        matched: totalMatched,
+        per_category: perCategory,
+        rows: previewRows,
+        truncated: previewRows.length < totalMatched,
+        message: `Dry run — ${totalMatched} fresh-data record(s) located`,
+      });
+    }
+
+    // Delete new_data rows
+    const perNgoDeleted = [];
+    let totalDeleted = 0;
+    for (const ngoName of ngoNameSet) {
+      let dq = db
+        .from('new_data')
+        .delete()
+        .eq('ngo', ngoName)
+        .in('mobile_number', mobiles);
+      if (normalizedCategory) {
+        dq = dq.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const { data: deletedRows, error: delErr } = await dq.select('id');
+      if (delErr) throw delErr;
+      const deleted = Array.isArray(deletedRows) ? deletedRows.length : 0;
+      totalDeleted += deleted;
+      perNgoDeleted.push({ ngo: ngoName, deleted });
+    }
+
+    console.log(`[NCF] deleteNonConnectedFresh user=${req.user.id} matched=${totalMatched} deleted=${totalDeleted} mobiles=${mobiles.length} ngo=${[...ngoNameSet]} category=${normalizedCategory || 'all'}`);
+
+    return res.json({
+      deleted: totalDeleted,
+      matched: totalMatched,
+      per_category: perCategory,
+      per_ngo: perNgoDeleted,
+      message: totalDeleted > 0
+        ? `${totalDeleted} fresh-data record${totalDeleted === 1 ? '' : 's'} deleted`
+        : 'No matching fresh-data records to delete',
+    });
+  } catch (error) {
+    console.error('deleteNonConnectedFresh ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -4420,7 +4685,7 @@ export const getTLDashboard = async (req, res) => {
     if (isNaN(rangeEnd.valueOf())) rangeEnd = todayEnd;
 
     // 1. Live status counts (fresh rows only; stale rows count as offline)
-    const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('worker_id', workerIds);
+    const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since').in('worker_id', workerIds);
     const liveFreshCutoff = new Date(now.getTime() - 2 * 60 * 1000);
     const isLiveFresh = (s) => s.updated_at && new Date(s.updated_at) >= liveFreshCutoff;
     const calling = (liveStatus || []).filter(s => s.status === 'on_call' && isLiveFresh(s)).length;
@@ -4714,8 +4979,12 @@ export const getTLDashboard = async (req, res) => {
 
       const ls = liveStatusMap[w.id] || {};
       const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
-      const idleMinutes = ls.updated_at ? Math.floor((now - new Date(ls.updated_at)) / 60000) : 0;
       const lsFresh = ls.updated_at && (now - new Date(ls.updated_at)) <= 2 * 60 * 1000;
+      // True current idle streak while the FRO panel's 2-minute call-idle
+      // detector has them flagged idle (idle_since = streak start).
+      const idleMinutes = (ls.status === 'idle' && lsFresh && ls.idle_since)
+        ? Math.floor((now - new Date(ls.idle_since)) / 60000)
+        : 0;
 
       return {
         fro_id: w.id,
@@ -4805,6 +5074,30 @@ export const getTLDashboard = async (req, res) => {
         };
       });
 
+    // 8b. Call-idle alerts (2 min no calls, from the FRO panel detector,
+    //     driven by idle_since on fro_live_status). These power the NGO
+    //     admin dashboard idle badge, banner Notify buttons, and hourly
+    //     productivity-alert Notify buttons.
+    const callIdleAlerts = (idleFros || [])
+      .filter(f => {
+        const lsFresh = f.updated_at && (now - new Date(f.updated_at)) <= 2 * 60 * 1000;
+        const hasIdleSince = f.idle_since != null;
+        // New detector: status idle + idle_since set + heartbeat fresh (<=2 min)
+        return f.status === 'idle' && hasIdleSince && lsFresh;
+      })
+      .map(f => {
+        const fro = froWorkers.find(w => w.id === f.worker_id);
+        const idleMinutes = Math.floor((now - new Date(f.idle_since)) / 60000);
+        return {
+          fro_id: f.worker_id,
+          fro_name: fro?.name || 'Unknown',
+          idle_minutes: idleMinutes,
+          last_activity: f.updated_at,
+          status: f.status,
+        };
+      })
+      .sort((a, b) => b.idle_minutes - a.idle_minutes || a.fro_name.localeCompare(b.fro_name));
+
     // 9. Stations activity (total + currently active, respects the NGO filter)
     const tlNgoIdToName = {};
     for (const a of access) tlNgoIdToName[a.ngo_id] = a.ngo_name;
@@ -4814,7 +5107,7 @@ export const getTLDashboard = async (req, res) => {
     }
     const stationActivity = await getStationActivityByNgo(ngoIds, tlNgoIdToName, now);
 
-    const tlPayload = {
+const tlPayload = {
       kpis: {
         total_fros: froWorkers.length,
         calling,
@@ -4849,7 +5142,7 @@ export const getTLDashboard = async (req, res) => {
       bottom_performers: {
         target: bottomByTarget,
       },
-      idle_alerts: idleAlerts,
+      idle_alerts: callIdleAlerts,
       stations_per_ngo: stationActivity.per_ngo,
       stations_summary: stationActivity.summary,
     };
@@ -5024,7 +5317,7 @@ export const getFollowups = async (req, res) => {
       .from('fro_assignments')
       .select(`
         id, status, next_follow_up, fro_worker_id, donor_id,
-        workers!fro_assignments_fro_worker_id_fkey(name),
+        workers!fro_assignments_fro_worker_id_fkey(name, is_test),
         donor_profiles!inner(name, mobile_number)
       `)
       .in('ngo_id', ngoIds)
@@ -5035,11 +5328,14 @@ export const getFollowups = async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
 
+    // Test FROs never appear in the admin panel — drop their pending follow-ups.
+    const rows = (data || []).filter(f => f.workers?.is_test !== true);
+
     // Day-wise mode: return records due / scheduled for one day, tagged
     // follow_up or callback (callback = donor asked for a call-back or has an
     // incomplete scheduled contact that day). No double counting.
     if (daywiseDate) {
-      const assignments = data || [];
+      const assignments = rows;
       const ids = assignments.map(a => a.id);
       const scheduleMap = {};
       if (ids.length > 0) {
@@ -5087,7 +5383,7 @@ export const getFollowups = async (req, res) => {
 
     // Existing bucket mode — every row gets a primary date bucket plus optional
     // week/month membership, and a callback/follow_up type (same rules as day-wise).
-    const idsForBuckets = (data || []).map(a => a.id);
+    const idsForBuckets = rows.map(a => a.id);
     const scheduleMap = {};
     if (idsForBuckets.length > 0) {
       const { data: sched, error: schedErr } = await db
@@ -5104,7 +5400,7 @@ export const getFollowups = async (req, res) => {
     const monthPrefix = (d) => String(d).slice(0, 7);
     const callbackStatuses = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate']);
 
-    const followups = (data || []).map(f => {
+    const followups = rows.map(f => {
       const nd = f.next_follow_up ? String(f.next_follow_up).slice(0, 10) : null;
       const buckets = [];
       if (!nd) buckets.push('future');
@@ -5217,29 +5513,96 @@ export const getIdleAlerts = async (req, res) => {
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
     const workerIds = froWorkers.map(w => w.id);
+    if (workerIds.length === 0) return res.json([]);
 
     const now = new Date();
-    const { data: idleFros } = await db
+    const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('worker_id, status, updated_at, today_talk_seconds, today_idle_seconds')
+      .select('worker_id, status, updated_at, idle_since')
       .in('worker_id', workerIds)
       .in('status', ['online', 'idle']);
-    
-    const idleAlerts = (idleFros || [])
-      .filter(f => (now - new Date(f.updated_at)) > 15 * 60 * 1000)
+
+    // New call-idle detector: status='idle' + idle_since set + fresh heartbeat.
+    // Old fallback: status='idle' + heartbeat stale > 15 min (detector offline).
+    const fifteenMinAgo = new Date(now.getTime() - 15 * 60 * 1000);
+
+    const idleAlerts = (liveStatus || [])
+      .filter(f => {
+        const isFresh = f.updated_at && new Date(f.updated_at) >= fifteenMinAgo;
+        const hasIdleSince = f.idle_since != null;
+        const fromNewDetector = f.status === 'idle' && hasIdleSince && isFresh;
+        const fromOldFallback = f.status === 'idle' && !isFresh;
+        return fromNewDetector || fromOldFallback;
+      })
       .map(f => {
         const fro = froWorkers.find(w => w.id === f.worker_id);
+        const idleMinutes = f.idle_since
+          ? Math.floor((now - new Date(f.idle_since)) / 60000)
+          : Math.floor((now - new Date(f.updated_at)) / 60000);
         return {
           fro_id: f.worker_id,
           fro_name: fro?.name || 'Unknown',
-          idle_minutes: Math.floor((now - new Date(f.updated_at)) / 60000),
+          idle_minutes: idleMinutes,
           last_activity: f.updated_at,
           status: f.status,
         };
-      });
+      })
+      .sort((a, b) => b.idle_minutes - a.idle_minutes || a.fro_name.localeCompare(b.fro_name));
 
     return res.json(idleAlerts);
   } catch (error) {
+    console.error('getIdleAlerts error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/** POST /ngo-admin/notify-fro
+ *  Trigger an idle_alert notification for a specific FRO.
+ *  Guards: worker must belong to one of the admin's NGOs, must be active (not is_test),
+ *          and must not already be marked idle from a prior alert that hasn't been resolved.
+ *  Always writes a notification_log row (drives FRO web bell + realtime broadcast),
+ *  and best-effort FCM push when a mobile token exists.
+ */
+export const notifyFroHandler = async (req, res) => {
+  try {
+    const { workerId } = req.body;
+    if (!workerId) {
+      return res.status(400).json({ message: 'workerId is required' });
+    }
+
+    // Guard: worker must belong to an accessible NGO for this admin
+    const adminNgoIds = await getUserNgoIds(req.user);
+    const { data: worker } = await db
+      .from('workers')
+      .select('id, name, login_id, is_active, ngo_id')
+      .eq('id', workerId)
+      .single();
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
+
+    // Test workers must never be visible in NGO admin panel
+    if (worker.is_test === true) {
+      return res.status(403).json({ message: 'Cannot notify test worker' });
+    }
+
+    // Guard: worker must be allocated to at least one of the admin's NGOs
+    const workerNgoOk = adminNgoIds.some(
+      (ngoId) => String(worker.ngo_id) === String(ngoId)
+    );
+    if (!workerNgoOk) {
+      return res.status(403).json({ message: 'Worker not in your NGO(s)' });
+    }
+
+    // Guard: must be active (not marked inactive)
+    if (worker.is_active === false) {
+      return res.status(403).json({ message: 'Cannot notify inactive worker' });
+    }
+
+    // Always write a notification_log entry (drives FRO bell + realtime broadcast)
+    await notifyWorker(workerId, 'You are marked idle', 'Your FRO has been idle for over 2 minutes. Please resume calling.', 'idle_alert');
+
+    return res.json({ message: 'Notification sent', sent: 1 });
+  } catch (error) {
+    console.error('notifyFroHandler error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -5593,30 +5956,28 @@ export const restoreWrongAssignments = async (req, res) => {
   }
 };
 
-// FRO-level Hourly Performance
+// FRO-level Hourly Performance (IST working window 09:00-21:00)
 export const getFroHourlyPerformance = async (req, res) => {
   try {
     const { ngo_id, from, to } = req.query;
     const ngoIds = await getUserNgoIds(req.user);
     const effectiveNgoId = ngo_id || (ngoIds.length === 1 ? ngoIds[0] : null);
 
-    let fromDate, toDate;
-    if (from) {
-      fromDate = from.includes('T') ? from : `${from}T00:00:00.000Z`;
-    } else {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      fromDate = d.toISOString();
-    }
-    if (to) {
-      toDate = to.includes('T') ? to : `${to}T23:59:59.999Z`;
-    } else {
-      toDate = new Date().toISOString();
-    }
+    // All boundaries and hour buckets are computed in IST (UTC+5:30)
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const istToday = () => new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    const istDayStart = (day) => new Date(`${day}T00:00:00.000+05:30`).toISOString();
+    const istDayEnd = (day) => new Date(`${day}T23:59:59.999+05:30`).toISOString();
+    const istHourOf = (iso) => new Date(new Date(iso).getTime() + IST_OFFSET_MS).getUTCHours();
+
+    const fromDay = (from && !from.includes('T')) ? from : istToday();
+    const toDay = (to && !to.includes('T')) ? to : istToday();
+    const fromDate = (from && from.includes('T')) ? from : istDayStart(fromDay);
+    const toDate = (to && to.includes('T')) ? to : istDayEnd(toDay);
 
     let logQuery = db
       .from('fro_donor_logs')
-      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)')
+      .select('created_at, disposition_detail, disposition_category, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id, is_test)')
       .gte('created_at', fromDate)
       .lte('created_at', toDate);
 
@@ -5629,23 +5990,18 @@ export const getFroHourlyPerformance = async (req, res) => {
     const { data: logs, error } = await logQuery;
     if (error) throw error;
 
-    const connectedStatuses = new Set([
-      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
-      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
-      'pending', 'contacted', 'follow_up', 'scheduled',
-      'email_sent', 'whatsapp_sent', 'csr_inquiry',
-      'wants_80g_details', 'wants_trust_documents'
-    ]);
     const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+    const statusKeyOf = (detail) => mergedGroupOf(detail) || detail;
 
     // Build FRO-hourly map
     const froHourlyMap = {};
     for (const l of logs || []) {
       const wid = l.fro_worker_id;
       if (!wid) continue;
+      if (l.workers?.is_test === true) continue; // never show test workers
       const wname = l.workers?.name || 'Unknown';
       const wlogin = l.workers?.login_id || '';
-      const hour = new Date(l.created_at).getHours();
+      const hour = istHourOf(l.created_at);
       if (hour < 9 || hour > 20) continue;
       const hourStr = `${String(hour).padStart(2, '0')}:00-${String(hour+1).padStart(2, '0')}:00`;
 
@@ -5658,17 +6014,30 @@ export const getFroHourlyPerformance = async (req, res) => {
           hour: hourStr,
           calls: 0,
           connected: 0,
+          non_connected: 0,
           interested: 0,
           donations: 0,
           amount: 0,
+          connected_statuses: {},
+          non_connected_statuses: {},
         };
       }
-      froHourlyMap[key].calls++;
-      if (connectedStatuses.has(l.disposition_detail)) froHourlyMap[key].connected++;
-      if (interestedStatuses.has(l.disposition_detail)) froHourlyMap[key].interested++;
+      const entry = froHourlyMap[key];
+      entry.calls++;
+      const side = classifyLogSide(l);
+      if (side === 'connected') {
+        entry.connected++;
+        const sk = statusKeyOf(l.disposition_detail);
+        entry.connected_statuses[sk] = (entry.connected_statuses[sk] || 0) + 1;
+      } else if (side === 'not_connected') {
+        entry.non_connected++;
+        const sk = statusKeyOf(l.disposition_detail);
+        entry.non_connected_statuses[sk] = (entry.non_connected_statuses[sk] || 0) + 1;
+      }
+      if (interestedStatuses.has(l.disposition_detail)) entry.interested++;
       if (l.accounts_status === 'verified') {
-        froHourlyMap[key].donations++;
-        froHourlyMap[key].amount += parseFloat(l.amount_collected || 0);
+        entry.donations++;
+        entry.amount += parseFloat(l.amount_collected || 0);
       }
     }
 
@@ -5676,7 +6045,9 @@ export const getFroHourlyPerformance = async (req, res) => {
     const targetNgos = effectiveNgoId ? [effectiveNgoId] : ngoIds;
     const allWorkers = (await Promise.all(targetNgos.map(nId => getFroWorkersByNgo(nId)))).flat();
     const seen = new Set();
-    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const froWorkers = allWorkers
+      .filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; })
+      .filter(w => w.is_active !== false);
 
     const allHours = Array.from({ length: 12 }, (_, i) => 
       `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
@@ -5693,9 +6064,12 @@ export const getFroHourlyPerformance = async (req, res) => {
             hour: h,
             calls: 0,
             connected: 0,
+            non_connected: 0,
             interested: 0,
             donations: 0,
             amount: 0,
+            connected_statuses: {},
+            non_connected_statuses: {},
           };
         }
       }

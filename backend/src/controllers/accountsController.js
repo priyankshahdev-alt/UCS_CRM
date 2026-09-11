@@ -3842,6 +3842,27 @@ export const getSuspenseByNgo = async (req, res) => {
   }
 };
 
+// Today + current-month (IST) receipt totals per NGO — feeds the Lead & Audit
+// page's right-hand "NGO Collections" cards (TODAY / MONTH).
+export const getNgoCollections = async (_req, res) => {
+  try {
+    const { rows } = await db._pool.query(`
+      SELECT project_id,
+             count(*) FILTER (WHERE receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS today_count,
+             COALESCE(sum(amount) FILTER (WHERE receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date), 0)::float8 AS today_total,
+             count(*) FILTER (WHERE receipt_date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS month_count,
+             COALESCE(sum(amount) FILTER (WHERE receipt_date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date), 0)::float8 AS month_total
+      FROM receipts
+      WHERE receipt_no IS NOT NULL
+      GROUP BY project_id
+      ORDER BY count(*) DESC
+    `);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const quickSearchDonors = async (req, res) => {
   try {
     const { q } = req.query;

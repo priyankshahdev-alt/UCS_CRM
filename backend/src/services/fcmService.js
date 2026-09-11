@@ -73,3 +73,43 @@ export const sendPushToMultiple = async (notifications) => {
   }
   return results;
 };
+
+// Always records a notification_log row (drives the FRO web bell + realtime
+// toast via the socket broadcast) and additionally attempts an FCM push when
+// a mobile token exists. Unlike sendPushNotification, the log is written even
+// without a token so web-only FROs still receive the alert.
+export const notifyWorker = async (workerId, title, body, type, referenceId = null) => {
+  try {
+    const cleanTitle = String(title == null ? '' : title).trim();
+    const cleanBody = String(body == null ? '' : body).trim();
+    if (!workerId || !cleanTitle) return null;
+
+    const { logNotification, getFcmToken } = await import('../models/notificationModel.js');
+    const entry = await logNotification({
+      worker_id: workerId,
+      type: type || 'general',
+      title: cleanTitle,
+      body: cleanBody,
+      reference_id: referenceId,
+    });
+
+    try {
+      if (NOTIFICATIONS_ENABLED && messaging) {
+        const tokenData = await getFcmToken(workerId);
+        if (tokenData?.token) {
+          await messaging.send({
+            token: tokenData.token,
+            notification: { title: cleanTitle, body: cleanBody },
+            data: { type: type || 'general', referenceId: referenceId || '', workerId: workerId || '' },
+          });
+        }
+      }
+    } catch (pushErr) {
+      console.error('FCM send error (notifyWorker):', pushErr.message);
+    }
+    return entry;
+  } catch (error) {
+    console.error('notifyWorker failed:', error.message);
+    return null;
+  }
+};

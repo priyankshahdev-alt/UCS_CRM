@@ -25,8 +25,6 @@ class _ProfilePageState extends State<ProfilePage> {
   final ScrollController _scrollController = ScrollController();
   Map<String, dynamic>? _worker;
   bool _loading = true;
-  List<dynamic> _tickets = [];
-  bool _loadingTickets = false;
   List<dynamic> _loans = [];
   List<dynamic> _profileRequests = [];
   final Set<String> _expandedCards = {};
@@ -36,8 +34,8 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, Map<String, dynamic>> _historyByDate = {};
   String? _selectedDateKey;
   final Map<int, Map<String, int>> _monthlyStats = {};
-  int _calYear = 0, _calMonth = 0;
   Map<String, List<String>> _calendarDates = {};
+  Map<String, dynamic>? _salaryBreakdown;
 
   @override
   void initState() {
@@ -53,6 +51,7 @@ class _ProfilePageState extends State<ProfilePage> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
         _refreshHistoryFromNetwork();
         _fetchCalendar();
+        _fetchSalaryBreakdown();
       });
     }
   }
@@ -66,8 +65,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadData() async {
     _worker = await ApiService.getWorkerData();
-    final n = DateTime.now();
-    if (_calYear == 0) { _calYear = n.year; _calMonth = n.month; }
 
     // Load cached data instantly
     final cachedProfile = await ApiService.getCachedProfile();
@@ -87,11 +84,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
     await _refreshHistoryFromNetwork();
     _fetchCalendar();
+    _fetchSalaryBreakdown();
 
     // Listen to realtime updates
     RealtimeService.instance.addListener(_onRealtimeChange);
     _fetchLoans();
-    _fetchTickets();
     _fetchProfileRequests();
   }
 
@@ -102,19 +99,18 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {}
   }
 
-  Future<void> _fetchTickets() async {
-    setState(() => _loadingTickets = true);
-    try {
-      final tickets = await ApiService.getMyCorrectionTickets();
-      if (mounted) setState(() { _tickets = tickets; _loadingTickets = false; });
-    } catch (_) { if (mounted) setState(() => _loadingTickets = false); }
-  }
-
   Future<void> _fetchProfileRequests() async {
     try {
       final reqs = await ApiService.getMyProfileUpdateRequests();
       if (mounted) setState(() => _profileRequests = reqs);
     } catch (_) {}
+  }
+
+  Future<void> _fetchSalaryBreakdown() async {
+    final data = await ApiService.getMySalaryBreakdown();
+    if (mounted) {
+      setState(() => _salaryBreakdown = data);
+    }
   }
 
   void _onRealtimeChange() {
@@ -221,7 +217,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _fetchCalendar() async {
     try {
-      final data = await ApiService.getCalendar(year: _calYear, month: _calMonth);
+      final n = DateTime.now();
+      final data = await ApiService.getCalendar(year: n.year, month: n.month);
       final Map<String, List<String>> calMap = {};
       for (final e in (data['events'] as List? ?? [])) {
         final d = e['date']?.toString();
@@ -268,6 +265,8 @@ class _ProfilePageState extends State<ProfilePage> {
           padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 80)),
           children: [
             _profileCard(name, loginId, role, initials),
+            SizedBox(height: Responsive.pad(context, 16)),
+            _summaryCardsGrid(colors, scheme),
             SizedBox(height: Responsive.pad(context, 24)),
             _lateDeductionCard(colors, scheme, tt),
             SizedBox(height: Responsive.pad(context, 24)),
@@ -281,8 +280,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 padding: EdgeInsets.only(bottom: Responsive.pad(context, 24)),
                 child: _dayDetailCard(colors, scheme, tt),
               ),
-        _ticketStatusCard(colors, scheme, tt),
-        SizedBox(height: Responsive.pad(context, 16)),
         _loanStatusCard(colors, scheme, tt),
         SizedBox(height: Responsive.pad(context, 16)),
         _profileRequestCard(colors, scheme, tt),
@@ -645,6 +642,101 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  String _fmtDays(num v) {
+    if (v == v.roundToDouble()) return '${v.toInt()}';
+    return v.toStringAsFixed(1);
+  }
+
+  num get _fallbackLateDeductionDays {
+    switch (_lateTier) {
+      case 0: return 0;
+      case 1: return 0.5;
+      case 2: return 1;
+      case 3:
+        if (_lateUsed <= 0) return 0;
+        return ((_lateUsed / 480) * 2).roundToDouble() / 2;
+      default: return 0;
+    }
+  }
+
+  Widget _summaryCardsGrid(AppColors colors, ColorScheme scheme) {
+    final ym = DateTime.now().year * 100 + DateTime.now().month;
+    final monthStats = _monthlyStats[ym] ?? {};
+    final presentCount = (monthStats['present'] ?? 0) + (monthStats['late'] ?? 0);
+    final absentCount = monthStats['absent'] ?? 0;
+    final halfDay = (_salaryBreakdown?['halfDayCount'] as num?) ?? (monthStats['half-day'] ?? 0);
+    final lateDeduction = (_salaryBreakdown?['lateDeductionDays'] as num?) ?? _fallbackLateDeductionDays;
+    final sundayDeducted = (_salaryBreakdown?['extraSundayCount'] as num?) ?? 0;
+    final trainingDeduction = (_salaryBreakdown?['joiningDeduction'] as num?) ?? (_joinedThisMonth ? 1.5 : 0);
+
+    final tiles = <Widget>[
+      _summaryTile('Present (incl. Late)', '$presentCount', LucideIcons.calendarCheck, const Color(0xFF1D7A4F)),
+      _summaryTile('Absence', '$absentCount', LucideIcons.calendarX, const Color(0xFFba1a1a)),
+      _summaryTile('Half-day', _fmtDays(halfDay), LucideIcons.sun, const Color(0xFF7c3aed)),
+      _summaryTile('Late Deduction Days', _fmtDays(lateDeduction), LucideIcons.clock, const Color(0xFFc28228)),
+      _summaryTile('Sunday Deducted', _fmtDays(sundayDeducted), LucideIcons.calendarOff, const Color(0xFF2563eb)),
+      _summaryTile('Training Deduction', _fmtDays(trainingDeduction), LucideIcons.graduationCap, const Color(0xFF8B5CF6)),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('My Attendance',
+          style: GoogleFonts.hankenGrotesk(
+            fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: scheme.onSurface,
+          ),
+        ),
+        SizedBox(height: Responsive.pad(context, 8)),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: Responsive.pad(context, 8),
+          crossAxisSpacing: Responsive.pad(context, 8),
+          childAspectRatio: 2.2,
+          children: tiles,
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryTile(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 8)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: Responsive.sp(context, 14), color: color),
+          SizedBox(width: Responsive.pad(context, 8)),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value,
+                  style: GoogleFonts.hankenGrotesk(
+                    fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w800, color: color,
+                  ),
+                ),
+                Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w600,
+                    color: const Color(0xFF43474d),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _attendanceCalendar(
     double presentFrac, double absentFrac, double leaveFrac, double lateFrac,
@@ -667,39 +759,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: GoogleFonts.hankenGrotesk(
                   fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
                 ),
-              ),
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (_calMonth == 1) { _calYear--; _calMonth = 12; }
-                        else { _calMonth--; }
-                        _selectedDateKey = null;
-                      });
-                      _fetchCalendar();
-                    },
-                    child: Container(
-                      padding: EdgeInsets.all(Responsive.pad(context, 4)),
-                      child: Icon(LucideIcons.chevronLeft, size: Responsive.sp(context, 20), color: const Color(0xFF43474d)),
-                    ),
-                  ),
-                  SizedBox(width: Responsive.pad(context, 4)),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (_calMonth == 12) { _calYear++; _calMonth = 1; }
-                        else { _calMonth++; }
-                        _selectedDateKey = null;
-                      });
-                      _fetchCalendar();
-                    },
-                    child: Container(
-                      padding: EdgeInsets.all(Responsive.pad(context, 4)),
-                      child: Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: const Color(0xFF43474d)),
-                    ),
-                  ),
-                ],
               ),
             ],
           ),
@@ -731,8 +790,8 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           SizedBox(height: Responsive.pad(context, 20)),
           MiniCalendar(
-            year: _calYear,
-            month: _calMonth,
+            year: DateTime.now().year,
+            month: DateTime.now().month,
             statusByDate: _statusByDate,
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
@@ -791,131 +850,6 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _ticketStatusCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
-    final expanded = _expandedCards.contains('ticket');
-    final pendingTickets = _tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').toList();
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () => setState(() {
-              if (expanded) { _expandedCards.remove('ticket'); } else { _expandedCards.add('ticket'); }
-            }),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                Icon(LucideIcons.ticket, size: Responsive.sp(context, 18), color: scheme.primary),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Expanded(
-                  child: Text('Ticket Status',
-                    style: GoogleFonts.hankenGrotesk(
-                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (pendingTickets.isNotEmpty)
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text('${pendingTickets.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
-                  ),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
-              ],
-            ),
-          ),
-          if (expanded) ...[
-            SizedBox(height: Responsive.pad(context, 16)),
-            if (_loadingTickets)
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-                child: const Center(child: ButtonSkeleton()),
-              )
-            else if (pendingTickets.isEmpty)
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-                child: Center(
-                  child: Text('No pending tickets', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-                ),
-              )
-            else
-              ...pendingTickets.take(3).map((t) => _ticketItem(t, scheme, colors)),
-            if (pendingTickets.length > 3)
-              Padding(
-                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-                child: Center(
-                  child: Text('+${pendingTickets.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _ticketItem(dynamic t, ColorScheme scheme, AppColors colors) {
-    final status = t['status']?.toString() ?? 'pending';
-    final field = t['field'] == 'punch_in' ? 'Punch In' : 'Punch Out';
-    final date = t['date']?.toString() ?? '';
-    final Color statusColor;
-    final String statusLabel;
-    switch (status) {
-      case 'pending': statusColor = const Color(0xFFc28228); statusLabel = 'Pending'; break;
-      case 'hr_verified': statusColor = const Color(0xFF2563eb); statusLabel = 'HR Verified'; break;
-      case 'approved': statusColor = const Color(0xFF1D7A4F); statusLabel = 'Approved'; break;
-      case 'rejected': statusColor = const Color(0xFFba1a1a); statusLabel = 'Rejected'; break;
-      default: statusColor = scheme.onSurfaceVariant; statusLabel = status;
-    }
-    return Padding(
-      padding: EdgeInsets.only(bottom: Responsive.pad(context, 12)),
-      child: Container(
-        padding: EdgeInsets.all(Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('$date • $field',
-                    style: TextStyle(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600, color: scheme.onSurface)),
-                  SizedBox(height: Responsive.pad(context, 2)),
-                  if (t['reason'] != null)
-                    Text(t['reason'].toString(),
-                      style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-              ),
-            ),
-            SizedBox(width: Responsive.pad(context, 8)),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 3)),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(statusLabel, style: TextStyle(fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w700, color: statusColor)),
-            ),
-          ],
-        ),
       ),
     );
   }
