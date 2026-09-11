@@ -9,6 +9,10 @@ import {
   importReminders,
 } from './api'
 import { exportToCSV, exportToExcel, daysLeft } from './helpers'
+import {
+  requestNotificationPermission, playAlarmSound, sendBrowserNotification,
+  isDismissed, dismissAlarmKey, isSnoozed, getAlarmType, computeEffectiveDueDate
+} from './notifications'
 import AllReminders from './AllReminders'
 import RemSettings from './Settings'
 import DashboardPage from './Dashboard'
@@ -20,23 +24,21 @@ const PAGE_META = {
 }
 
 function alarmCheck(reminders, settings, onFire) {
-  const now = new Date()
-  const threshold = settings?.due_soon_threshold || 7
   for (const r of reminders) {
     if (r.completed_at || r.is_deleted) continue
-    const dl = daysLeft(r.due_date)
-    if (dl === null) continue
-    if (!(r.reminder_enabled || r.alarm_enabled)) continue
-    const dueToday = dl === 0
-    const overdue = dl < 0
-    const dueSoon = dl > 0 && dl <= threshold
-    if (overdue) {
-      onFire(r, 'OVERDUE')
-    } else if (dueToday) {
-      onFire(r, 'DUE_TODAY')
-    } else if (dueSoon && r.reminder_enabled) {
-      onFire(r, 'DUE_SOON')
-    }
+    if (!(r.reminder_enabled || r.alarm_enabled || r.notification_enabled)) continue
+
+    const effectiveDate = computeEffectiveDueDate(r)
+    if (!effectiveDate) continue
+
+    const alarmType = getAlarmType(r, 10)
+    if (!alarmType) continue
+
+    const key = `${r.id}-${alarmType}`
+    if (isDismissed(key)) continue
+    if (isSnoozed(key)) continue
+
+    onFire(r, alarmType, effectiveDate)
   }
 }
 
@@ -81,11 +83,22 @@ function PanelInner() {
 
   useEffect(() => {
     if (!reminders.length) return
+    requestNotificationPermission()
     const check = () => {
-      alarmCheck(reminders, settings, (r, type) => {
+      alarmCheck(reminders, settings, (r, type, effectiveDate) => {
         const key = `${r.id}-${type}`
         if (firedRef.current.has(key)) return
         firedRef.current.add(key)
+
+        playAlarmSound(type)
+
+        const typeLabel = type === 'OVERDUE' ? 'OVERDUE' : type === 'DUE_TODAY' ? 'DUE TODAY' : 'DUE SOON'
+        sendBrowserNotification(
+          `${typeLabel}: ${r.title}`,
+          `${typeLabel} — ${r.due_date_display || r.title}${effectiveDate ? ` (due: ${effectiveDate})` : ''}`,
+          key
+        )
+
         setAlarmToasts(prev => {
           if (prev.some(t => t.reminderId === r.id && t.alarmType === type)) return prev
           return [...prev, { reminderId: r.id, reminder: r, alarmType: type }]
@@ -98,6 +111,7 @@ function PanelInner() {
   }, [reminders, settings])
 
   const dismissAlarm = useCallback((key) => {
+    dismissAlarmKey(key)
     setAlarmToasts(prev => prev.filter(t => `${t.reminderId}-${t.alarmType}` !== key))
   }, [])
 
