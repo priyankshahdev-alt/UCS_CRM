@@ -3541,7 +3541,7 @@ export const getDonorHistory = async (req, res) => {
 export const updateLiveStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type } = req.body;
+    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at } = req.body;
 
     if (status && !['online', 'idle', 'on_call', 'break', 'offline'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline' });
@@ -3552,6 +3552,11 @@ export const updateLiveStatus = async (req, res) => {
         return res.status(400).json({ message: `${key} must be a non-negative number` });
       }
     }
+    const parseTs = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    };
 
     const payload = {
       status,
@@ -3577,6 +3582,13 @@ export const updateLiveStatus = async (req, res) => {
       payload.break_started_at = new Date().toISOString();
       payload.on_break = true;
     }
+    // idle_since: the start of the current idle streak (drives "Idle Xm" on
+    // the NGO admin dashboard). The FRO panel sets it when the 2-minute
+    // call-idle detector fires and clears it on resume.
+    if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
+    if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
+    // Any non-idle status always clears the streak (server-side safety net).
+    if (status && status !== 'idle') payload.idle_since = null;
 
     const { error } = await db
       .from('fro_live_status')

@@ -422,6 +422,17 @@ export default function FROPanel() {
               toast(`${n.title}: ${n.body}`, 'info');
             }
           });
+        allNotifs
+          .filter(n => n.type === 'idle_alert' && !n.read_at)
+          .slice(0, 20)
+          .forEach(n => {
+            if (!seenNotifIds.current.has(n.id)) {
+              seenNotifIds.current.add(n.id);
+              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+              showDesktopNotification(n.title, n.body);
+              toast(`${n.title}: ${n.body}`, 'error');
+            }
+          });
         setAllVerified(verified);
         setVerifiedItems(verifiedSlice);
         setVerifiedCount(verified.length);
@@ -440,6 +451,13 @@ export default function FROPanel() {
     onInsert: (row) => {
       if (row?.type === 'suspense_alert') {
         ringSuspenseAlert(row);
+      }
+      // NGO admin clicked "Notify" — surface instantly (deduped via seenNotifIds)
+      if (row?.type === 'idle_alert' && row?.id && !seenNotifIds.current.has(row.id)) {
+        seenNotifIds.current.add(row.id);
+        localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+        showDesktopNotification(row.title, row.body);
+        toast(`${row.title}: ${row.body}`, 'error');
       }
       loadNotifications();
     },

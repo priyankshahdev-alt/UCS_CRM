@@ -80,6 +80,7 @@ import {
   reassignFollowup,
   updateFollowupDate,
   getIdleAlerts,
+  notifyFroHandler,
   getTopPerformers,
   getBottomPerformers,
   getAssignedData,
@@ -121,6 +122,7 @@ router.get('/tl-dashboard', getTLDashboard);
 router.get('/dashboard/donation-funnel', getDonationFunnel);
 router.get('/dashboard/hourly-performance', getHourlyPerformance);
 router.get('/dashboard/idle-alerts', getIdleAlerts);
+router.post('/notify-fro', authenticateRole('admin', 'super_admin'), notifyFroHandler);
 router.get('/dashboard/top-performers', getTopPerformers);
 router.get('/dashboard/bottom-performers', getBottomPerformers);
 

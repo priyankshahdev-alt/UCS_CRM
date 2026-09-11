@@ -409,11 +409,9 @@ export const listAll = async (req, res) => {
   try {
     let records = await getAllAttendance();
     const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
-    if (ngoId) {
-      const workers = await getAllWorkers(ngoId);
-      const workerIds = new Set(workers.map((w) => w.id));
-      records = records.filter((r) => workerIds.has(r.worker_id));
-    }
+    const workers = await getAllWorkers(ngoId || undefined);
+    const workerIds = new Set(workers.filter((w) => w.is_test !== true).map((w) => w.id));
+    records = records.filter((r) => workerIds.has(r.worker_id));
     for (const r of records) {
       if (r.punch_in_time && r.punch_out_time) {
         const pi = new Date(r.punch_in_time).getTime();

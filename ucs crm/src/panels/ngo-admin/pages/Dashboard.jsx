@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
-import { apiGet, apiPut, getFroHourlyPerformance } from '../api/auth';
+import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
 
@@ -82,6 +83,25 @@ const toIstDate = (d = new Date()) =>
   new Date(new Date(d).getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
 
 const PERIOD_LABELS = { today: 'Today', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
+
+const SCORE_WEIGHTS = [
+  { label: 'Collection', weight: '35%', color: '#16a34a', bg: '#f0fdf4' },
+  { label: 'Leads', weight: '30%', color: '#2563eb', bg: '#eff6ff' },
+  { label: 'Talk Time', weight: '17.5%', color: '#9333ea', bg: '#faf5ff' },
+  { label: 'Data Used', weight: '17.5%', color: '#0d9488', bg: '#f0fdfa' },
+];
+
+const ScoreFormulaLegend = () => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 9, color: 'var(--ink-soft)' }}>
+    <span style={{ fontWeight: 700 }}>Score&nbsp;=</span>
+    {SCORE_WEIGHTS.map((w, i) => (
+      <span key={w.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {i > 0 && <span>+</span>}
+        <span style={{ background: w.bg, color: w.color, fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: `1px solid ${w.color}22` }}>{w.label} {w.weight}</span>
+      </span>
+    ))}
+  </div>
+);
 
 const NGO_TABS = [
   ['', 'All'],
@@ -508,6 +528,15 @@ const FOLLOWUP_TAB_LABELS = {
   week: 'This Week', month: 'This Month',
 };
 
+const FOLLOWUP_BUCKETS = [
+  { key: 'overdue', label: 'Overdue', color: '#dc2626' },
+  { key: 'today', label: 'Today', color: '#ea580c' },
+  { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb' },
+  { key: 'future', label: 'Future', color: '#6b7280' },
+  { key: 'week', label: 'This Week', color: '#5B6B4E' },
+  { key: 'month', label: 'This Month', color: '#7c3aed' },
+];
+
 function buildWorkerSummary(rows, todayIst = toIstDate()) {
   const map = {};
   for (const r of rows) {
@@ -519,7 +548,8 @@ function buildWorkerSummary(rows, todayIst = toIstDate()) {
     map[key].rows.push(r);
   }
   const list = Object.values(map).map(x => ({ ...x, total: x.callback + x.follow_up }));
-  list.sort((a, b) => b.total - a.total || a.telecaller.localeCompare(b.telecaller));
+  // Laziest first: most overdue on top, then busiest — so slackers are instantly visible.
+  list.sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.telecaller.localeCompare(b.telecaller));
   return list;
 }
 
@@ -528,43 +558,67 @@ function FollowupSummaryTable({ summary, onSelect, hint }) {
   const tFup = summary.reduce((s, w) => s + w.follow_up, 0);
   const tOver = summary.reduce((s, w) => s + w.overdue, 0);
   const tTotal = summary.reduce((s, w) => s + w.total, 0);
+  const cnt = (v, color) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, animation: 'countPop .3s ease-out', fontWeight: 700, color: v > 0 ? color : 'var(--ink-soft)' }}>
+      <AnimatedNumber value={v} />
+    </span>
+  );
   return (
     <div>
-      <div style={{ overflowX: 'auto' }}>
+      <style>{`@keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }`}</style>
+      <div style={{ overflowX: 'auto', maxHeight: 380, overflowY: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
-              {[['Telecaller', 'left'], ['Callback', 'center'], ['Follow-up', 'center'], ['Overdue', 'center'], ['Total', 'center']].map(([h, align]) => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>{h}</th>
+              {[['#', 'center', 34], ['Telecaller', 'left', null], ['Callback', 'center', null], ['Follow-up', 'center', null], ['Overdue', 'center', null], ['Total', 'center', null]].map(([h, align, w]) => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)', position: 'sticky', top: 0, background: 'var(--bg, #fff)', zIndex: 2, ...(w ? { width: w } : {}) }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {summary.map(w => (
-              <tr key={w.key} onClick={() => onSelect(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }} title="Click to view details">
-                <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>{w.callback}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#ea580c', fontWeight: 600 }}>{w.follow_up}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#dc2626', fontWeight: 600 }}>{w.overdue}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{w.total}</td>
-              </tr>
-            ))}
-            <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700 }}>
+            {summary.map((w, i) => {
+              const overPct = Math.min((w.overdue / Math.max(w.total, 1)) * 100, 100);
+              return (
+                <tr key={w.key} onClick={() => onSelect(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', animationDelay: `${Math.min(i, 10) * 25}ms` }} title="Click to view donors"
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: w.overdue > 0 ? (i < 3 ? '#dc2626' : '#b91c1c') : 'var(--ink-soft)' }}>
+                    {w.overdue > 0 ? `!${i + 1}` : i + 1}
+                  </td>
+                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.callback, '#16a34a')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.follow_up, '#ea580c')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                      {cnt(w.overdue, '#dc2626')}
+                      {w.overdue > 0 && (
+                        <div style={{ width: 54, height: 4, borderRadius: 2, background: 'var(--line)', overflow: 'hidden' }} title={`${Math.round(overPct)}% of their follow-ups are overdue`}>
+                          <div style={{ width: `${Math.max(overPct, 8)}%`, height: '100%', background: '#dc2626', borderRadius: 2 }} />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{cnt(w.total, 'var(--ink)')}</td>
+                </tr>
+              );
+            })}
+            <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700, position: 'sticky', bottom: 0 }}>
+              <td style={{ padding: '8px 10px', fontWeight: 700, textAlign: 'center' }}>Σ</td>
               <td style={{ padding: '8px 10px', fontWeight: 700 }}>TOTAL</td>
-              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tCall}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tFup}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tOver}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{tCall}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#ea580c' }}>{tFup}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#dc2626' }}>{tOver}</td>
               <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tTotal}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view donors'}</div>
+      <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view donors — sorted by most overdue first'}</div>
     </div>
   );
 }
 
-function FollowupDetailModal({ worker, label, onClose, onChanged }) {
+function FollowupDetailModal({ worker, label, onClose }) {
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -627,8 +681,8 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {[['Donor', 'left'], ['Mobile', 'left'], ['Type', 'left'], ['Date', 'center'], ['Scheduled', 'center'], ['', 'right']].map(([h, align]) => (
-                      <th key={h || 'action'} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>{h || 'Action'}</th>
+                    {[['Donor', 'left'], ['Mobile', 'left'], ['Type', 'left'], ['Date', 'center'], ['Scheduled', 'center']].map(([h, align]) => (
+                      <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -647,19 +701,6 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
                         ) : (r.followup_date ? String(r.followup_date).slice(0, 10) : '—')}
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{fmtTime(r.scheduled_at)}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                        <button onClick={async () => {
-                          const newDate = prompt('New follow-up date (YYYY-MM-DD):', r.followup_date || '');
-                          if (newDate && newDate !== r.followup_date) {
-                            try {
-                              await apiPut(`/ngo-admin/followups/${r.assignment_id || r.assignmentId}/date`, { followup_date: newDate });
-                              onChanged();
-                            } catch (err) { alert('Failed: ' + err.message); }
-                          }
-                        }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-                          Change Date
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -911,7 +952,12 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
                           return (
                             <tr key={d.id || d.donor_id}>
                               <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{(page - 1) * PER_PAGE + i + 1}</td>
-                              <td style={{ fontWeight: 500 }}>{d.donor_name || '—'}</td>
+                              <td style={{ fontWeight: 500 }}>
+                                {d.donor_name || '—'}
+                                {d.owner_name && froName && String(d.owner_name).trim().toLowerCase() !== String(froName).trim().toLowerCase() && (
+                                  <span title={`Assignment owned by ${d.owner_name} — worked via Work-As`} style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>via {d.owner_name}</span>
+                                )}
+                              </td>
                               <td>{d.donor_mobile || '—'}</td>
                               <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.station || '—'}</td>
                               <td><span className="pill" style={{
@@ -976,20 +1022,21 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState(() => toIstDate());
   const [selectedFroId, setSelectedFroId] = useState('');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
-  const [weakPeriod, setWeakPeriod] = useState('today');
   const [weakPerformers, setWeakPerformers] = useState([]);
   const [weakLoading, setWeakLoading] = useState(false);
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
+  const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
   const [froSearch, setFroSearch] = useState('');
   const [perfTab, setPerfTab] = useState('connected');
   const [selectedFro, setSelectedFro] = useState(null);
-  const [callAnalytics, setCallAnalytics] = useState(null);
-  const [hourlyExportFrom, setHourlyExportFrom] = useState(() => new Date().toISOString().slice(0,10));
-  const [hourlyExportTo, setHourlyExportTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
+  const [hourlyExportTo, setHourlyExportTo] = useState(() => toIstDate());
   const [froHourlyData, setFroHourlyData] = useState([]);
-  const [hourlyDate, setHourlyDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [hourlyDate, setHourlyDate] = useState(() => toIstDate());
   const [hourlyList, setHourlyList] = useState([]);
+  const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
+  const [showAllIdleAlerts, setShowAllIdleAlerts] = useState(false);
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1012,6 +1059,12 @@ export default function Dashboard() {
     if (activeRange.to) setHourlyExportTo(activeRange.to);
   }, [activeRange]);
 
+  // Collapse expanded performer lists when the global filter or NGO tab changes
+  useEffect(() => {
+    setShowAllTopPerformers(false);
+    setShowAllLowPerformers(false);
+  }, [activeRange, selectedNgoId]);
+
   // Fetch FRO-level hourly performance when date range or NGO changes
   useEffect(() => {
     let cancelled = false;
@@ -1025,32 +1078,83 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
     setHourlyLoading(true);
+    setShowAllIdleAlerts(false);
     getFroHourlyPerformance({ from: hourlyDate, to: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
       .then(data => {
         if (!cancelled) {
+          setHourlyFroRows(data || []);
           const hourSlots = Array.from({ length: 12 }, (_, i) => 
             `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
           );
           const aggregated = {};
           for (const h of hourSlots) {
-            aggregated[h] = { hour: h, calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 };
+            aggregated[h] = { hour: h, calls: 0, connected: 0, non_connected: 0, interested: 0, donations: 0, amount: 0, connected_statuses: {}, non_connected_statuses: {} };
           }
           for (const row of data || []) {
             if (aggregated[row.hour]) {
-              aggregated[row.hour].calls += (row.calls || 0);
-              aggregated[row.hour].connected += (row.connected || 0);
-              aggregated[row.hour].interested += (row.interested || 0);
-              aggregated[row.hour].donations += (row.donations || 0);
-              aggregated[row.hour].amount += (row.amount || 0);
+              const a = aggregated[row.hour];
+              a.calls += (row.calls || 0);
+              a.connected += (row.connected || 0);
+              a.non_connected += (row.non_connected || 0);
+              a.interested += (row.interested || 0);
+              a.donations += (row.donations || 0);
+              a.amount += (row.amount || 0);
+              for (const [k, v] of Object.entries(row.connected_statuses || {})) a.connected_statuses[k] = (a.connected_statuses[k] || 0) + v;
+              for (const [k, v] of Object.entries(row.non_connected_statuses || {})) a.non_connected_statuses[k] = (a.non_connected_statuses[k] || 0) + v;
             }
           }
           setHourlyList(Object.values(aggregated));
         }
       })
-      .catch(() => { if (!cancelled) setHourlyList([]); })
+      .catch(() => { if (!cancelled) { setHourlyList([]); setHourlyFroRows([]); } })
       .finally(() => { if (!cancelled) setHourlyLoading(false); });
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
+
+  // Derived: day totals + per-FRO productivity alerts for the selected hourly date
+  const hourlyTotals = useMemo(() => {
+    const t = { calls: 0, connected: 0, nonConnected: 0, interested: 0, donations: 0, amount: 0 };
+    for (const h of hourlyList) {
+      t.calls += h.calls || 0;
+      t.connected += h.connected || 0;
+      t.nonConnected += h.non_connected || 0;
+      t.interested += h.interested || 0;
+      t.donations += h.donations || 0;
+      t.amount += h.amount || 0;
+    }
+    return t;
+  }, [hourlyList]);
+
+  const hourlyAlerts = useMemo(() => {
+    const byFro = {};
+    for (const r of hourlyFroRows) {
+      if (!r.fro_worker_id) continue;
+      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, slots: Array(12).fill(0) };
+      const f = byFro[r.fro_worker_id];
+      f.calls += r.calls || 0;
+      f.connected += r.connected || 0;
+      const idx = parseInt(r.hour, 10) - 9;
+      if (idx >= 0 && idx < 12) f.slots[idx] = r.calls || 0;
+    }
+    const isToday = hourlyDate === toIstDate();
+    const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
+    // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
+    const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
+    const idle = [];
+    const noCalls = [];
+    for (const f of Object.values(byFro)) {
+      if (f.calls > 0) {
+        let idleSlots = 0;
+        for (let i = 0; i < elapsed; i++) if (f.slots[i] === 0) idleSlots++;
+        if (idleSlots > 0) idle.push({ ...f, idleSlots });
+      } else {
+        noCalls.push(f);
+      }
+    }
+    idle.sort((a, b) => b.idleSlots - a.idleSlots || a.name.localeCompare(b.name));
+    noCalls.sort((a, b) => a.name.localeCompare(b.name));
+    return { idle, noCalls, elapsed, isToday };
+  }, [hourlyFroRows, hourlyDate]);
 
   const todayStr = new Date().toISOString().slice(0,10);
   const monthStart = new Date().toISOString().slice(0,7) + '-01';
@@ -1066,28 +1170,25 @@ export default function Dashboard() {
     let cancelled = false;
     setWeakLoading(true);
     const ngoParam = selectedNgoId !== 'all' ? `&ngo_id=${selectedNgoId}` : '';
-    apiGet(`/ngo-admin/fro-performance?period=${weakPeriod}${ngoParam}`)
+    apiGet(`/ngo-admin/fro-performance?from=${activeRange.from}&to=${activeRange.to}${ngoParam}`)
       .then(data => { if (!cancelled) setWeakPerformers(data); })
       .catch(() => { if (!cancelled) setWeakPerformers([]); })
       .finally(() => { if (!cancelled) setWeakLoading(false); });
     return () => { cancelled = true };
-  }, [selectedNgoId, weakPeriod]);
+  }, [selectedNgoId, activeRange]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const to = now.toISOString();
-    const params = new URLSearchParams({ from, to });
-    if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
-    apiGet(`/ngo-admin/call-analytics?${params}`)
-      .then(data => { if (!cancelled) setCallAnalytics(data); })
-      .catch(() => { if (!cancelled) setCallAnalytics(null); });
-    return () => { cancelled = true };
-  }, [selectedNgoId]);
+  // Top performers = same global-filtered dataset, best score first
+  const topPerformers = useMemo(() => [...weakPerformers].sort((a, b) => b.score - a.score), [weakPerformers]);
+
+  // NGO filter pills from the admin's accessible NGOs
+  const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({
+    id: n.id,
+    name: n.name || '',
+    label: NGO_TABS.find(([c]) => c && (n.name || '').toLowerCase().includes(c))?.[1] || (n.name || 'NGO'),
+    color: ngoColorOf(n.name),
+  })), [accessibleNgos]);
 
   const [tlData, setTlData] = useState(null);
-
   // Telecaller performance rows (search-filtered) + tab totals for the redesign
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
     !froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase())
@@ -1101,7 +1202,7 @@ export default function Dashboard() {
   const [followups, setFollowups] = useState([]);
   const [followupTab, setFollowupTab] = useState('overdue');
   const [followupLoading, setFollowupLoading] = useState(false);
-  const [showFollowups, setShowFollowups] = useState(false);
+  const [showFollowups, setShowFollowups] = useState(true);
   const [followupMode, setFollowupMode] = useState('bucket');
   const [followupDay, setFollowupDay] = useState(() => toIstDate());
   const [daywiseRows, setDaywiseRows] = useState([]);
@@ -1143,8 +1244,24 @@ export default function Dashboard() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId]);
 
+  // Send an idle_alert notification to a specific FRO (bell + realtime + FCM).
+  const [notifyingFroId, setNotifyingFroId] = useState(null);
+  const handleNotifyFro = useCallback(async (froId, froName) => {
+    if (notifyingFroId) return;
+    setNotifyingFroId(froId);
+    try {
+      await notifyFro(froId);
+      toast(`Idle alert sent to ${froName}`, 'success');
+    } catch (e) {
+      toast(e.message || 'Could not send alert', 'error');
+    } finally {
+      setNotifyingFroId(null);
+    }
+  }, [notifyingFroId]);
+
+  // Always load the pending follow-up pool (header chips + tabs need it even
+  // when the section is collapsed).
   useEffect(() => {
-    if (!showFollowups) return;
     let cancelled = false;
     setFollowupLoading(true);
     const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
@@ -1153,7 +1270,7 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setFollowups([]); })
       .finally(() => { if (!cancelled) setFollowupLoading(false); });
     return () => { cancelled = true };
-  }, [showFollowups, selectedNgoId, followupReload]);
+  }, [selectedNgoId, followupReload]);
 
   useEffect(() => {
     if (!showFollowups || followupMode !== 'daywise') return;
@@ -1170,14 +1287,17 @@ export default function Dashboard() {
 
   const daywiseSummary = useMemo(() => buildWorkerSummary(daywiseRows), [daywiseRows]);
 
+  const bucketCountOf = useCallback((key) => {
+    if (!Array.isArray(followups)) return 0;
+    return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(key)).length;
+  }, [followups]);
+
   const bucketRows = useMemo(() => {
     if (!Array.isArray(followups)) return [];
     return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(followupTab));
   }, [followups, followupTab]);
 
   const bucketSummary = useMemo(() => buildWorkerSummary(bucketRows), [bucketRows]);
-
-  const bumpFollowupReload = useCallback(() => setFollowupReload(n => n + 1), []);
 
   const fetchDashboard = useCallback((opts = {}) => {
     const controller = new AbortController();
@@ -1208,14 +1328,14 @@ export default function Dashboard() {
     return () => controller.abort();
   }, [fetchDashboard]);
 
-  const handleNgoTab = (code) => {
-    setNgoTab(code);
+  const handleNgoFilter = (ngoId) => {
+    if (ngoId === selectedNgoId) return;
+    const ngo = (accessibleNgos || []).find(n => n.id === ngoId);
+    setNgoTab(NGO_TABS.find(([c]) => c && (ngo?.name || '').toLowerCase().includes(c))?.[0] || '');
     setData(null);
     setStationStats(null);
     setStationsData([]);
-    if (!code) { setSelectedNgoId('all'); return; }
-    const ngo = (accessibleNgos || []).find(n => (n.name || '').toLowerCase().includes(code));
-    setSelectedNgoId(ngo ? ngo.id : 'all');
+    setSelectedNgoId(ngoId);
   };
 
   if (loading && !data) return <SkeletonDashboard />;
@@ -1281,7 +1401,7 @@ export default function Dashboard() {
   const verified_today_count = Number(ct.verified?.count) || 0;
   const unverified_today_amount = Number(ct.unverified?.amount) || 0;
   const unverified_today_count = Number(ct.unverified?.count) || 0;
-  const total_workers = Number(f.total) || 0;
+  const total_workers = Number(f.active) || 0;
   const workers_present = Number(att.present) || 0;
   const workers_late = Number(att.late) || 0;
   const workers_absent = Number(att.absent) || 0;
@@ -1316,7 +1436,7 @@ export default function Dashboard() {
       data = [];
     }
     const headers = [
-      'Telecaller', 'Login ID', 'Date', 'Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
+      'Telecaller', 'Login ID', 'Date', 'Hour Slot', 'Calls', 'Connected', 'Non-Connected', 'Interested', 'Donations', 'Amount (₹)'
     ];
     const rows = (data || []).map(h => [
       h.fro_name,
@@ -1325,13 +1445,14 @@ export default function Dashboard() {
       h.hour,
       h.calls || 0,
       h.connected || 0,
+      h.non_connected || 0,
       h.interested || 0,
       h.donations || 0,
       h.amount || 0
     ]);
     const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     sheet['!cols'] = [
-      { wch: 25 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
+      { wch: 25 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
     ];
     XLSX.utils.book_append_sheet(wb, sheet, 'Hourly Performance');
     XLSX.writeFile(wb, `hourly-performance-${hourlyDate}.xlsx`);
@@ -1608,6 +1729,12 @@ export default function Dashboard() {
             <button key={val} onClick={() => setDashPeriod(val)} style={{ fontSize: 12.5, fontWeight: 700, padding: '7px 15px', borderRadius: 9, border: 'none', cursor: 'pointer', background: dashPeriod === val ? '#111827' : 'transparent', color: dashPeriod === val ? '#fff' : '#475569', transition: 'background .12s, color .12s' }}>{label}</button>
           ))}
         </div>
+        <div style={{ display: 'inline-flex', gap: 4, padding: 4, background: '#eef1f6', borderRadius: 12 }}>
+          <button onClick={() => handleNgoFilter('all')} style={{ fontSize: 12.5, fontWeight: 700, padding: '7px 15px', borderRadius: 9, border: 'none', cursor: 'pointer', background: selectedNgoId === 'all' ? '#111827' : 'transparent', color: selectedNgoId === 'all' ? '#fff' : '#475569', transition: 'background .12s, color .12s' }}>All NGOs</button>
+          {ngoFilterPills.map(n => (
+            <button key={n.id} onClick={() => handleNgoFilter(n.id)} title={n.name} style={{ fontSize: 12.5, fontWeight: 700, padding: '7px 15px', borderRadius: 9, border: 'none', cursor: 'pointer', background: selectedNgoId === n.id ? n.color : 'transparent', color: selectedNgoId === n.id ? '#fff' : '#475569', transition: 'background .12s, color .12s' }}>{n.label}</button>
+          ))}
+        </div>
         {dashPeriod === 'custom' && (
           <>
             <input type="date" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} style={{ padding: '8px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', background: '#fff' }} />
@@ -1686,8 +1813,16 @@ export default function Dashboard() {
           <span style={{ fontSize: 14 }}>⚠️</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>Idle Alerts:</span>
           {tlData.idle_alerts.map(a => (
-            <span key={a.fro_id} style={{ fontSize: 11, fontWeight: 500, color: '#78350f', background: '#fff', padding: '2px 10px', borderRadius: 12, border: '1px solid #fde68a' }}>
+            <span key={a.fro_id} style={{ fontSize: 11, fontWeight: 500, color: '#78350f', background: '#fff', padding: '2px 6px 2px 10px', borderRadius: 12, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {a.fro_name} — {a.idle_minutes}m idle
+              <button
+                onClick={() => handleNotifyFro(a.fro_id, a.fro_name)}
+                disabled={notifyingFroId === a.fro_id}
+                title={`Send idle alert to ${a.fro_name}`}
+                style={{ border: 'none', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 999, cursor: notifyingFroId === a.fro_id ? 'default' : 'pointer', background: notifyingFroId === a.fro_id ? '#fde68a' : '#d97706', color: '#fff' }}
+              >
+                {notifyingFroId === a.fro_id ? '…' : 'Notify'}
+              </button>
             </span>
           ))}
         </div>
@@ -1890,24 +2025,59 @@ export default function Dashboard() {
 
       {/* REQUIREMENT 2: Top Collection (Left) & Low Collection (Right) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
-        {/* Left: Top Collection */}
+        {/* Left: Top Performance */}
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-head">
             <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
+              <span style={{ color: '#f59e0b' }}>🏆</span> Top Performance
             </h3>
+            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+              <span style={{ fontSize:10, color:'var(--ink-soft)', fontWeight:500 }}>{PERIOD_LABELS[dashPeriod]}</span>
+              {weakLoading && <span style={{ fontSize:10, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
+                Loading…
+              </span>}
+            </div>
           </div>
-          <div className="card-pad" style={{ padding: 0 }}>
-            {tlData?.top_performers?.amount?.length > 0 ? (
-              tlData.top_performers.amount.map((p, i) => (
-                <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
-                </div>
-              ))
+          <ScoreFormulaLegend />
+          <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
+            {topPerformers.length > 0 ? (
+              <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
+                    <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Collection</th>
+                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Leads</th>
+                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topPerformers.slice(0, showAllTopPerformers ? topPerformers.length : 10).map((p, i) => (
+                    <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{fontSize:10, fontWeight: i < 3 ? 700 : 400, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', padding:'5px 8px'}}>#{i + 1}</td>
+                      <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.lead_done_count ?? 0}</td>
+                      <td style={{textAlign:'center', fontWeight:700, color:p.score >= 0.5 ? '#16a34a' : '#f59e0b', fontSize:11, padding:'5px 8px'}}>{p.score.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {topPerformers.length > 10 && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan={5} style={{padding:0}}>
+                        <button onClick={() => setShowAllTopPerformers(!showAllTopPerformers)}
+                          style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
+                          {showAllTopPerformers ? '▲ Show Less' : `View All ${topPerformers.length} FROs →`}
+                        </button>
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             ) : (
-              <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No collections recorded yet</div>
+              <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No performing FROs yet</div>
             )}
           </div>
         </div>
@@ -1919,20 +2089,14 @@ export default function Dashboard() {
               <span style={{ color: '#dc2626' }}>⚠️</span> Low Performance
             </h3>
             <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-              <button onClick={() => setWeakPeriod('today')} disabled={weakLoading}
-                style={{ padding:'2px 8px', borderRadius:10, border:'1px solid var(--line)', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
-                Today
-              </button>
-              <button onClick={() => setWeakPeriod('month')} disabled={weakLoading}
-                style={{ padding:'2px 8px', borderRadius:10, border:'1px solid var(--line)', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
-                Month
-              </button>
+              <span style={{ fontSize:10, color:'var(--ink-soft)', fontWeight:500 }}>{PERIOD_LABELS[dashPeriod]}</span>
               {weakLoading && <span style={{ fontSize:10, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
                 Loading…
               </span>}
             </div>
           </div>
+          <ScoreFormulaLegend />
           <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
             {weakPerformers.length > 0 ? (
               <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
@@ -1941,32 +2105,28 @@ export default function Dashboard() {
                     <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
                     <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Collection</th>
-                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Att.</th>
+                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Leads</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 11).map((p, i) => (
+                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 10).map((p, i) => (
                     <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)' }}>
                       <td style={{color:'var(--ink-soft)', fontSize:10, padding:'5px 8px'}}>{i + 1}</td>
                       <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'center', padding:'5px 8px'}}>
-                        {p.attendance_pct != null
-                          ? <span style={{color: p.attendance_pct < 50 ? '#dc2626' : p.attendance_pct < 75 ? '#f59e0b' : '#16a34a', fontWeight:600, fontSize:11}}>{p.attendance_pct}%</span>
-                          : '—'}
-                      </td>
+                      <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.lead_done_count ?? 0}</td>
                       <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b', fontSize:11, padding:'5px 8px'}}>{p.score.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
-                {weakPerformers.length > 11 && !showAllLowPerformers && (
+                {weakPerformers.length > 10 && (
                   <tfoot>
                     <tr>
                       <td colSpan={5} style={{padding:0}}>
-                        <button onClick={() => setShowAllLowPerformers(true)}
+                        <button onClick={() => setShowAllLowPerformers(!showAllLowPerformers)}
                           style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
-                          View All {weakPerformers.length} FROs →
+                          {showAllLowPerformers ? '▲ Show Less' : `View All ${weakPerformers.length} FROs →`}
                         </button>
                       </td>
                     </tr>
@@ -1980,93 +2140,259 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* REQUIREMENT 5: Dedicated Hourly Collection Performance (Full Width) */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Hourly Collection Performance
-          </h3>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setHourlyDate(new Date().toISOString().slice(0, 10))}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                border: `1px solid ${hourlyDate === new Date().toISOString().slice(0, 10) ? 'var(--sage)' : 'var(--line)'}`,
-                background: hourlyDate === new Date().toISOString().slice(0, 10) ? 'var(--sage)' : '#fff',
-                color: hourlyDate === new Date().toISOString().slice(0, 10) ? '#fff' : 'var(--ink)',
-                cursor: 'pointer'
-              }}
-            >
-              Today
-            </button>
-            <button
-              onClick={() => {
-                const y = new Date();
-                y.setDate(y.getDate() - 1);
-                setHourlyDate(y.toISOString().slice(0, 10));
-              }}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                border: `1px solid ${hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? 'var(--sage)' : 'var(--line)'}`,
-                background: hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? 'var(--sage)' : '#fff',
-                color: hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? '#fff' : 'var(--ink)',
-                cursor: 'pointer'
-              }}
-            >
-              Yesterday
-            </button>
-            <input
-              type="date"
-              value={hourlyDate}
-              onChange={e => setHourlyDate(e.target.value)}
-              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
-            />
-            <button
-              onClick={handleHourlyExport}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}
-            >
-              <Download width="12" height="12" />
-              Export Hourly (XLSX)
-            </button>
-          </div>
-        </div>
-        <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
-          {hourlyLoading ? (
-            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                <tr>
-                  <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time Slot</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Calls</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Connected</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Interested</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Donations</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(hourlyList.length > 0 ? hourlyList : (tlData?.hourly || [])).map(h => {
-                  const hasData = (h.calls || 0) > 0 || (h.connected || 0) > 0 || (h.donations || 0) > 0;
-                  return (
-                    <tr key={h.hour} style={{ background: !hasData ? '#f9fafb' : 'transparent', borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '6px 10px', fontWeight: 600 }}>{h.hour}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
-                        ₹{Number(h.amount || 0).toLocaleString('en-IN')}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+      {/* REQUIREMENT 5: Hourly Call Performance — summary chips + disposition breakdown + productivity alerts */}
+      {(() => {
+        const hourlyToday = toIstDate();
+        const hourlyYesterday = toIstDate(new Date(Date.now() - 86400000));
+        const dateBtn = (active) => ({
+          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+          border: `1px solid ${active ? 'var(--sage)' : 'var(--line)'}`,
+          background: active ? 'var(--sage)' : '#fff',
+          color: active ? '#fff' : 'var(--ink)',
+        });
+        const dayChips = [
+          { key: 'calls', label: 'Calls', value: hourlyTotals.calls, color: '#2563eb', bg: '#eff6ff' },
+          { key: 'connected', label: 'Connected', value: hourlyTotals.connected, color: '#16a34a', bg: '#f0fdf4' },
+          { key: 'nonConnected', label: 'Non-Connected', value: hourlyTotals.nonConnected, color: '#dc2626', bg: '#fef2f2' },
+          { key: 'interested', label: 'Interested', value: hourlyTotals.interested, color: '#ec4899', bg: '#fdf2f8' },
+          { key: 'donations', label: 'Donations', value: hourlyTotals.donations, color: '#8b5cf6', bg: '#f5f3ff' },
+        ];
+        const chipBadge = (color) => ({
+          background: color, color: '#fff', borderRadius: 999, minWidth: 18, height: 16,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, padding: '0 5px',
+          animation: 'countPop .3s ease-out',
+        });
+        const chipWrap = (c) => ({
+          display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700,
+          padding: '3px 10px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22`,
+        });
+
+        const dispTable = (title, iconName, iconColor, cols, statusesKey, totalKey) => {
+          const maxPerCol = cols.map(c => Math.max(...hourlyList.map(h => (h[statusesKey] || {})[c.key] || 0), 1));
+          const colTotals = cols.map(c => hourlyList.reduce((t, h) => t + ((h[statusesKey] || {})[c.key] || 0), 0));
+          const grandTotal = hourlyList.reduce((t, h) => t + (h[totalKey] || 0), 0);
+          const thBase = { padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', background: 'var(--bg)' };
+          return (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-head">
+                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: iconColor }}>{iconName}</span> {title}
+                </h3>
+                <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>{hourlyDate}</span>
+              </div>
+              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 340, overflowY: 'auto' }}>
+                {hourlyLoading ? (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
+                ) : hourlyTotals.calls === 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No calls recorded on this date</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr>
+                        <th style={{ ...thBase, textAlign: 'left', color: 'var(--ink-soft)' }}>Hour</th>
+                        {cols.map(c => <th key={c.key} style={{ ...thBase, color: c.color, fontWeight: 700 }}>{c.label}</th>)}
+                        <th style={{ ...thBase, color: 'var(--ink)', fontWeight: 700, paddingRight: 12 }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hourlyList.map(h => {
+                        const hasRow = (h.calls || 0) > 0;
+                        return (
+                          <tr key={h.hour} style={{ background: !hasRow ? '#fafafa' : 'transparent', borderBottom: '1px solid var(--line)' }}>
+                            <td style={{ padding: '6px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{h.hour}</td>
+                            {cols.map((c, i) => {
+                              const v = (h[statusesKey] || {})[c.key] || 0;
+                              const heat = v > 0 ? (c.color + Math.round(20 + 90 * Math.min(1, v / maxPerCol[i])).toString(16).padStart(2, '0')) : undefined;
+                              return (
+                                <td key={c.key} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: v > 0 ? c.color : 'var(--ink-soft)', background: heat }}>
+                                  {v > 0 ? v : '—'}
+                                </td>
+                              );
+                            })}
+                            <td style={{ padding: '6px 12px 6px 10px', textAlign: 'right', fontWeight: 700, color: (h[totalKey] || 0) > 0 ? iconColor : 'var(--ink-soft)' }}>{h[totalKey] || 0}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--line)', background: 'var(--bg)' }}>
+                        <td style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Total</td>
+                        {colTotals.map((t, i) => (
+                          <td key={cols[i].key} style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: t > 0 ? cols[i].color : 'var(--ink-soft)' }}>{t > 0 ? t : '—'}</td>
+                        ))}
+                        <td style={{ padding: '8px 12px 8px 10px', textAlign: 'right', fontWeight: 800, color: iconColor }}>{grandTotal}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // Compress idle slot indices into "09–12, 15–17" IST hour ranges
+        const idleRangesOf = (f, elapsed) => {
+          const ranges = [];
+          let s = null;
+          for (let i = 0; i < elapsed; i++) {
+            if (f.slots[i] === 0) { if (s === null) s = i; }
+            else if (s !== null) { ranges.push([s, i - 1]); s = null; }
+          }
+          if (s !== null) ranges.push([s, elapsed - 1]);
+          return ranges.map(([a, b]) => a === b
+            ? `${String(9 + a).padStart(2, '0')}:00`
+            : `${String(9 + a).padStart(2, '0')}–${String(10 + b).padStart(2, '0')}`).join(', ');
+        };
+
+        return (
+          <>
+            {/* Header card: date controls + day summary chips */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Hourly Call Performance
+                </h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
+                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
+                  <input
+                    type="date"
+                    value={hourlyDate}
+                    onChange={e => setHourlyDate(e.target.value)}
+                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
+                  />
+                  <button
+                    onClick={handleHourlyExport}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}
+                  >
+                    <Download width="12" height="12" />
+                    Export Hourly (XLSX)
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
+                {dayChips.map(c => (
+                  <span key={c.key} style={chipWrap(c)}>
+                    {c.label}
+                    <span style={chipBadge(c.color)}><AnimatedNumber value={c.value} /></span>
+                  </span>
+                ))}
+                <span style={chipWrap({ bg: '#f0fdf4', color: '#15803d' })}>
+                  ₹ Amount
+                  <span style={chipBadge('#15803d')}><AnimatedNumber value={hourlyTotals.amount} /></span>
+                </span>
+                {hourlyLoading && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>updating…</span>}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-soft)' }}>IST hours • 09:00–21:00 working window</span>
+              </div>
+            </div>
+
+            {/* Two side-by-side disposition tables (Connected / Non-Connected) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 16 }}>
+              {dispTable('Connected — by Disposition', '📞', '#16a34a', CONNECTED_STATUS_COLUMNS, 'connected_statuses', 'connected')}
+              {dispTable('Non-Connected — by Disposition', '📵', '#dc2626', NOT_CONNECTED_STATUS_COLUMNS, 'non_connected_statuses', 'non_connected')}
+            </div>
+
+            {/* Productivity alerts: idle FROs by hour */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head">
+                <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#dc2626' }}>⚠️</span> Productivity Alerts — Idle Hours
+                </h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>{hourlyDate}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--bg)', color: 'var(--ink-soft)' }}>{hourlyAlerts.elapsed}/12 elapsed hrs</span>
+                </div>
+              </div>
+              <div className="card-pad" style={{ padding: 0 }}>
+                {hourlyLoading ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading productivity data...</div>
+                ) : hourlyAlerts.elapsed === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Working window hasn't started yet — alerts begin from 10:00 IST</div>
+                ) : hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#16a34a', fontWeight: 600 }}>All FROs made calls in every elapsed working hour</div>
+                ) : (
+                  <>
+                    {hourlyAlerts.idle.length > 0 && (
+                      <div style={{ padding: '10px 14px 4px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', marginBottom: 6 }}>
+                          FROs with idle hours — zero calls during elapsed working hours
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ width: 24, fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>#</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>FRO</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'center', color: 'var(--ink-soft)' }}>Idle Hours</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', color: 'var(--ink-soft)' }}>Calls</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', color: 'var(--ink-soft)' }}>Connected</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>Idle Slots (IST)</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'center', color: 'var(--ink-soft)' }}>Alert</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hourlyAlerts.idle.slice(0, showAllIdleAlerts ? hourlyAlerts.idle.length : 8).map((f, i) => (
+                              <tr key={f.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                                <td style={{ fontSize: 10, fontWeight: 700, color: i < 3 ? '#dc2626' : 'var(--ink-soft)', padding: '5px 8px' }}>{i + 1}</td>
+                                <td style={{ fontWeight: 600, padding: '5px 8px' }}>{f.name}</td>
+                                <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                                  <span style={{
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 16, padding: '0 6px',
+                                    borderRadius: 999, fontSize: 10, fontWeight: 700, animation: 'countPop .3s ease-out',
+                                    background: f.idleSlots >= 4 ? '#fee2e2' : f.idleSlots >= 2 ? '#ffedd5' : '#fef9c3',
+                                    color: f.idleSlots >= 4 ? '#dc2626' : f.idleSlots >= 2 ? '#ea580c' : '#a16207',
+                                  }}>
+                                    {f.idleSlots}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600 }}>{f.calls}</td>
+                                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{f.connected}</td>
+                                <td style={{ padding: '5px 8px', fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{idleRangesOf(f, hourlyAlerts.elapsed) || '—'}</td>
+                                <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                                  <button
+                                    onClick={() => handleNotifyFro(f.id, f.name)}
+                                    disabled={notifyingFroId === f.id}
+                                    title={`Send idle alert to ${f.name}`}
+                                    style={{ border: 'none', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 999, cursor: notifyingFroId === f.id ? 'default' : 'pointer', background: notifyingFroId === f.id ? '#fde68a' : '#d97706', color: '#fff' }}
+                                  >
+                                    {notifyingFroId === f.id ? '…' : 'Notify'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {hourlyAlerts.idle.length > 8 && (
+                          <button onClick={() => setShowAllIdleAlerts(!showAllIdleAlerts)} style={{ width: '100%', padding: '6px 10px', border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: 'var(--sage-soft)', color: 'var(--sage)', textAlign: 'center' }}>
+                            {showAllIdleAlerts ? '▲ Show Less' : `View All ${hourlyAlerts.idle.length} FROs →`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
+                      <div style={{ padding: '10px 14px', borderTop: hourlyAlerts.idle.length > 0 ? '1px solid var(--line)' : 'none' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 6 }}>
+                          Zero calls {hourlyAlerts.isToday ? 'so far today' : 'this day'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
+                        </div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          {hourlyAlerts.noCalls.slice(0, 12).map(f => (
+                            <span key={f.id} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: '#fef2f2', color: '#dc2626', border: '1px solid #dc262622' }}>{f.name}</span>
+                          ))}
+                          {hourlyAlerts.noCalls.length > 12 && (
+                            <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'var(--bg)', color: 'var(--ink-soft)' }}>+{hourlyAlerts.noCalls.length - 12} more</span>
+                          )}
+                        </div>
+                        {!hourlyAlerts.isToday && <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Note: FROs on leave / absent that day will also appear here.</div>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <style>{`@keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }`}</style>
+          </>
+        );
+      })()}
 
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
@@ -2088,6 +2414,15 @@ export default function Dashboard() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <span title={m.label} style={{ width: 8, height: 8, borderRadius: '50%', background: m.dot, display: 'inline-block', animation: live ? 'pulseDot 2s infinite' : 'none' }} />
                 <span style={{ color: m.name || undefined }}>{p.fro_name}</span>
+                {p.status === 'idle' && p.idleMinutes > 0 && (
+                  <span
+                    title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
+                    onClick={(e) => { e.stopPropagation(); handleNotifyFro(p.fro_id, p.fro_name); }}
+                    style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a', cursor: 'pointer', animation: 'countPop .3s ease-out', fontFamily: 'inherit' }}
+                  >
+                    Idle {p.idleMinutes}m{notifyingFroId === p.fro_id ? ' •…' : ''}
+                  </span>
+                )}
               </span>
             </td>
           );
@@ -2268,49 +2603,71 @@ export default function Dashboard() {
 
       {/* Section 7: Follow-up Management */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head" style={{ cursor: 'pointer' }} onClick={() => setShowFollowups(!showFollowups)}>
+        <div className="card-head" style={{ cursor: 'pointer', flexWrap: 'wrap', gap: 8 }} onClick={() => setShowFollowups(!showFollowups)}>
           <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Follow-up Management
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}>{showFollowups ? '▲ collapse' : '▼ expand'}</span>
           </h3>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            {[
+              { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2' },
+              { key: 'today', label: 'Due Today', color: '#ea580c', bg: '#fff7ed' },
+              { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
+            ].map(c => (
+              <span key={c.key} title={`${c.label} follow-ups across all FROs`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22` }}>
+                {c.label}
+                <span style={{ background: c.color, color: '#fff', borderRadius: 999, minWidth: 16, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, padding: '0 4px', animation: 'countPop .3s ease-out' }}>
+                  <AnimatedNumber value={bucketCountOf(c.key)} />
+                </span>
+              </span>
+            ))}
+            {followupLoading && (
+              <span style={{ fontSize: 10, color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
+              </span>
+            )}
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', padding: '2px 8px', borderRadius: 6, background: 'var(--bg)' }}>{showFollowups ? '▲ collapse' : '▼ expand'}</span>
+          </div>
         </div>
         {showFollowups && (
           <div className="card-pad">
-            {followupLoading ? (
+            {followupLoading && followups.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading follow-ups...</div>
             ) : (
               <>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {[
-                    { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2' },
-                    { key: 'today', label: 'Today', color: '#ea580c', bg: '#fff7ed' },
-                    { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
-                    { key: 'future', label: 'Future', color: '#6b7280', bg: '#f9fafb' },
-                    { key: 'week', label: 'This Week', color: '#5B6B4E', bg: '#f0f2ee' },
-                    { key: 'month', label: 'This Month', color: '#7c3aed', bg: '#f5f3ff' },
-                  ].map(tab => {
-                    const count = followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(tab.key)).length;
-                    const active = followupMode === 'bucket' && followupTab === tab.key;
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {FOLLOWUP_BUCKETS.map(t => {
+                    const count = bucketCountOf(t.key);
+                    const active = followupMode === 'bucket' && followupTab === t.key;
                     return (
-                      <button key={tab.key} onClick={() => { setFollowupMode('bucket'); setFollowupTab(tab.key); }} style={{
-                        padding: '5px 14px', borderRadius: 20, border: active ? `2px solid ${tab.color}` : '1px solid var(--line)',
-                        fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                        background: active ? tab.bg : '#fff', color: active ? tab.color : 'var(--ink-soft)',
+                      <button key={t.key} onClick={() => { setFollowupMode('bucket'); setFollowupTab(t.key); }} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999,
+                        border: active ? `1.5px solid ${t.color}` : '1px solid var(--line)',
+                        background: active ? `${t.color}14` : 'var(--bg, #fff)',
+                        color: active ? t.color : 'var(--ink-soft)',
+                        fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        transition: 'all .18s ease',
+                        boxShadow: active ? `0 2px 8px ${t.color}2e` : 'none',
                       }}>
-                        {tab.label} ({count})
+                        <span>●</span>
+                        <span>{t.label}</span>
+                        <span style={{ minWidth: 20, height: 18, padding: '0 7px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: active ? t.color : 'var(--line)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'background .18s ease', animation: 'countPop .3s ease-out' }}>
+                          <AnimatedNumber value={count} />
+                        </span>
                       </button>
                     );
                   })}
                   <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
                   <button onClick={() => { setFollowupMode('daywise'); setFollowupTab(''); }} style={{
-                    padding: '5px 14px', borderRadius: 20, fontFamily: 'inherit',
-                    border: followupMode === 'daywise' ? '2px solid #5B6B4E' : '1px solid var(--line)',
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, fontFamily: 'inherit',
+                    border: followupMode === 'daywise' ? '1.5px solid #5B6B4E' : '1px solid var(--line)',
                     fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    background: followupMode === 'daywise' ? '#e8ede1' : '#fff',
+                    background: followupMode === 'daywise' ? '#e8ede1' : 'var(--bg, #fff)',
                     color: followupMode === 'daywise' ? '#3f4a38' : 'var(--ink-soft)',
+                    boxShadow: followupMode === 'daywise' ? '0 2px 8px #5B6B4E2e' : 'none',
+                    transition: 'all .18s ease',
                   }}>
-                    Day-wise
+                    📅 Day-wise
                   </button>
                 </div>
                 {followupMode === 'daywise' ? (
@@ -2371,60 +2728,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Call Connectivity Widget */}
-      {(() => {
-        const s = callAnalytics?.summary
-        if (!s) return null
-        const rateNum = parseInt(s.connection_rate) || 0
-        return (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-              Call Connectivity
-              <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10, marginLeft: 'auto' }}>
-                Today · {s.connection_rate} connected
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 14 }}>
-              <div className="card" style={{ marginBottom: 0, padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: rateNum >= 50 ? '#16a34a' : '#dc2626', lineHeight: 1.1 }}>{s.connection_rate}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Connection Rate</div>
-                <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 1 }}>{s.connected} connected · {s.not_connected} not connected</div>
-              </div>
-              <div className="card" style={{ marginBottom: 0, padding: '14px 16px' }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6 }}>Top FROs</div>
-                {callAnalytics?.by_fro?.slice(0, 3).map((f, i) => (
-                  <div key={f.fro_worker_id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <span style={{ fontSize: 8, color: 'var(--ink-soft)', minWidth: 12 }}>#{i + 1}</span>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 10, fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fro_name}</span>
-                      <div style={{ height: 4, borderRadius: 2, background: 'var(--bg)', flex: 1, maxWidth: 60 }}>
-                        <div style={{ height: '100%', borderRadius: 2, width: Math.min((f.connected / Math.max(f.total, 1)) * 100, 100) + '%', background: '#16a34a' }} />
-                      </div>
-                      <span style={{ fontSize: 9, fontWeight: 600, minWidth: 28, textAlign: 'right' }}>{Math.round((f.connected / Math.max(f.total, 1)) * 100)}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="card" style={{ marginBottom: 0, padding: '14px 16px' }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6 }}>Bottom FROs</div>
-                {callAnalytics?.by_fro?.slice(-3).reverse().map((f, i) => (
-                  <div key={f.fro_worker_id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <span style={{ fontSize: 8, color: 'var(--ink-soft)', minWidth: 12 }}>#{i + 1}</span>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 10, fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fro_name}</span>
-                      <div style={{ height: 4, borderRadius: 2, background: 'var(--bg)', flex: 1, maxWidth: 60 }}>
-                        <div style={{ height: '100%', borderRadius: 2, width: Math.min((f.connected / Math.max(f.total, 1)) * 100, 100) + '%', background: '#dc2626' }} />
-                      </div>
-                      <span style={{ fontSize: 9, fontWeight: 600, minWidth: 28, textAlign: 'right' }}>{Math.round((f.connected / Math.max(f.total, 1)) * 100)}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {/* Call Connectivity Widget removed */}
 
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
@@ -2484,7 +2788,6 @@ export default function Dashboard() {
           worker={fupDetailWorker}
           label={followupMode === 'daywise' ? followupDay : (FOLLOWUP_TAB_LABELS[followupTab] || followupTab)}
           onClose={() => setFupDetailWorker(null)}
-          onChanged={bumpFollowupReload}
         />
       )}
 
