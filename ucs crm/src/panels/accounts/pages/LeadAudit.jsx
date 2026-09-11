@@ -180,62 +180,56 @@ export default function LeadAudit() {
 
 return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div style={{ border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: 16 }}>
-            <SectionTitle>Collection</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{collectionRows}</div>
-          </div>
-          <div style={{ border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: 16 }}>
-            <SectionTitle>Suspense</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{suspenseRows}</div>
-          </div>
+      <div className="top-summary-grid">
+        <div className="top-summary-card">
+          <SectionTitle>Collection</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{collectionRows}</div>
         </div>
-
-        <div style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 16px' }}>{filterBar}</div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 14, alignItems: 'stretch' }}>
-          {receiptNums === null ? (
-            [0, 1, 2].map(i => (
-              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                </div>
-              </div>
-            ))
-          ) : receiptNums && receiptNums.length > 0 ? (
-            receiptNums.map(n => {
-              const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
-              return (
-                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px' }}>
-                  <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: c.accent, marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600 }}>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
-                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
-                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
-                    </div>
+        <div className="top-summary-card">
+          <SectionTitle>Receipt Numbers</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {receiptNums === null ? (
+              [0, 1, 2].map(i => (
+                <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
                   </div>
                 </div>
-              );
-            })
-          ) : null}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 120 }}>
-            <button onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs"
-              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: '1px solid var(--sage)', borderRadius: 14, background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 800, fontFamily: 'inherit', cursor: alertBusy ? 'default' : 'pointer', opacity: alertBusy ? .65 : 1, letterSpacing: '.04em' }}>
-              {alertBusy ? 'SENT ✓' : '🔔 ALERT'}
-            </button>
-            <button onClick={() => {}} title="Work"
-              style={{ flex: 1, border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', color: '#374151', fontSize: 11.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', letterSpacing: '.04em' }}>
-              WORK
-            </button>
+              ))
+            ) : receiptNums && receiptNums.length > 0 ? (
+              receiptNums.map(n => {
+                const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
+                return (
+                  <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px' }}>
+                    <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: c.accent, marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600 }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
+                        <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
+                        <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : null}
           </div>
         </div>
+        <div className="top-summary-card">
+          <SectionTitle>Suspense</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{suspenseRows}</div>
+        </div>
+      </div>
+
+      <div className="dash-actions">
+        <div className="dash-actions-filters">{filterBar}</div>
+        <button className="dash-action-btn" onClick={() => {}} title="Work">WORK</button>
+        <button className="dash-action-btn dash-action-alert" onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs">{alertBusy ? 'SENT ✓' : '🔔 ALERT'}</button>
       </div>
 
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
