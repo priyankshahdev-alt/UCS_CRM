@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../../../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
-import { SpecialIncentiveCard, WinnerBanner } from '../../../components/SpecialIncentive'
+import { SpecialIncentiveCard, WinnerBanner, NgoBadge, ngoColor } from '../../../components/SpecialIncentive'
 import LeadIncentive from '../../../components/LeadIncentive'
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`
@@ -57,14 +57,6 @@ export default function SpecialIncentives() {
 
   return (
     <div style={{ padding: 24, maxWidth: 980, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-        <span style={{ fontSize: 24 }}>💰</span>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--ink)' }}>Sir ka Incentive</h2>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Announce special collection incentives — first FRO past target wins</div>
-        </div>
-      </div>
-
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
         <TabBtn active={tab === 'create'} onClick={() => setTab('create')}>Create New</TabBtn>
         <TabBtn active={tab === 'history'} onClick={() => setTab('history')}>History ({history.length})</TabBtn>
@@ -77,120 +69,132 @@ export default function SpecialIncentives() {
   )
 }
 
+const defaultRace = () => {
+  const now = new Date(Date.now() + 5 * 60000)
+  const end = new Date(now.getTime() + 24 * 3600 * 1000)
+  return { title: '', message: '', target: '', reward: '', start: toLocalInput(now), end: toLocalInput(end) }
+}
+
 function CreateForm({ onCreated }) {
-  const [title, setTitle] = useState('')
-  const [message, setMessage] = useState('')
-  const [target, setTarget] = useState('')
-  const [reward, setReward] = useState('')
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [ngos, setNgos] = useState([])
+  const [forms, setForms] = useState(() => ({ all: defaultRace() }))
+  const [cardMsg, setCardMsg] = useState({})
 
   useEffect(() => {
-    if (!start) {
-      const now = new Date(Date.now() + 5 * 60000)
-      setStart(toLocalInput(now))
-      const endDt = new Date(now.getTime() + 24 * 3600 * 1000)
-      setEnd(toLocalInput(endDt))
-    }
-  }, [start])
+    let mounted = true
+    api('/ngos').then(list => { if (mounted) setNgos(Array.isArray(list) ? list : []) }).catch(() => {})
+    return () => { mounted = false }
+  }, [])
 
-  const submit = async () => {
-    setError('')
-    if (!title.trim() || !(Number(target) > 0) || !(Number(reward) > 0) || !start || !end) {
-      setError('Fill title, target, reward and both date-times.')
+  const cards = [
+    { key: 'all', name: 'All NGOs', full: 'Combined race across every NGO', color: 'var(--ink)', ngo_id: null },
+    ...ngos
+      .filter(n => (n.name || '').trim().toUpperCase() !== 'OTHER')
+      .map(n => ({ key: n.id, name: n.name, full: n.city || n.short_name || '', color: ngoColor(n.name), ngo_id: n.id })),
+  ]
+
+  const cur = (k) => forms[k] || defaultRace()
+  const setField = (k, field, v) => {
+    setForms(prev => ({ ...prev, [k]: { ...(prev[k] || defaultRace()), [field]: v } }))
+    setCardMsg(prev => { const n = { ...prev }; delete n[k]; return n })
+  }
+  const applyTemplate = (k, t) => {
+    const f = cur(k)
+    setField(k, 'message', t.text.replace('{target}', Number(f.target) || 0).replace('{reward}', Number(f.reward) || 0))
+  }
+
+  const save = async (card) => {
+    const f = cur(card.key)
+    if (!f.title.trim() || !(Number(f.target) > 0) || !(Number(f.reward) > 0) || !f.start || !f.end) {
+      setCardMsg(prev => ({ ...prev, [card.key]: { type: 'error', text: 'Fill title, target, reward and both date-times.' } }))
       return
     }
-    setSubmitting(true)
+    setCardMsg(prev => ({ ...prev, [card.key]: { type: 'saving', text: 'Saving…' } }))
     try {
       await api('/incentive/special', {
         method: 'POST', _prefix: 'ucs',
-        body: JSON.stringify({ title: title.trim(), message: message.trim(), target_amount: Number(target), incentive_amount: Number(reward), start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString() }),
+        body: JSON.stringify({
+          title: f.title.trim(),
+          message: (f.message || '').trim(),
+          ngo_id: card.ngo_id,
+          target_amount: Number(f.target),
+          incentive_amount: Number(f.reward),
+          start_at: new Date(f.start).toISOString(),
+          end_at: new Date(f.end).toISOString(),
+        }),
       })
-      setTitle(''); setMessage(''); setTarget(''); setReward(''); setStart(''); setEnd('')
+      setForms(prev => ({ ...prev, [card.key]: defaultRace() }))
+      setCardMsg(prev => ({ ...prev, [card.key]: { type: 'ok', text: `${card.name} incentive is live on all panels!` } }))
       onCreated()
     } catch (e) {
-      setError(e.message || 'Failed to create')
-    } finally {
-      setSubmitting(false)
+      setCardMsg(prev => ({ ...prev, [card.key]: { type: 'error', text: e.message || 'Failed to create' } }))
     }
   }
 
   const field = { width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontSize: 13.5, outline: 'none' }
+  const label = { fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-      <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 20, background: 'var(--card-bg)' }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)', marginBottom: 14 }}>Announcement</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Title (shown in popups)</label>
-            <input style={field} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Maha Shivratri Push ₹5,000" />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Message (optional)</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-              {MESSAGE_TEMPLATES.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setMessage(t.text.replace('{target}', Number(target) || 0).replace('{reward}', Number(reward) || 0))}
-                  style={{ padding: '5px 10px', borderRadius: 999, border: '1.5px solid #f59e0b', background: '#fffdf5', color: '#b45309', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                >{t.label}</button>
-              ))}
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)', marginBottom: 12 }}>NGO races · each saved independently</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+        {cards.map(card => {
+          const f = cur(card.key)
+          const msg = cardMsg[card.key]
+          const saving = msg && msg.type === 'saving'
+          return (
+            <div key={card.key} style={{ border: '1.5px solid var(--line)', borderRadius: 16, overflow: 'hidden', background: 'var(--card-bg)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: card.color, color: '#fff' }}>
+                <span style={{ fontSize: 14, fontWeight: 800 }}>{card.name}</span>
+                {card.full && <span style={{ fontSize: 11, opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.full}</span>}
+              </div>
+              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={label}>Title (shown in popups)</label>
+                  <input style={field} value={f.title} onChange={e => setField(card.key, 'title', e.target.value)} placeholder={`e.g. ${card.key === 'all' ? 'Grand All-NGO' : card.name} Collection Race`} />
+                </div>
+                <div>
+                  <label style={label}>Message (optional)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {MESSAGE_TEMPLATES.map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => applyTemplate(card.key, t)}
+                        style={{ padding: '5px 10px', borderRadius: 999, border: '1.5px solid #f59e0b', background: '#fffdf5', color: '#b45309', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      >{t.label}</button>
+                    ))}
+                  </div>
+                  <textarea style={{ ...field, minHeight: 68, resize: 'vertical' }} value={f.message} onChange={e => setField(card.key, 'message', e.target.value)} placeholder="Whoever collects the fastest…" />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={label}>Target (₹)</label>
+                    <input style={field} type="number" value={f.target} onChange={e => setField(card.key, 'target', e.target.value)} placeholder="12000" />
+                  </div>
+                  <div>
+                    <label style={label}>Reward (₹)</label>
+                    <input style={field} type="number" value={f.reward} onChange={e => setField(card.key, 'reward', e.target.value)} placeholder="500" />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={label}>Starts (only this NGO)</label>
+                    <input style={field} type="datetime-local" value={f.start} onChange={e => setField(card.key, 'start', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={label}>Ends (only this NGO)</label>
+                    <input style={field} type="datetime-local" value={f.end} onChange={e => setField(card.key, 'end', e.target.value)} />
+                  </div>
+                </div>
+                {msg && msg.type === 'error' && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 600 }}>{msg.text}</div>}
+                {msg && msg.type === 'ok' && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#dcfce7', color: '#15803d', fontSize: 12, fontWeight: 600 }}>{msg.text}</div>}
+                <button onClick={() => save(card)} disabled={saving} style={{ padding: '11px 0', borderRadius: 10, border: 'none', background: card.color, color: '#fff', fontWeight: 800, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .6 : 1 }}>
+                  {saving ? msg.text : `💾 Save / Update ${card.key === 'all' ? 'All-NGO' : card.name} Incentive`}
+                </button>
+              </div>
             </div>
-            <textarea style={{ ...field, minHeight: 72, resize: 'vertical' }} value={message} onChange={e => setMessage(e.target.value)} placeholder="Whoever collects the most fastest…" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Target (₹)</label>
-              <input style={field} type="number" value={target} onChange={e => setTarget(e.target.value)} placeholder="5000" />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Reward (₹)</label>
-              <input style={field} type="number" value={reward} onChange={e => setReward(e.target.value)} placeholder="500" />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Starts</label>
-              <input style={field} type="datetime-local" value={start} onChange={e => setStart(e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Ends</label>
-              <input style={field} type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} />
-            </div>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-            Counts live <code>fro_donor_logs</code> collections by every active FRO inside the window. First to reach target wins and closes the contest.
-          </div>
-          {error && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 600 }}>{error}</div>}
-          <button onClick={submit} disabled={submitting} style={{ padding: '11px 0', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg,#b45309,#f59e0b)', color: '#fff', fontWeight: 800, fontSize: 14, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? .6 : 1 }}>
-            {submitting ? 'Announcing…' : '🚀 Announce Incentive to All Panels'}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)', marginBottom: 10 }}>Live preview</div>
-        <SpecialIncentiveCard
-          inc={{
-            title: title.trim() || 'Your Incentive Title',
-            message,
-            target_amount: Number(target) || 5000,
-            incentive_amount: Number(reward) || 500,
-            start_at: start ? new Date(start).toISOString() : null,
-            end_at: end ? new Date(end).toISOString() : null,
-            status: 'active',
-            mine: { worker_id: 'a', collected_amount: Math.round((Number(target) || 5000) * 0.37) },
-            leaderboard: [
-              { worker_id: 'a', name: 'Rajesh Kumar', collected_amount: Math.round((Number(target) || 5000) * 0.7), hit_target_at: null },
-              { worker_id: 'b', name: 'Priya Sharma', collected_amount: Math.round((Number(target) || 5000) * 0.45), hit_target_at: null },
-              { worker_id: 'c', name: 'Amit Verma', collected_amount: Math.round((Number(target) || 5000) * 0.18), hit_target_at: null },
-            ],
-          }}
-          nowMs={new Date(end || Date.now() + 86400000).getTime()}
-        />
+          )
+        })}
       </div>
     </div>
   )
@@ -258,7 +262,10 @@ function HistoryList({ history, loading, onRefresh }) {
           <div key={inc.id} style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)', opacity: isArchived ? .72 : 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{inc.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <NgoBadge ngoName={inc.ngo_name} />
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{inc.title}</span>
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>{fmtDate(inc.start_at)} → {fmtDate(inc.end_at)}</div>
               </div>
               <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: meta.bg, color: meta.text }}>
