@@ -296,6 +296,7 @@
   display: flex; align-items: center; justify-content: center;
   padding: 20px; overflow-y: auto; background: rgba(15, 23, 42, .5);
   backdrop-filter: blur(1px);
+  position: fixed; inset: 0; z-index: 9000;
 }
 .dc-modal {
   background: #fff; border-radius: 17px; width: 100%; max-width: 400px;
