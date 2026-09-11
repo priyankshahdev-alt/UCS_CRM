@@ -187,7 +187,7 @@ return (
         </div>
         <div className="top-summary-card">
           <SectionTitle>Receipt Numbers</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             {receiptNums === null ? (
               [0, 1, 2].map(i => (
                 <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
