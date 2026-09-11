@@ -23,8 +23,7 @@ function getRole() {
 }
 
 export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle }) {
-  const [notices, setNotices] = useState([])
-  const [loading, setLoading] = useState(true)
+  return null;
   const [deletingId, setDeletingId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editMode, setEditMode] = useState(false)
