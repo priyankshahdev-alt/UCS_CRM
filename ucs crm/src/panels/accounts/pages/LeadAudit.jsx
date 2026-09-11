@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import Dashboard from './Dashboard';
-import BankAudit, { AuditStatCards } from './BankAudit';
+import BankAudit from './BankAudit';
 import MatchLines from '../components/MatchLines';
 
 function SectionTitle({ children }) {
@@ -31,6 +32,7 @@ export default function LeadAudit() {
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
   const [collections, setCollections] = useState(null);
+  const [alertBusy, setAlertBusy] = useState(false);
   const workspaceRef = useRef(null);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
@@ -100,29 +102,116 @@ export default function LeadAudit() {
     </div>
   );
 
-  return (
+  const handleAlertAll = async () => {
+    if (alertBusy) return;
+    setAlertBusy(true);
+    try {
+      const res = await apiPost('/notifications/suspense-alert', {});
+      toast('Alert sent to ' + (res?.count || 0) + ' FROs', 'success');
+    } catch { toast('Failed to send alert', 'error'); }
+    setTimeout(() => setAlertBusy(false), 10000);
+  };
+
+  const collectionKeys = ['bsct', 'aflf', 'mann'];
+
+  const colTotal = (field) => collections === null
+    ? null
+    : collectionKeys.reduce((s, k) => s + Number(collections.find(x => x.project_id === k)?.[field] || 0), 0);
+
+  const summaryLoading = audit.loading || !audit.combo;
+
+  const collectionRows = (
     <>
-      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'flex-start' }}>
-        <div style={{ width: 250, flexShrink: 0 }}>
-          <SectionTitle>Receipt Numbers</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {receiptNums === null ? (
-              [0, 1, 2].map(i => (
-                <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-                  <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                  </div>
+      {collectionKeys.map(key => {
+        const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
+        const d = collections?.find(x => x.project_id === key);
+        return (
+          <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid ' + c.accent + '44', borderRadius: 12, background: c.bg, padding: '9px 12px', minHeight: 46 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap' }}>{key.toUpperCase()}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+              <div style={{ textAlign: 'center', minWidth: 64 }}>
+                <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
+                <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 40, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
+              </div>
+              <div style={{ textAlign: 'center', minWidth: 80 }}>
+                <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
+                <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e7ecf3', borderRadius: 12, background: '#fff', padding: '9px 12px', minHeight: 46 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#374151', flex: 1, marginRight: 8, whiteSpace: 'nowrap' }}>TOTAL</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+          <div style={{ textAlign: 'center', minWidth: 64 }}>
+            <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
+            <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, whiteSpace: 'nowrap' }}>{colTotal('today_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 40, height: 11, borderRadius: 6 }} /> : currency(colTotal('today_total') || 0)}</div>
+          </div>
+          <div style={{ textAlign: 'center', minWidth: 80 }}>
+            <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
+            <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{colTotal('month_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(colTotal('month_total') || 0)}</div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const suspenseRows = (
+    <>
+      {collectionKeys.map(key => {
+        const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
+        const active = suspenseCardNgo === key;
+        const count = audit.combo?.[key]?.count;
+        return (
+          <button key={key} onClick={() => setSuspenseCardNgo(active ? '' : key)} title={'Filter suspense to ' + key.toUpperCase()}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid ' + c.accent + '44', borderRadius: 12, background: c.bg, padding: '9px 12px', minHeight: 46, boxShadow: active ? '0 4px 14px ' + c.accent + '30' : 'none' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, whiteSpace: 'nowrap' }}>{key.toUpperCase()}{count ? <span style={{ fontWeight: 700, opacity: .65, marginLeft: 6, fontSize: 10.5 }}>{count}</span> : null}</span>
+            <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.[key]?.amount || 0)}</span>
+          </button>
+        );
+      })}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e7ecf3', borderRadius: 12, background: '#fff', padding: '9px 12px', minHeight: 46 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#374151', whiteSpace: 'nowrap' }}>TOTAL</span>
+        <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.all?.amount || 0)}</span>
+      </div>
+    </>
+  );
+
+return (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: 16 }}>
+            <SectionTitle>Collection</SectionTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{collectionRows}</div>
+          </div>
+          <div style={{ border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: 16 }}>
+            <SectionTitle>Suspense</SectionTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{suspenseRows}</div>
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 16px' }}>{filterBar}</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 14, alignItems: 'stretch' }}>
+          {receiptNums === null ? (
+            [0, 1, 2].map(i => (
+              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
                 </div>
-              ))
-            ) : receiptNums && receiptNums.length > 0 ? (
-              receiptNums.map(n => {
-                const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
-                return (
-                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+              </div>
+            ))
+          ) : receiptNums && receiptNums.length > 0 ? (
+            receiptNums.map(n => {
+              const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
+              return (
+                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px' }}>
+                  <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: c.accent, marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
                       <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
@@ -134,41 +223,17 @@ export default function LeadAudit() {
                   </div>
                 </div>
               );
-              })
-            ) : null}
-          </div>
-        </div>
-        <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: 18 }}>
-            <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
-          </div>
-          <div style={{ height: 1, background: '#eef1f6' }} />
-          <div style={{ padding: '12px 18px' }}>
-            {filterBar}
-          </div>
-        </div>
-        <div style={{ width: 250, flexShrink: 0 }}>
-          <SectionTitle>NGO Collections</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {['bsct', 'aflf', 'mann'].map(key => {
-              const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
-              const d = collections?.find(x => x.project_id === key);
-              return (
-                <div key={key} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.toUpperCase()}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
-                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 36, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
-                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 52, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            })
+          ) : null}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 120 }}>
+            <button onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs"
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: '1px solid var(--sage)', borderRadius: 14, background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 800, fontFamily: 'inherit', cursor: alertBusy ? 'default' : 'pointer', opacity: alertBusy ? .65 : 1, letterSpacing: '.04em' }}>
+              {alertBusy ? 'SENT ✓' : '🔔 ALERT'}
+            </button>
+            <button onClick={() => {}} title="Work"
+              style={{ flex: 1, border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', color: '#374151', fontSize: 11.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', letterSpacing: '.04em' }}>
+              WORK
+            </button>
           </div>
         </div>
       </div>
