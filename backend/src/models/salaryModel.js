@@ -438,7 +438,7 @@ export const getPagarExportData = async (month) => {
   // 1. Workers with basic info
   const { data: workers, error: wErr } = await db
     .from('workers')
-    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name');
+    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id');
   if (wErr) throw wErr;
 
   // 2. Latest salary per worker
@@ -540,6 +540,10 @@ export const getPagarExportData = async (month) => {
   // mirroring resolveNgo in getAgentTeamCollections.
   const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
   if (naErr) throw naErr;
+  const ngoNameById = {};
+  for (const n of allNgos || []) {
+    ngoNameById[String(n.id).toLowerCase()] = n.name || '';
+  }
   const uuidToSlug = {};
   const nameNormToSlug = {};
   for (const n of allNgos || []) {
@@ -759,7 +763,7 @@ export const getPagarExportData = async (month) => {
 
     const monthSalary = Math.round(perDay * netPresentDays);
     const grossPayable = monthSalary + monthlyIncentive + akiPayout;
-    const netPayable = grossPayable - advanceDeduction;
+    const netPayable = Math.max(0, grossPayable - advanceDeduction);
 
     const stationStr = (stationsByWorker[w.id] || []).join(' / ');
 
@@ -769,6 +773,7 @@ export const getPagarExportData = async (month) => {
     rows.push({
       id: w.id,
       name: w.name,
+      ngo: ngoNameById[String(w.ngo_id).toLowerCase()] || '',
       status: (w.employment_status || '').toUpperCase(),
       department: w.department || '',
       salary_status: holdByWorker[w.id] !== undefined ? 'held' : 'released',
@@ -812,6 +817,7 @@ export const getPagarExportData = async (month) => {
   const makeCategoryRow = (label, cat, status, department) => rows.push({
     id: null,
     name: label,
+    ngo: '',
     status,
     department,
     account_holder_name: '',
