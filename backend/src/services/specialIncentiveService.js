@@ -10,20 +10,24 @@ const fmtMoney = (n) => Number(n || 0).toLocaleString('en-IN');
 // incentive window. Mirrors the app's live collection logic (COLLECTION_DATE_OR)
 // but with timestamp precision: donation logs count on created_at OR
 // transaction_datetime, "done" disposals on the same, and verified "lead_done"
-// on verified_at.
+// on verified_at. When the incentive is NGO-specific ($3 NOT NULL), collections
+// are scoped to fro_assignments.ngo_id so cross-NGO money never leaks into a
+// different NGO's race. NULL $3 = org-wide incentive (all NGOs).
 const WINDOW_COLLECTION_SQL = `
-  SELECT fro_worker_id AS worker_id, COALESCE(SUM(amount_collected), 0)::float8 AS amount
-  FROM fro_donor_logs
-  WHERE fro_worker_id IS NOT NULL
-    AND amount_collected > 0
+  SELECT l.fro_worker_id AS worker_id, COALESCE(SUM(l.amount_collected), 0)::float8 AS amount
+  FROM fro_donor_logs l
+  INNER JOIN fro_assignments fa ON fa.id = l.assignment_id
+  WHERE l.fro_worker_id IS NOT NULL
+    AND l.amount_collected > 0
+    AND ($3::uuid IS NULL OR fa.ngo_id = $3)
     AND (
-      (action = 'donation' AND (transaction_datetime BETWEEN $1 AND $2))
-      OR (action = 'donation' AND (created_at BETWEEN $1 AND $2))
-      OR (action = 'disposition' AND disposition_detail = 'done' AND (transaction_datetime BETWEEN $1 AND $2))
-      OR (action = 'disposition' AND disposition_detail = 'done' AND (created_at BETWEEN $1 AND $2))
-      OR (action = 'disposition' AND disposition_detail = 'lead_done' AND accounts_status = 'verified' AND verified_at BETWEEN $1 AND $2)
+      (l.action = 'donation' AND (l.transaction_datetime BETWEEN $1 AND $2))
+      OR (l.action = 'donation' AND (l.created_at BETWEEN $1 AND $2))
+      OR (l.action = 'disposition' AND l.disposition_detail = 'done' AND (l.transaction_datetime BETWEEN $1 AND $2))
+      OR (l.action = 'disposition' AND l.disposition_detail = 'done' AND (l.created_at BETWEEN $1 AND $2))
+      OR (l.action = 'disposition' AND l.disposition_detail = 'lead_done' AND l.accounts_status = 'verified' AND l.verified_at BETWEEN $1 AND $2)
     )
-  GROUP BY fro_worker_id
+  GROUP BY l.fro_worker_id
 `;
 
 // Everyone who should see special-incentive popups: FROs, Accounts, HR, and
@@ -40,7 +44,7 @@ const RECIPIENT_SQL = `
 export const getActiveIncentives = async () => {
   const { data, error } = await db
     .from('special_incentives')
-    .select('*')
+    .select('*, ngos(name)')
     .eq('status', 'active')
     .is('archived_at', null)
     .order('created_at', { ascending: false });
@@ -51,7 +55,7 @@ export const getActiveIncentives = async () => {
 export const getIncentiveById = async (id) => {
   const { data, error } = await db
     .from('special_incentives')
-    .select('*')
+    .select('*, ngos(name)')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
@@ -89,15 +93,35 @@ const sendNotificationLogs = async (rows) => {
   }
 };
 
-// Seed a ₹0 progress row for every active FRO so the leaderboard lists all
-// participants from second one.
-export const seedProgressForActiveFros = async (incentiveId) => {
+// Seed a ₹0 progress row for every participant FRO so the leaderboard lists all
+// contenders from second one. NGO-scoped incentives seed only that NGO's FROs
+// (via fro_station_assignments); org-wide incentives seed every active FRO.
+export const seedProgressForActiveFros = async (incentiveId, ngoId = null) => {
   try {
-    const { data: fros } = await db
-      .from('workers')
-      .select('id')
-      .eq('department', 'FRO')
-      .eq('is_active', true);
+    let fros = [];
+    if (ngoId) {
+      const { data: assignments } = await db
+        .from('fro_station_assignments')
+        .select('fro_worker_id')
+        .eq('ngo_id', ngoId)
+        .not('fro_worker_id', 'is', null);
+      const ids = [...new Set((assignments || []).map((a) => a.fro_worker_id))];
+      if (ids.length > 0) {
+        const { data: workers } = await db
+          .from('workers')
+          .select('id')
+          .in('id', ids)
+          .eq('is_active', true);
+        fros = workers || [];
+      }
+    } else {
+      const { data: workers } = await db
+        .from('workers')
+        .select('id')
+        .eq('department', 'FRO')
+        .eq('is_active', true);
+      fros = workers || [];
+    }
     const rows = (fros || []).map((w) => ({
       special_incentive_id: incentiveId,
       worker_id: w.id,
@@ -112,20 +136,40 @@ export const seedProgressForActiveFros = async (incentiveId) => {
   }
 };
 
+// When an incentive is NGO-scoped, FRO recipients are limited to that NGO's
+// station FROs so only eligible FROs get the "LIVE" bell/desktop alert.
+const recipientsForIncentive = async (ngoId) => {
+  const all = await sql(RECIPIENT_SQL);
+  if (!ngoId) return all || [];
+  const { data: assignments } = await db
+    .from('fro_station_assignments')
+    .select('fro_worker_id')
+    .eq('ngo_id', ngoId)
+    .not('fro_worker_id', 'is', null);
+  const eligibleFroIds = new Set((assignments || []).map((a) => a.fro_worker_id).filter(Boolean));
+  return (all || []).filter((r) => {
+    const isFro = String(r.department || '').toLowerCase() === 'fro';
+    return !isFro || eligibleFroIds.has(r.id);
+  });
+};
+
 // Broadcast a "LIVE" announcement to FRO + Accounts + HR + SA via
-// notification_log (shows in bell + desktop notifications everywhere).
+// notification_log (shows in bell + desktop notifications everywhere). NGO
+// races notify only that NGO's FROs.
 export const announceIncentive = async (incentive, type = 'special_incentive') => {
   try {
-    const rows = await sql(RECIPIENT_SQL);
+    const rows = await recipientsForIncentive(incentive.ngo_id || null);
     if (!rows || rows.length === 0) return;
     if (type === 'special_incentive') {
       const title = `🔥 ${incentive.title} LIVE!`;
-      const body = `Collect ₹${fmtMoney(incentive.target_amount)} by ${new Date(incentive.end_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' })} and win ₹${fmtMoney(incentive.incentive_amount)}!`;
+      const ngoTag = incentive.ngo_name ? ` [${incentive.ngo_name}]` : '';
+      const body = `${ngoTag} Collect ₹${fmtMoney(incentive.target_amount)} by ${new Date(incentive.end_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' })} and win ₹${fmtMoney(incentive.incentive_amount)}!`;
+      const t = title + ngoTag;
       await sendNotificationLogs(
         rows.map((r) => ({
           worker_id: r.id,
           type: 'special_incentive',
-          title,
+          title: t,
           body,
           reference_id: String(incentive.id),
         }))
@@ -216,10 +260,10 @@ export const refreshSpecialIncentive = async (incentiveId) => {
   }
   if (inc.status !== 'active') return null;
 
-  await seedProgressForActiveFros(inc.id);
+  await seedProgressForActiveFros(inc.id, inc.ngo_id);
 
   const target = Number(inc.target_amount) || 0;
-  const rows = await sql(WINDOW_COLLECTION_SQL, [inc.start_at, inc.end_at]);
+  const rows = await sql(WINDOW_COLLECTION_SQL, [inc.start_at, inc.end_at, inc.ngo_id]);
   const nowIso = new Date().toISOString();
 
   for (const r of rows || []) {
@@ -314,6 +358,7 @@ export const createSpecialIncentive = async (payload, userId) => {
   const row = {
     title: String(payload.title || '').trim(),
     message: String(payload.message || '').trim(),
+    ngo_id: payload.ngo_id || null,
     target_amount: Number(payload.target_amount) || 0,
     incentive_amount: Number(payload.incentive_amount) || 0,
     start_at: payload.start_at,
@@ -323,7 +368,7 @@ export const createSpecialIncentive = async (payload, userId) => {
   };
   const { data, error } = await db.from('special_incentives').insert([row]).select().single();
   if (error) throw error;
-  await seedProgressForActiveFros(data.id);
+  await seedProgressForActiveFros(data.id, data.ngo_id);
   await refreshSpecialIncentive(data.id);
   await announceIncentive(data);
   return data;
@@ -369,7 +414,7 @@ export const archiveSpecialIncentive = async (incentiveId, userId) => {
 export const getHistory = async (limit = 60) => {
   const { data, error } = await db
     .from('special_incentives')
-    .select('*')
+    .select('*, ngos(name)')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -380,7 +425,7 @@ export const getHistory = async (limit = 60) => {
 export const listPendingClaims = async () => {
   const { data, error } = await db
     .from('special_incentives')
-    .select('*')
+    .select('*, ngos(name)')
     .eq('status', 'won')
     .eq('claim_status', 'pending')
     .order('winner_claimed_at', { ascending: false });
@@ -392,7 +437,7 @@ export const listPendingClaims = async () => {
 export const listVerifiedClaims = async (limit = 60) => {
   const { data, error } = await db
     .from('special_incentives')
-    .select('*')
+    .select('*, ngos(name)')
     .eq('status', 'won')
     .eq('claim_status', 'verified')
     .order('claimed_at', { ascending: false })

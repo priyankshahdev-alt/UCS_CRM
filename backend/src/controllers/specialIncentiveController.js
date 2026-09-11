@@ -21,6 +21,8 @@ const pretty = (inc) => (inc ? {
   id: inc.id,
   title: inc.title,
   message: inc.message,
+  ngo_id: inc.ngo_id || null,
+  ngo_name: inc.ngos?.name || null,
   target_amount: Number(inc.target_amount) || 0,
   incentive_amount: Number(inc.incentive_amount) || 0,
   start_at: inc.start_at,
@@ -74,7 +76,7 @@ export async function generateCongratsMessage({ winnerName, title, amount }) {
 
 export async function createHandler(req, res) {
   try {
-    const { title, target_amount, incentive_amount, start_at, end_at } = req.body || {};
+    const { title, target_amount, incentive_amount, start_at, end_at, ngo_id } = req.body || {};
     if (!title || !String(title).trim()) {
       return res.status(400).json({ message: 'Title is required' });
     }
@@ -84,33 +86,58 @@ export async function createHandler(req, res) {
     if (!start_at || !end_at || new Date(start_at).getTime() >= new Date(end_at).getTime()) {
       return res.status(400).json({ message: 'End date-time must be after start date-time' });
     }
-    const incentive = await createSpecialIncentive(req.body, req.user?.id);
+    const payload = { ...req.body };
+    if (ngo_id) payload.ngo_id = ngo_id;
+    const incentive = await createSpecialIncentive(payload, req.user?.id);
     return res.status(201).json({ incentive: pretty(incentive) });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
 }
 
-// Live popup payload: currently-running incentives with their leaderboard,
-// the caller's own progress, plus the most recent closed incentive so cards can
-// show the final state (won/ended/cancelled).
+// NGO ids the caller is attached to (via fro_station_assignments). Super Admins
+// and Admins are org-wide and see every incentive; anyone with no station
+// assignment (HR, Accounts, etc.) observes org-wide incentives only.
+const ngoIdsForUser = async (user) => {
+  if (!user?.id) return [];
+  if (['super_admin', 'admin'].includes(user.role)) return null;
+  const { data } = await db
+    .from('fro_station_assignments')
+    .select('ngo_id')
+    .eq('fro_worker_id', user.id)
+    .not('ngo_id', 'is', null);
+  const ids = [...new Set((data || []).map((a) => a.ngo_id))];
+  return ids.length > 0 ? ids : null;
+};
+
+// Live popup payload: the NGO-scoped, currently-running incentives with their
+// leaderboard, the caller's own progress, plus recently closed incentives so
+// per-NGO winner cards show even while other NGOs' races are still live.
 export async function activeHandler(req, res) {
   try {
     const now = Date.now();
-    const recentClosed = [];
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayStartIso = dayStart.toISOString();
+    const { data: lastClosed } = await db
+      .from('special_incentives')
+      .select('*, ngos(name)')
+      .not('status', 'eq', 'active')
+      .is('archived_at', null)
+      .gte('created_at', dayStartIso)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    const recentClosedAll = (lastClosed || []).map(pretty);
+
     let incentives = await getActiveIncentives();
-    incentives = incentives.filter((i) => new Date(i.start_at).getTime() <= now);
-    if (incentives.length === 0) {
-      const { data: lastClosed } = await db
-        .from('special_incentives')
-        .select('*')
-        .not('status', 'eq', 'active')
-        .is('archived_at', null)
-        .gte('created_at', new Date(now - 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1);
-      recentClosed.push(...(lastClosed || []).map(pretty));
+
+    const myNgoIds = await ngoIdsForUser(req.user);
+    // Winner announcements are org-wide: every FRO sees today's winners/flash.
+    const recentClosed = recentClosedAll;
+    if (myNgoIds) {
+      incentives = incentives.filter((i) => !i.ngo_id || myNgoIds.includes(i.ngo_id));
     }
+    incentives = incentives.filter((i) => new Date(i.start_at).getTime() <= now);
 
     const result = [];
     for (const inc of incentives) {
@@ -135,11 +162,11 @@ export async function activeHandler(req, res) {
     try {
       const { data: lastCeleb } = await db
         .from('special_incentives')
-        .select('*')
+        .select('*, ngos(name)')
         .eq('status', 'won')
         .is('archived_at', null)
         .not('celebrated_at', 'is', null)
-        .gte('celebrated_at', new Date(now - 48 * 60 * 60 * 1000).toISOString())
+        .gte('celebrated_at', dayStartIso)
         .order('celebrated_at', { ascending: false })
         .limit(1);
       celeb = lastCeleb && lastCeleb[0] ? pretty(lastCeleb[0]) : null;
@@ -147,7 +174,24 @@ export async function activeHandler(req, res) {
       console.error('[special incentive] celeb payload:', e.message);
     }
 
-    return res.json({ incentives: result, recent: recentClosed, celeb });
+    // Attach each winner's own profile photo (workers.photo_url) so the FRO
+    // panel winner card can show the winner's face for ~5 seconds.
+    const winnerIds = [...new Set(
+      [...recentClosed.map((i) => i.winner_worker_id), ...(celeb?.winner_worker_id ? [celeb.winner_worker_id] : [])].filter(Boolean)
+    )];
+    let avatarMap = {};
+    if (winnerIds.length > 0) {
+      try {
+        const { data: winners } = await db.from('workers').select('id, photo_url').in('id', winnerIds);
+        avatarMap = Object.fromEntries((winners || []).map((w) => [w.id, w.photo_url || null]));
+      } catch (e) {
+        console.error('[special incentive] winner avatar:', e.message);
+      }
+    }
+    const finalRecent = recentClosed.map((i) => ({ ...i, winner_avatar: avatarMap[i.winner_worker_id] || null }));
+    if (celeb) celeb = { ...celeb, winner_avatar: avatarMap[celeb.winner_worker_id] || null };
+
+    return res.json({ incentives: result, recent: finalRecent, celeb });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
