@@ -280,11 +280,6 @@ function CornerWinnerCard({ inc }) {
             🏆 Winner · Today
           </div>
           <div style={{ position: 'absolute', left: 10, right: 10, bottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {inc.winner_avatar && (
-              <div style={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', border: '2px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,.3)', flexShrink: 0 }}>
-                <img src={inc.winner_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-              </div>
-            )}
             <div style={{ minWidth: 0 }}>
               <div style={{ color: '#fff', fontWeight: 900, fontSize: 15, textShadow: '0 1px 6px rgba(0,0,0,.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.winner_name || 'The Winner'}</div>
               <div style={{ color: '#fff', fontWeight: 800, fontSize: 12.5, textShadow: '0 1px 6px rgba(0,0,0,.5)' }}>Won ₹{fmt(inc.incentive_amount)} 🎉</div>
