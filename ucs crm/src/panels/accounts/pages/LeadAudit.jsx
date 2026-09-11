@@ -154,16 +154,16 @@ export default function LeadAudit() {
               const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
               const d = collections?.find(x => x.project_id === key);
               return (
-                <div key={key} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, letterSpacing: '.02em' }}>{key.toUpperCase()}</div>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, fontWeight: 600 }}>
+                <div key={key} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.toUpperCase()}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
-                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 44, height: 12, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
+                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 36, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
-                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 12, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
+                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 52, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
                     </div>
                   </div>
                 </div>
