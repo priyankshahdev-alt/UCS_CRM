@@ -26,7 +26,6 @@ const PAGE_META = {
 function alarmCheck(reminders, settings, onFire) {
   for (const r of reminders) {
     if (r.completed_at || r.is_deleted) continue
-    if (!(r.reminder_enabled || r.alarm_enabled || r.notification_enabled)) continue
 
     const effectiveDate = computeEffectiveDueDate(r)
     if (!effectiveDate) continue

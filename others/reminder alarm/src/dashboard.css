@@ -508,6 +508,15 @@
   border-radius: 8px;
 }
 
+/* Monthly Financial Summary - Top Hero */
+.dash-financial-hero {
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 50%, #ede9fe 100%);
+  border: 1px solid #e9d5ff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+
 /* Monthly Financial Summary */
 .fin-hero {
   display: flex;
