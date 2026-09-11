@@ -25,8 +25,8 @@ export default function Login({ onLogin }) {
   }
 
   const handleDemo = () => {
-    loginAsDemo('ngo')
-    onLogin?.('ngo')
+    loginAsDemo('accounts')
+    onLogin?.('accounts', '/accounts/beneficiaries')
   }
 
   return (

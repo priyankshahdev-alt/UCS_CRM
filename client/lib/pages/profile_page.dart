@@ -36,7 +36,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, Map<String, dynamic>> _historyByDate = {};
   String? _selectedDateKey;
   final Map<int, Map<String, int>> _monthlyStats = {};
-  int _calYear = 0, _calMonth = 0;
   Map<String, List<String>> _calendarDates = {};
 
   @override
@@ -66,8 +65,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadData() async {
     _worker = await ApiService.getWorkerData();
-    final n = DateTime.now();
-    if (_calYear == 0) { _calYear = n.year; _calMonth = n.month; }
 
     // Load cached data instantly
     final cachedProfile = await ApiService.getCachedProfile();
@@ -221,7 +218,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _fetchCalendar() async {
     try {
-      final data = await ApiService.getCalendar(year: _calYear, month: _calMonth);
+      final n = DateTime.now();
+      final data = await ApiService.getCalendar(year: n.year, month: n.month);
       final Map<String, List<String>> calMap = {};
       for (final e in (data['events'] as List? ?? [])) {
         final d = e['date']?.toString();
@@ -668,39 +666,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
                 ),
               ),
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (_calMonth == 1) { _calYear--; _calMonth = 12; }
-                        else { _calMonth--; }
-                        _selectedDateKey = null;
-                      });
-                      _fetchCalendar();
-                    },
-                    child: Container(
-                      padding: EdgeInsets.all(Responsive.pad(context, 4)),
-                      child: Icon(LucideIcons.chevronLeft, size: Responsive.sp(context, 20), color: const Color(0xFF43474d)),
-                    ),
-                  ),
-                  SizedBox(width: Responsive.pad(context, 4)),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (_calMonth == 12) { _calYear++; _calMonth = 1; }
-                        else { _calMonth++; }
-                        _selectedDateKey = null;
-                      });
-                      _fetchCalendar();
-                    },
-                    child: Container(
-                      padding: EdgeInsets.all(Responsive.pad(context, 4)),
-                      child: Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: const Color(0xFF43474d)),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
           SizedBox(height: Responsive.pad(context, 16)),
@@ -731,8 +696,8 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           SizedBox(height: Responsive.pad(context, 20)),
           MiniCalendar(
-            year: _calYear,
-            month: _calMonth,
+            year: DateTime.now().year,
+            month: DateTime.now().month,
             statusByDate: _statusByDate,
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
