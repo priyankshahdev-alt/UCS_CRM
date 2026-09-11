@@ -363,18 +363,18 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       // Column indices (0-based)
       const COL = {
-        NAME: 0, STATUS: 1, HOLD: 2, AC_HOLDER: 3, AC_REL: 4, BANK: 5, AC_NUM: 6, IFSC: 7, STATION: 8, DOJ: 9, SALARY: 10,
-        TARGET: 11, TOTAL_ACH: 12, BSCT_ACH: 13, AFLF_ACH: 14, MANN_ACH: 15,
-        BALANCE: 16, ACH_PCT: 17,
-        PRES_DAYS: 18, ABSENT_DAYS: 19, HALF_DAYS: 20, LATE_DED: 21, SUN_DED: 22, TRAIN_DED: 23, NET_PRES: 24,
-        MONTH_SAL: 25, INCENT_10: 26, TOTAL_AKI: 27, AKI: 28, GROSS: 29,
-        OT: 30, PENDING: 31, ADVANCE: 32, NET_PAY: 33,
-        FIRST_DAY_COL: 34
+        NAME: 0, NGO: 1, STATUS: 2, HOLD: 3, AC_HOLDER: 4, AC_REL: 5, BANK: 6, AC_NUM: 7, IFSC: 8, STATION: 9, DOJ: 10, SALARY: 11,
+        TARGET: 12, TOTAL_ACH: 13, BSCT_ACH: 14, AFLF_ACH: 15, MANN_ACH: 16,
+        BALANCE: 17, ACH_PCT: 18,
+        PRES_DAYS: 19, ABSENT_DAYS: 20, HALF_DAYS: 21, LATE_DED: 22, SUN_DED: 23, TRAIN_DED: 24, NET_PRES: 25,
+        MONTH_SAL: 26, INCENT_10: 27, TOTAL_AKI: 28, AKI: 29, GROSS: 30,
+        OT: 31, PENDING: 32, ADVANCE: 33, NET_PAY: 34,
+        FIRST_DAY_COL: 35
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
 
       const headers = [
-        'Agent Name', 'Status', 'Hold / Released', 'Account Holder Name', 'Account Holder Relation',
+        'Agent Name', 'NGO', 'Status', 'Hold / Released', 'Account Holder Name', 'Account Holder Relation',
         'Bank Name', 'Bank Account Number', 'IFSC Code', 'STATION', 'Date of Joining', 'Salary',
         'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
         'Balance', 'Achieved %',
@@ -438,6 +438,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         const dailyArr = Array.from({ length: daysInMonth }, (_, i) => daily[i + 1] || 0);
         const row = [
           r.name,
+          r.ngo || '',
           r.status || '',
           (r.salary_status || 'released').toUpperCase(),
           r.account_holder_name || '',
@@ -560,8 +561,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         wsData[i][COL.MONTH_SAL] = { f: `${colLetter(COL.SALARY)}${row}/${daysInMonth}*${colLetter(COL.NET_PRES)}${row}` };
         // Gross = Month Salary + 10% Incentive + AKI
         wsData[i][COL.GROSS] = { f: `${colLetter(COL.MONTH_SAL)}${row}+${colLetter(COL.INCENT_10)}${row}+${colLetter(COL.AKI)}${row}` };
-        // Net Payable = Gross + OT + Pending - Advance
-        wsData[i][COL.NET_PAY] = { f: `${colLetter(COL.GROSS)}${row}+${colLetter(COL.OT)}${row}+${colLetter(COL.PENDING)}${row}-${colLetter(COL.ADVANCE)}${row}` };
+        // Net Payable = max(0, Gross + OT + Pending - Advance)
+        wsData[i][COL.NET_PAY] = { f: `MAX(0,${colLetter(COL.GROSS)}${row}+${colLetter(COL.OT)}${row}+${colLetter(COL.PENDING)}${row}-${colLetter(COL.ADVANCE)}${row})` };
       }
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -578,7 +579,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       // Column widths
       const colWidths = [
-        { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 22 }, { wch: 18 },
+        { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 22 }, { wch: 18 },
         { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 10 },
         { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 12 }, { wch: 12 },

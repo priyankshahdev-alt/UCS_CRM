@@ -20,6 +20,10 @@ export async function getFroHourlyPerformance(params = {}) {
   return apiGet(`/ngo-admin/fro-hourly-performance${qs ? '?' + qs : ''}`)
 }
 
+export function notifyFro(workerId) {
+  return apiPost('/ngo-admin/notify-fro', { workerId })
+}
+
 export function generateImpersonationCode() {
   return apiPost('/impersonation-codes/generate')
 }

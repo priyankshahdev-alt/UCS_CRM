@@ -80,6 +80,7 @@ import {
   reassignFollowup,
   updateFollowupDate,
   getIdleAlerts,
+  notifyFroHandler,
   getTopPerformers,
   getBottomPerformers,
   getAssignedData,
@@ -87,6 +88,8 @@ import {
   getFroHourlyPerformance,
   ensureStandardNgos,
   getAllNgosForTabs,
+  getNonConnectedFresh,
+  deleteNonConnectedFresh,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -110,6 +113,10 @@ router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'ac
 router.post('/new-data/cleanup', authenticateRole('admin', 'super_admin', 'accounts'), cleanupNewData);
 router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'accounts'), resetFreshData);
 
+// Non-connected fresh-data pull (NGO admin only)
+router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
+router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
+
 router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
@@ -121,6 +128,7 @@ router.get('/tl-dashboard', getTLDashboard);
 router.get('/dashboard/donation-funnel', getDonationFunnel);
 router.get('/dashboard/hourly-performance', getHourlyPerformance);
 router.get('/dashboard/idle-alerts', getIdleAlerts);
+router.post('/notify-fro', authenticateRole('admin', 'super_admin'), notifyFroHandler);
 router.get('/dashboard/top-performers', getTopPerformers);
 router.get('/dashboard/bottom-performers', getBottomPerformers);
 

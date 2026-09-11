@@ -3,6 +3,7 @@ import { useRem, useUcs } from './store'
 import { useNavigate } from 'react-router-dom'
 import { Icon } from './components'
 import { CATEGORIES, categoryLabel, categoryIcon, formatDate, daysLeft, statusPillClass } from './helpers'
+import { computeEffectiveDueDate, computeCurrentMonthDate, playAlarmSound, requestNotificationPermission, sendBrowserNotification } from './notifications'
 import './dashboard.css'
 
 const RENEWAL_CATEGORIES = new Set(['INSURANCE', 'MEDICAL_EXPENSES', 'EDUCATION', 'WEBSITE_DOMAIN', 'VEHICLE_INSURANCE'])
@@ -35,9 +36,11 @@ const GROUP_MAP = {
 const GROUP_ICONS = { Home: 'home', Office: 'file', Vehicles: 'car', Insurance: 'shield', Education: 'book', Subscriptions: 'globe' }
 const GROUP_COLORS = { Home: '#2563eb', Office: '#0891b2', Vehicles: '#dc2626', Insurance: '#7c3aed', Education: '#16a34a', Subscriptions: '#d97706' }
 
-function parseAmount(notes) {
+function parseAmountFromNotes(notes) {
   if (!notes) return 0
-  const cleaned = notes.replace(/[^0-9.]/g, '')
+  const match = String(notes).match(/Rs\.?\s*([\d,]+)/i)
+  if (!match) return 0
+  const cleaned = match[1].replace(/,/g, '')
   const num = parseFloat(cleaned)
   return isNaN(num) ? 0 : num
 }
@@ -51,10 +54,12 @@ function getDueStatus(r) {
   if (r.status === 'Completed' || r.completed_at) return 'Paid'
   if (r.due_date_display && String(r.due_date_display).includes('Paid by Tenant')) return 'Paid'
   if (r.notes && String(r.notes).includes('Paid by Tenant')) return 'Paid'
-  const dl = daysLeft(r.due_date)
+  const effectiveDate = computeEffectiveDueDate(r)
+  const dl = effectiveDate ? daysLeft(effectiveDate) : daysLeft(r.due_date)
   if (dl === null) return 'Pending'
   if (dl < 0) return 'Overdue'
   if (dl === 0) return 'Due Today'
+  if (dl <= 7) return 'Due Soon'
   return 'Upcoming'
 }
 
@@ -74,17 +79,19 @@ export default function Dashboard() {
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calDay, setCalDay] = useState(null)
   const [upcomingTab, setUpcomingTab] = useState('7days')
+  const [catModalKey, setCatModalKey] = useState(null)
 
   const active = useMemo(() => reminders.filter(r => !r.is_deleted), [reminders])
 
   const enriched = useMemo(() => {
     return active.map(r => {
       const dueStatus = getDueStatus(r)
-      const amount = parseAmount(r.notes)
-      const dl = daysLeft(r.due_date)
+      const amount = r.amount ? Number(r.amount) : parseAmountFromNotes(r.notes)
+      const effectiveDate = computeEffectiveDueDate(r)
+      const dl = effectiveDate ? daysLeft(effectiveDate) : daysLeft(r.due_date)
       const isRenewal = RENEWAL_CATEGORIES.has(r.category) || !!r.renewal_date
       const group = GROUP_MAP[r.category] || 'Other'
-      return { ...r, _dueStatus: dueStatus, _amount: amount, _daysLeft: dl, _isRenewal: isRenewal, _group: group }
+      return { ...r, _dueStatus: dueStatus, _amount: amount, _daysLeft: dl, _isRenewal: isRenewal, _group: group, _effectiveDate: effectiveDate }
     })
   }, [active])
 
@@ -96,101 +103,76 @@ export default function Dashboard() {
     const currentYear = now.getFullYear()
     let dueToday = 0, overdue = 0, dueIn7 = 0, dueIn30 = 0, pending = 0, renewals = 0, thisMonth = 0, paidThisMonth = 0
     let dueTodayAmt = 0, overdueAmt = 0, dueIn7Amt = 0, dueIn30Amt = 0, thisMonthAmt = 0, paidThisMonthAmt = 0
+    let monthlyObligations = 0, monthlyPaid = 0, monthlyPending = 0, monthlyOverdue = 0
     for (const r of filtered) {
       const st = r._dueStatus
       const dl = r._daysLeft
-      const amt = r._amount
+      const amt = r._amount || 0
+
+      const effectiveDate = r._effectiveDate
+      const currentMonthDate = computeCurrentMonthDate(r)
+      if (currentMonthDate) {
+        const ed = new Date(currentMonthDate + 'T00:00:00')
+        const edMonth = ed.getMonth()
+        const edYear = ed.getFullYear()
+        if (edMonth === currentMonth && edYear === currentYear) {
+          monthlyObligations += amt
+          if (st === 'Paid') monthlyPaid += amt
+          else if (ed < now) monthlyOverdue += amt
+          else monthlyPending += amt
+        }
+      }
+
       if (st === 'Paid') { paidThisMonth++; paidThisMonthAmt += amt; continue }
       if (dl === 0) { dueToday++; dueTodayAmt += amt }
       if (dl !== null && dl < 0) { overdue++; overdueAmt += amt }
       if (dl !== null && dl > 0 && dl <= 7) { dueIn7++; dueIn7Amt += amt }
       if (dl !== null && dl > 0 && dl <= 30) { dueIn30++; dueIn30Amt += amt }
       if (st === 'Pending') pending++
-      if (st === 'Upcoming' || st === 'Pending' || st === 'Due Today' || st === 'Overdue') { thisMonth++; thisMonthAmt += amt }
+      if (st !== 'Paid') { thisMonth++; thisMonthAmt += amt }
       if (r.renewal_date) {
         const renewal = new Date(String(r.renewal_date).slice(0, 10) + 'T00:00:00')
         if (renewal.getMonth() === currentMonth && renewal.getFullYear() === currentYear) renewals++
       }
     }
-    return { dueToday, overdue, dueIn7, dueIn30, pending, renewals, thisMonth, paidThisMonth, dueTodayAmt, overdueAmt, dueIn7Amt, dueIn30Amt, thisMonthAmt, paidThisMonthAmt }
+    return { dueToday, overdue, dueIn7, dueIn30, pending, renewals, thisMonth, paidThisMonth, dueTodayAmt, overdueAmt, dueIn7Amt, dueIn30Amt, thisMonthAmt, paidThisMonthAmt, monthlyObligations, monthlyPaid, monthlyPending, monthlyOverdue }
   }, [filtered])
 
   const todaysAttention = useMemo(() => {
     return filtered
-      .filter(r => r._dueStatus === 'Overdue' || r._dueStatus === 'Due Today')
+      .filter(r => r._dueStatus === 'Overdue' || r._dueStatus === 'Due Today' || r._dueStatus === 'Due Soon')
       .sort((a, b) => (a._daysLeft ?? 999) - (b._daysLeft ?? 999))
-      .slice(0, 8)
+      .slice(0, 10)
   }, [filtered])
 
   const upcomingPayments = useMemo(() => {
     const days = upcomingTab === '7days' ? 7 : upcomingTab === '30days' ? 30 : 365
     return filtered
-      .filter(r => r._dueStatus !== 'Paid' && r._daysLeft !== null && r._daysLeft > 0 && r._daysLeft <= days && !r._isRenewal)
+      .filter(r => r._dueStatus !== 'Paid' && r._daysLeft !== null && r._daysLeft > 0 && r._daysLeft <= days)
       .sort((a, b) => a._daysLeft - b._daysLeft)
       .slice(0, 10)
   }, [filtered, upcomingTab])
 
-  const renewalGroups = useMemo(() => {
-    const groups = {}
-    for (const r of filtered) {
-      if (!r._isRenewal || r._dueStatus === 'Paid') continue
-      const type = getRenewalType(r)
-      if (!groups[type]) groups[type] = { type, count: 0, items: [] }
-      groups[type].count++
-      groups[type].items.push(r)
-    }
-    return Object.values(groups).sort((a, b) => b.count - a.count)
-  }, [filtered])
-
   const renewalTracker = useMemo(() => {
     return filtered
-      .filter(r => r._isRenewal && r._dueStatus !== 'Paid' && r.renewal_date)
+      .filter(r => r._isRenewal && r._dueStatus !== 'Paid' && r._effectiveDate)
       .sort((a, b) => {
-        const da = new Date(String(a.renewal_date).slice(0, 10) + 'T00:00:00')
-        const db = new Date(String(b.renewal_date).slice(0, 10) + 'T00:00:00')
+        const da = new Date(a._effectiveDate + 'T00:00:00')
+        const db = new Date(b._effectiveDate + 'T00:00:00')
         return da - db
       })
       .slice(0, 10)
   }, [filtered])
 
-  const groupSummary = useMemo(() => {
-    const map = {}
-    for (const r of filtered) {
-      const g = r._group
-      if (!map[g]) map[g] = { group: g, count: 0, pendingAmt: 0, paidAmt: 0 }
-      map[g].count++
-      if (r._dueStatus === 'Paid') map[g].paidAmt += r._amount
-      else map[g].pendingAmt += r._amount
-    }
-    return Object.values(map).sort((a, b) => b.count - a.count)
-  }, [filtered])
-
-  const categorySummary = useMemo(() => {
-    const map = {}
-    for (const r of filtered) {
-      if (!map[r.category]) map[r.category] = { count: 0, pendingAmt: 0, paidAmt: 0 }
-      map[r.category].count++
-      if (r._dueStatus === 'Paid') map[r.category].paidAmt += r._amount
-      else map[r.category].pendingAmt += r._amount
-    }
-    return CATEGORIES
-      .filter(c => map[c.key])
-      .map(c => ({ ...c, ...map[c.key] }))
-      .sort((a, b) => b.count - a.count)
-  }, [filtered])
-
-  const ownerResponsibility = useMemo(() => {
-    const map = {}
-    for (const r of filtered) {
-      if (!r.owner) continue
-      if (r._dueStatus === 'Paid') continue
-      if (!map[r.owner]) map[r.owner] = { pending: 0, overdue: 0, total: 0 }
-      map[r.owner].total++
-      if (r._dueStatus === 'Overdue') map[r.owner].overdue++
-      map[r.owner].pending++
-    }
-    return Object.entries(map).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total)
-  }, [filtered])
+  function testNotification(type) {
+    playAlarmSound(type)
+    requestNotificationPermission()
+    sendBrowserNotification(
+      `Test: ${type}`,
+      `This is a test ${type} notification for Reminder & Alarm.`,
+      `test-${type}-${Date.now()}`
+    )
+  }
 
   const calDays = useMemo(() => {
     const first = new Date(calYear, calMonth, 1)
@@ -218,10 +200,10 @@ export default function Dashboard() {
   const calEvents = useMemo(() => {
     const map = {}
     for (const r of filtered) {
-      if (r.due_date) {
-        const ds = String(r.due_date).slice(0, 10)
-        if (!map[ds]) map[ds] = []
-        map[ds].push(r)
+      const ed = r._effectiveDate
+      if (ed) {
+        if (!map[ed]) map[ed] = []
+        map[ed].push(r)
       }
     }
     return map
@@ -235,7 +217,7 @@ export default function Dashboard() {
 
   const today = new Date()
   const isToday = (day) => day === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear()
-  const calTotal = useMemo(() => calDayItems.reduce((s, r) => s + parseAmount(r.notes), 0), [calDayItems])
+  const calTotal = useMemo(() => calDayItems.reduce((s, r) => s + (r._amount || 0), 0), [calDayItems])
 
   function getCalDots(date) {
     const ds = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -244,6 +226,7 @@ export default function Dashboard() {
     const dots = []
     if (items.some(r => r._dueStatus === 'Overdue')) dots.push('red')
     if (items.some(r => r._dueStatus === 'Due Today')) dots.push('yellow')
+    if (items.some(r => r._dueStatus === 'Due Soon')) dots.push('blue')
     if (items.some(r => r._dueStatus === 'Upcoming')) dots.push('blue')
     if (items.some(r => r._dueStatus === 'Paid')) dots.push('green')
     return [...new Set(dots)].slice(0, 3)
@@ -258,8 +241,8 @@ export default function Dashboard() {
     { key: 'dueIn30', label: 'Due in 30 Days', icon: 'clock', color: '#6366f1', bg: '#eef2ff', num: summary.dueIn30, amt: summary.dueIn30Amt },
     { key: 'pending', label: 'Pending', icon: 'file', color: '#d97706', bg: '#fffbeb', num: summary.pending, amt: 0 },
     { key: 'renewals', label: 'Renewals', icon: 'history', color: '#7c3aed', bg: '#f5f3ff', num: summary.renewals, amt: 0 },
-    { key: 'thisMonth', label: 'This Month', icon: 'bell', color: '#2563eb', bg: '#eff6ff', num: summary.thisMonth, amt: summary.thisMonthAmt },
-    { key: 'paidThisMonth', label: 'Paid This Month', icon: 'check', color: '#16a34a', bg: '#f0fdf4', num: summary.paidThisMonth, amt: summary.paidThisMonthAmt },
+    { key: 'thisMonth', label: 'This Month', icon: 'bell', color: '#2563eb', bg: '#eff6ff', num: summary.thisMonth, amt: 0 },
+    { key: 'paidThisMonth', label: 'Paid This Month', icon: 'check', color: '#16a34a', bg: '#f0fdf4', num: summary.paidThisMonth, amt: 0 },
   ]
 
   const dashCategories = useMemo(() => {
@@ -269,31 +252,80 @@ export default function Dashboard() {
     }).filter(c => c.count > 0)
   }, [enriched])
 
+  const catModalItems = useMemo(() => {
+    if (!catModalKey) return []
+    return enriched.filter(r => r.category === catModalKey)
+  }, [enriched, catModalKey])
+
+  const catModalLabel = catModalKey ? (CATEGORIES.find(c => c.key === catModalKey)?.label || catModalKey) : ''
+
   return (
     <div className="dash-container">
       <div className="dash-header">
         <h2>PAYMENT & RENEWAL MANAGEMENT</h2>
         <p>Track payments, upcoming dues, renewals and overdue obligations.</p>
+        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+          <button className="rem-btn" onClick={() => testNotification('DUE_SOON')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Due Soon</button>
+          <button className="rem-btn" onClick={() => testNotification('DUE_TODAY')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Due Today</button>
+          <button className="rem-btn" onClick={() => testNotification('OVERDUE')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Overdue</button>
+        </div>
       </div>
 
-      <div className="dash-summary">
-        {summaryCards.map(c => (
-          <div key={c.key} className="dash-card">
-            <div className="dc-icon" style={{ background: c.bg, color: c.color }}>
-              <Icon name={c.icon} size={16} />
+      <div className="dash-financial-hero">
+        <div className="fin-hero">
+          <div className="fin-hero-left">
+            <div className="fin-hero-label">Total Obligations</div>
+            <div className="fin-hero-amount">{summary.monthlyObligations > 0 ? formatCurrency(summary.monthlyObligations) : 'Not available'}</div>
+          </div>
+          <div className="fin-hero-right">
+            {summary.monthlyObligations > 0 && (
+              <>
+                <div className="fin-hero-pct">{Math.round((summary.monthlyPaid / summary.monthlyObligations) * 100)}%</div>
+                <div className="fin-hero-sub">of total paid</div>
+              </>
+            )}
+          </div>
+        </div>
+        {summary.monthlyObligations > 0 && (
+          <div className="fin-progress">
+            <div className="fin-progress-track">
+              <div className="fin-progress-fill" style={{ width: `${(summary.monthlyPaid / summary.monthlyObligations) * 100}%` }} />
             </div>
-            <div className="dc-body">
-              <div className="dc-label">{c.label}</div>
-              <div className="dc-num">{c.num}</div>
-              {c.amt > 0 && <div className="dc-amount">{formatCurrency(c.amt)}</div>}
+            <div className="fin-progress-legend">
+              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#16a34a' }} />Paid</span>
+              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#f59e0b' }} />Pending</span>
+              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#ef4444' }} />Overdue</span>
             </div>
           </div>
-        ))}
+        )}
+        <div className="fin-cards">
+          <div className="fin-card fin-card-paid">
+            <div className="fin-card-icon"><Icon name="check" size={16} /></div>
+            <div className="fin-card-body">
+              <div className="fin-card-label">Paid</div>
+              <div className="fin-card-amount">{summary.monthlyPaid > 0 ? formatCurrency(summary.monthlyPaid) : '₹0'}</div>
+            </div>
+          </div>
+          <div className="fin-card fin-card-pending">
+            <div className="fin-card-icon"><Icon name="clock" size={16} /></div>
+            <div className="fin-card-body">
+              <div className="fin-card-label">Pending</div>
+              <div className="fin-card-amount">{summary.monthlyPending > 0 ? formatCurrency(summary.monthlyPending) : '₹0'}</div>
+            </div>
+          </div>
+          <div className="fin-card fin-card-overdue">
+            <div className="fin-card-icon"><Icon name="alert" size={16} /></div>
+            <div className="fin-card-body">
+              <div className="fin-card-label">Overdue</div>
+              <div className="fin-card-amount">{summary.monthlyOverdue > 0 ? formatCurrency(summary.monthlyOverdue) : '₹0'}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="dash-cat-bar">
         {dashCategories.map(c => (
-          <div key={c.key} className="dash-cat-chip" title={`${c.label} (${c.count})`}>
+          <div key={c.key} className="dash-cat-chip" title={`${c.label} (${c.count})`} onClick={() => setCatModalKey(c.key)} style={{ cursor: 'pointer' }}>
             <Icon name={c.icon} size={12} />
             <span>{c.label}</span>
             <span className="dash-cat-count">{c.count}</span>
@@ -321,9 +353,10 @@ export default function Dashboard() {
                 </div>
                 <div className="di-right">
                   {r._amount > 0 && <div className="di-amount">{formatCurrency(r._amount)}</div>}
-                  <div className="di-date">{r.due_date_display || formatDate(r.due_date)}</div>
+                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.due_date_display || '—'}</div>
+                  {r._daysLeft !== null && <div className="di-date" style={{ fontSize: 10, color: r._daysLeft <= 3 ? 'var(--rem-red)' : 'var(--rem-ink-soft)' }}>{r._daysLeft < 0 ? `${Math.abs(r._daysLeft)}d overdue` : r._daysLeft === 0 ? 'Today' : `${r._daysLeft}d left`}</div>}
                 </div>
-                <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus === 'Overdue' ? 'Overdue' : r._dueStatus === 'Due Today' ? 'Due Today' : 'Upcoming')}`}>
+                <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus === 'Overdue' ? 'Overdue' : r._dueStatus === 'Due Today' ? 'Due Today' : r._dueStatus === 'Due Soon' ? 'Due Soon' : 'Upcoming')}`}>
                   {r._dueStatus}
                 </span>
               </div>
@@ -368,7 +401,8 @@ export default function Dashboard() {
                 </div>
                 <div className="di-right">
                   {r._amount > 0 && <div className="di-amount">{formatCurrency(r._amount)}</div>}
-                  <div className="di-date">{r.due_date_display || formatDate(r.due_date)}</div>
+                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.due_date_display || '—'}</div>
+                  {r._daysLeft !== null && <div className="di-date" style={{ fontSize: 10, color: r._daysLeft <= 3 ? 'var(--rem-red)' : 'var(--rem-ink-soft)' }}>{r._daysLeft}d left</div>}
                 </div>
               </div>
             ))}
@@ -393,10 +427,8 @@ export default function Dashboard() {
                   <div className="di-meta">{categoryLabel(r.category)} · {r.owner || '—'}</div>
                 </div>
                 <div className="di-right">
-                  <div className="di-date">{r.renewal_date_display || formatDate(r.renewal_date)}</div>
-                  <div className="di-date" style={{ fontWeight: 600, color: r._daysLeft !== null && r._daysLeft <= 30 ? 'var(--rem-amber)' : 'var(--rem-ink-soft)' }}>
-                    {r._daysLeft !== null ? (r._daysLeft < 0 ? 'Expired' : `${r._daysLeft} days`) : '—'}
-                  </div>
+                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.renewal_date_display || '—'}</div>
+                  {r._daysLeft !== null && <div className="di-date" style={{ fontWeight: 600, color: r._daysLeft <= 30 ? 'var(--rem-amber)' : 'var(--rem-ink-soft)' }}>{r._daysLeft < 0 ? 'Expired' : `${r._daysLeft} days`}</div>}
                 </div>
               </div>
             ))}
@@ -405,109 +437,6 @@ export default function Dashboard() {
       </div>
 
       <div className="dash-row">
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="history" size={16} /> Renewal Summary</h3>
-          </div>
-          <div className="sec-body">
-            {renewalGroups.length === 0 ? (
-              <div className="dash-empty"><div className="big">No renewals</div></div>
-            ) : renewalGroups.map(g => (
-              <div key={g.type} className="dash-item">
-                <div className="di-icon" style={{ background: 'var(--rem-violet-soft)', color: 'var(--rem-violet)' }}>
-                  <Icon name={g.type === 'Vehicle' ? 'car' : g.type === 'Insurance' ? 'shield' : g.type === 'Education' ? 'book' : 'globe'} size={16} />
-                </div>
-                <div className="di-body">
-                  <div className="di-title">{g.type} Renewals</div>
-                  <div className="di-meta">{g.count} item{g.count !== 1 ? 's' : ''} pending</div>
-                </div>
-                <span className="pill pill-upcoming">{g.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="home" size={16} /> Payment Responsibility</h3>
-          </div>
-          <div className="sec-body">
-            {ownerResponsibility.length === 0 ? (
-              <div className="dash-empty"><div className="big">No owners</div></div>
-            ) : ownerResponsibility.map(o => (
-              <div key={o.name} className="resp-row">
-                <div className="resp-avatar" style={{ background: OWNER_COLORS[o.name] || '#6b7280', color: '#fff' }}>
-                  {o.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
-                </div>
-                <div className="resp-name">{o.name}</div>
-                {o.overdue > 0 && <span className="pill pill-overdue" style={{ marginRight: 8 }}>{o.overdue} overdue</span>}
-                <div className="resp-count">{o.total}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="dash-row">
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="bell" size={16} /> Monthly Financial Summary</h3>
-          </div>
-          <div className="sec-body padded">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px' }}>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Total Obligations</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatCurrency(summary.thisMonthAmt + summary.paidThisMonthAmt)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Paid</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: 'var(--rem-green)' }}>{formatCurrency(summary.paidThisMonthAmt)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Pending</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: 'var(--rem-amber)' }}>{formatCurrency(summary.thisMonthAmt)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Overdue</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: 'var(--rem-red)' }}>{formatCurrency(summary.overdueAmt)}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="file" size={16} /> Category Breakdown</h3>
-          </div>
-          <div className="sec-body">
-            {groupSummary.length === 0 ? (
-              <div className="dash-empty"><div className="big">No data</div></div>
-            ) : groupSummary.map(g => {
-              const maxCount = Math.max(...groupSummary.map(x => x.count), 1)
-              return (
-                <div key={g.group} className="cat-row">
-                  <div className="cat-icon" style={{ background: `${GROUP_COLORS[g.group]}15`, color: GROUP_COLORS[g.group] }}>
-                    <Icon name={GROUP_ICONS[g.group] || 'file'} size={14} />
-                  </div>
-                  <div className="cat-body">
-                    <div className="cat-name">{g.group}</div>
-                    <div className="cat-count">{g.count} item{g.count !== 1 ? 's' : ''}</div>
-                  </div>
-                  <div className="cat-bar">
-                    <div className="cat-bar-fill" style={{ width: `${(g.count / maxCount) * 100}%`, background: GROUP_COLORS[g.group] }} />
-                  </div>
-                  <div className="cat-amount">
-                    {g.pendingAmt > 0 && <div>{formatCurrency(g.pendingAmt)}</div>}
-                    {g.paidAmt > 0 && <div style={{ color: 'var(--rem-green)', fontSize: 11 }}>Paid: {formatCurrency(g.paidAmt)}</div>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="dash-row asymmetric">
         <div className="dash-section">
           <div className="sec-head">
             <h3><Icon name="history" size={16} /> Calendar</h3>
@@ -559,30 +488,36 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
 
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="bell" size={16} /> Category Summary</h3>
-          </div>
-          <div className="sec-body">
-            {categorySummary.length === 0 ? (
-              <div className="dash-empty"><div className="big">No data</div></div>
-            ) : (
-              <div className="cat-grid">
-                {categorySummary.map(c => (
-                  <div key={c.key} className="cat-card">
-                    <span className="cat-card-badge">{c.count}</span>
-                    <div className="cat-card-icon" style={{ background: 'var(--rem-blue-soft)', color: 'var(--rem-blue)' }}>
-                      <Icon name={c.icon} size={22} />
-                    </div>
-                    <div className="cat-card-label">{c.label}</div>
+      {catModalKey && (
+        <div className="cat-modal-overlay" onClick={() => setCatModalKey(null)}>
+          <div className="cat-modal" onClick={e => e.stopPropagation()}>
+            <div className="cat-modal-head">
+              <h3>{catModalLabel}</h3>
+              <span className="cat-modal-count">{catModalItems.length} item{catModalItems.length !== 1 ? 's' : ''}</span>
+              <button className="cat-modal-close" onClick={() => setCatModalKey(null)}>&times;</button>
+            </div>
+            <div className="cat-modal-body">
+              {catModalItems.length === 0 ? (
+                <div className="dash-empty"><div className="big">No items</div></div>
+              ) : catModalItems.map(r => (
+                <div key={r.id} className="cat-modal-item">
+                  <div className="cat-modal-item-icon" style={{ background: r._dueStatus === 'Paid' ? '#dcfce7' : r._dueStatus === 'Overdue' ? '#fee2e2' : '#f1f5f9', color: r._dueStatus === 'Paid' ? '#16a34a' : r._dueStatus === 'Overdue' ? '#dc2626' : '#64748b' }}>
+                    <Icon name={categoryIcon(r.category)} size={14} />
                   </div>
-                ))}
-              </div>
-            )}
+                  <div className="cat-modal-item-body">
+                    <div className="cat-modal-item-title">{r.title || '—'}</div>
+                    <div className="cat-modal-item-meta">{r.owner || '—'}{r._amount > 0 ? ` · ${formatCurrency(r._amount)}` : ''}</div>
+                    {r._effectiveDate && <div className="cat-modal-item-meta" style={{ fontSize: 10 }}>Next due: {formatDate(r._effectiveDate)}{r._daysLeft !== null ? ` (${r._daysLeft < 0 ? 'overdue' : r._daysLeft === 0 ? 'today' : r._daysLeft + 'd'})` : ''}</div>}
+                  </div>
+                  <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus)}`} style={{ fontSize: 10 }}>{r._dueStatus}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
