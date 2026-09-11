@@ -30,6 +30,7 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
+  const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
@@ -39,6 +40,15 @@ export default function LeadAudit() {
     apiGet('/accounts/receipts/numbers')
       .then(d => { if (!cancelled) setReceiptNums(d || []); })
       .catch(() => { if (!cancelled) setReceiptNums([]); });
+    return () => { cancelled = true; };
+  }, [audit]);
+
+  // Today + month collection totals per NGO (right-hand "NGO Collections" cards).
+  useEffect(() => {
+    let cancelled = false;
+    apiGet('/accounts/collections')
+      .then(d => { if (!cancelled) setCollections(d || []); })
+      .catch(() => { if (!cancelled) setCollections([]); });
     return () => { cancelled = true; };
   }, [audit]);
 
@@ -92,38 +102,41 @@ export default function LeadAudit() {
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch' }}>
-        <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
-          {receiptNums === null ? (
-            [0, 1, 2].map(i => (
-              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                </div>
-              </div>
-            ))
-          ) : receiptNums && receiptNums.length > 0 ? (
-            receiptNums.map(n => {
-              const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
-              return (
-              <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
-                    <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
-                    <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'flex-start' }}>
+        <div style={{ width: 250, flexShrink: 0 }}>
+          <SectionTitle>Receipt Numbers</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {receiptNums === null ? (
+              [0, 1, 2].map(i => (
+                <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                    <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
                   </div>
                 </div>
-              </div>
-            );
-            })
-          ) : null}
+              ))
+            ) : receiptNums && receiptNums.length > 0 ? (
+              receiptNums.map(n => {
+                const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
+                return (
+                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
+                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
+                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+              })
+            ) : null}
+          </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
@@ -132,6 +145,30 @@ export default function LeadAudit() {
           <div style={{ height: 1, background: '#eef1f6' }} />
           <div style={{ padding: '12px 18px' }}>
             {filterBar}
+          </div>
+        </div>
+        <div style={{ width: 250, flexShrink: 0 }}>
+          <SectionTitle>NGO Collections</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {['bsct', 'aflf', 'mann'].map(key => {
+              const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
+              const d = collections?.find(x => x.project_id === key);
+              return (
+                <div key={key} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, letterSpacing: '.02em' }}>{key.toUpperCase()}</div>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, fontWeight: 600 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
+                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 44, height: 12, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
+                      <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 12, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
