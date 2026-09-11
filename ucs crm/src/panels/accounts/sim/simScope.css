@@ -278,6 +278,65 @@
 .panel-accounts .sim-scope .modal-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
 .panel-accounts .sim-scope .modal-foot { padding: 14px 20px; border-top: 1px solid var(--sim-line); display: flex; justify-content: flex-end; gap: 8px; }
 
+.panel-accounts .sim-scope .sim-edit-overlay {
+  background: rgba(15, 23, 42, .42);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  align-items: center;
+  padding: 24px 16px;
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal {
+  margin: auto; width: 100%; max-width: 660px;
+  max-height: 68vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--sim-line);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, .18);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head {
+  flex: 0 0 auto; padding: 14px 20px;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+  border-bottom: 1px solid var(--sim-line);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head h3 {
+  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--sim-blue-dark);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head h3::before {
+  content: ''; width: 4px; height: 18px; border-radius: 3px;
+  background: linear-gradient(180deg, var(--sim-blue), #60a5fa);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-x:hover { color: var(--sim-blue); }
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-body {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto;
+  padding: 16px 20px;
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-foot {
+  flex: 0 0 auto; padding: 12px 20px;
+  background: #f8fafc; border-top: 1px solid var(--sim-line);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-grid { gap: 12px 16px; }
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-row { gap: 4px; }
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-row label { font-size: 11px; }
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-row input,
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-row select {
+  height: 38px; padding-top: 0; padding-bottom: 0; font-size: 13px;
+  background: #ffffff;
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .form-row.locked input {
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  border-color: #bfdbfe; font-weight: 600;
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .sim-btn.primary {
+  background: var(--sim-blue); border-color: var(--sim-blue);
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .section-title {
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-accounts .sim-scope .modal.sim-edit-modal .section-title::before {
+  content: ''; width: 3px; height: 14px; border-radius: 3px; background: var(--sim-blue);
+}
+
 .panel-accounts .sim-scope .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .panel-accounts .sim-scope .form-grid .full { grid-column: 1 / -1; }
 .panel-accounts .sim-scope .form-row { display: flex; flex-direction: column; gap: 5px; }

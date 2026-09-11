@@ -7,7 +7,9 @@ import {
   PRIORITIES,
   REMIND_BEFORE_OPTIONS,
   formatDateTime,
+  formatDate,
 } from './helpers';
+import { computeEffectiveDueDate, playAlarmSound, dismissAlarmKey } from './notifications';
 import * as XLSX from 'xlsx';
 
 /* ------------------------------------------------------------------ */
@@ -1033,10 +1035,15 @@ export function NotificationPanel({ notifications = [], onClose, onMarkRead, onM
 export function AlarmToast({ reminder, alarmType, onDismiss, onComplete, onSnooze, onView }) {
   const [showSnooze, setShowSnooze] = useState(false);
   const timerRef = useRef(null);
+  const soundPlayed = useRef(false);
 
   useEffect(() => {
     if (!reminder) return;
     setShowSnooze(false);
+    if (!soundPlayed.current) {
+      playAlarmSound(alarmType);
+      soundPlayed.current = true;
+    }
     timerRef.current = setTimeout(() => {
       onDismiss?.();
     }, 60000);
@@ -1047,12 +1054,13 @@ export function AlarmToast({ reminder, alarmType, onDismiss, onComplete, onSnooz
 
   if (!reminder) return null;
 
+  const effectiveDate = computeEffectiveDueDate(reminder)
   const alarmMsg =
-    alarmType === 'overdue'
+    alarmType === 'OVERDUE' || alarmType === 'overdue'
       ? 'This reminder is overdue!'
-      : alarmType === 'due_soon'
+      : alarmType === 'DUE_SOON' || alarmType === 'due_soon'
       ? 'This reminder is due soon'
-      : alarmType === 'due_today'
+      : alarmType === 'DUE_TODAY' || alarmType === 'due_today'
       ? 'This reminder is due today'
       : 'Reminder alert';
 
@@ -1076,8 +1084,13 @@ export function AlarmToast({ reminder, alarmType, onDismiss, onComplete, onSnooz
       </div>
       <div className="alarm-toast-body">
         <div style={{ fontSize: 13, marginBottom: 4 }}>{alarmMsg}</div>
-        {reminder.due_date && (
+        {effectiveDate ? (
+          <div style={{ fontSize: 12, color: '#888' }}>Due: {formatDate(effectiveDate)}</div>
+        ) : reminder.due_date ? (
           <div style={{ fontSize: 12, color: '#888' }}>Due: {formatDateTime(reminder.due_date)}</div>
+        ) : null}
+        {reminder.amount > 0 && (
+          <div style={{ fontSize: 12, color: '#888' }}>Amount: ₹{Number(reminder.amount).toLocaleString('en-IN')}</div>
         )}
       </div>
       <div className="alarm-toast-actions">

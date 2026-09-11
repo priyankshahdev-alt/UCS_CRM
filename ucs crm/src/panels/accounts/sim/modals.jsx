@@ -111,8 +111,8 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-overlay sim-edit-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal sim-edit-modal">
         <div className="modal-head">
           <h3>{card ? 'Edit SIM Card' : 'Add SIM Card'}</h3>
           <button className="modal-x" onClick={onClose}>×</button>
