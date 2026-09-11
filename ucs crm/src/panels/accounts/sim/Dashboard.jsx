@@ -484,9 +484,9 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
           <div className="panel-head"><h3>Android Mobile Summary</h3><span className="ln" style={{ fontSize: 16, fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '5px 12px', borderRadius: 6 }}>TOTAL COUNT {androidCards.length}</span></div>
           {(() => {
             const teamMap = {};
-            androidCards.forEach((c) => { const t = c.team || 'Unassigned'; teamMap[t] = (teamMap[t] || 0) + countSims(c); });
+            androidCards.forEach((c) => { const t = (c.team || 'Unassigned').trim().toLowerCase(); teamMap[t] = (teamMap[t] || 0) + countSims(c); });
             const order = ['UFS 1', 'UFS 2', 'UFS 3', 'UFS 4', 'UFS 5', 'Accounts', 'Social Media', 'HR', 'Admin'];
-            const teamRows = order.map((team) => team === 'Accounts' ? [3, team] : [/^ufs\s*\d+$/i.test(team) ? androidCards.filter((c) => normUfs(c.team) === normUfs(team)).length : (teamMap[team] || 0), team]);
+            const teamRows = order.map((team) => team === 'Accounts' ? [3, team] : [/^ufs\s*\d+$/i.test(team) ? androidCards.filter((c) => normUfs(c.team) === normUfs(team)).length : (teamMap[team.trim().toLowerCase()] || 0), team]);
             const rows = [teamRows.slice(0, 5).map(([count, t]) => [t, count]), teamRows.slice(5, 10).map(([count, t]) => [t, count])];
             return (
               <>
