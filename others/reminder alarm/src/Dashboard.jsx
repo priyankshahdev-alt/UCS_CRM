@@ -271,7 +271,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="dash-financial-hero">
+      <div className="dash-row asymmetric">
+        <div className="dash-financial-hero">
         <div className="fin-hero">
           <div className="fin-hero-left">
             <div className="fin-hero-label">Total Obligations</div>
@@ -320,6 +321,59 @@ export default function Dashboard() {
               <div className="fin-card-amount">{summary.monthlyOverdue > 0 ? formatCurrency(summary.monthlyOverdue) : '₹0'}</div>
             </div>
           </div>
+        </div>
+      </div>
+
+        <div className="dash-section">
+          <div className="sec-head">
+            <h3><Icon name="history" size={16} /> Calendar</h3>
+          </div>
+          <div className="dash-cal">
+            <div className="dash-cal-head">
+              <h4>{new Date(calYear, calMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
+              <div className="dash-cal-nav">
+                <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
+                <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
+              </div>
+            </div>
+            <div className="dash-cal-grid">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                <div key={d} className="dash-cal-dow">{d}</div>
+              ))}
+              {calDays.map((cell, i) => {
+                const dots = cell.otherMonth ? [] : getCalDots(cell.date)
+                return (
+                  <div
+                    key={i}
+                    className={`dash-cal-day ${cell.otherMonth ? 'other-month' : ''} ${isToday(cell.day) && !cell.otherMonth ? 'today' : ''} ${dots.length ? 'has-dots' : ''}`}
+                    onClick={() => { if (!cell.otherMonth) setCalDay(calDay === cell.day ? null : cell.day) }}
+                  >
+                    <span>{cell.day}</span>
+                    {dots.length > 0 && (
+                      <div className="cal-dots">
+                        {dots.map((d, j) => <div key={j} className={`cal-dot ${d}`} />)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          {calDay && calDayItems.length > 0 && (
+            <div className="cal-detail">
+              <h4>{calMonth + 1}/{calDay}/{calYear}</h4>
+              {calDayItems.map(r => (
+                <div key={r.id} className="cal-detail-item">
+                  <Icon name={categoryIcon(r.category)} size={14} />
+                  <span style={{ flex: 1, fontWeight: 600 }}>{r.title || '—'}</span>
+                  <span style={{ color: 'var(--rem-ink-soft)' }}>{r.owner || '—'}</span>
+                  {r._amount > 0 && <span style={{ fontWeight: 600 }}>{formatCurrency(r._amount)}</span>}
+                  <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus)}`} style={{ fontSize: 10 }}>{r._dueStatus}</span>
+                </div>
+              ))}
+              <div className="cal-detail-total">Total Due: {formatCurrency(calTotal)}</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -433,60 +487,6 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-        </div>
-      </div>
-
-      <div className="dash-row">
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="history" size={16} /> Calendar</h3>
-          </div>
-          <div className="dash-cal">
-            <div className="dash-cal-head">
-              <h4>{new Date(calYear, calMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
-              <div className="dash-cal-nav">
-                <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
-                <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
-              </div>
-            </div>
-            <div className="dash-cal-grid">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} className="dash-cal-dow">{d}</div>
-              ))}
-              {calDays.map((cell, i) => {
-                const dots = cell.otherMonth ? [] : getCalDots(cell.date)
-                return (
-                  <div
-                    key={i}
-                    className={`dash-cal-day ${cell.otherMonth ? 'other-month' : ''} ${isToday(cell.day) && !cell.otherMonth ? 'today' : ''} ${dots.length ? 'has-dots' : ''}`}
-                    onClick={() => { if (!cell.otherMonth) setCalDay(calDay === cell.day ? null : cell.day) }}
-                  >
-                    <span>{cell.day}</span>
-                    {dots.length > 0 && (
-                      <div className="cal-dots">
-                        {dots.map((d, j) => <div key={j} className={`cal-dot ${d}`} />)}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          {calDay && calDayItems.length > 0 && (
-            <div className="cal-detail">
-              <h4>{calMonth + 1}/{calDay}/{calYear}</h4>
-              {calDayItems.map(r => (
-                <div key={r.id} className="cal-detail-item">
-                  <Icon name={categoryIcon(r.category)} size={14} />
-                  <span style={{ flex: 1, fontWeight: 600 }}>{r.title || '—'}</span>
-                  <span style={{ color: 'var(--rem-ink-soft)' }}>{r.owner || '—'}</span>
-                  {r._amount > 0 && <span style={{ fontWeight: 600 }}>{formatCurrency(r._amount)}</span>}
-                  <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus)}`} style={{ fontSize: 10 }}>{r._dueStatus}</span>
-                </div>
-              ))}
-              <div className="cal-detail-total">Total Due: {formatCurrency(calTotal)}</div>
-            </div>
-          )}
         </div>
       </div>
 

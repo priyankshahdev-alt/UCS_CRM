@@ -185,6 +185,11 @@
 .dash-row.asymmetric > .dash-section {
   flex: 1 1 calc(50% - 10px);
 }
+.dash-row.asymmetric > .dash-financial-hero {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 0;
+  margin-bottom: 0;
+}
 .dash-row .full {
   flex: 0 0 100%;
 }
@@ -835,6 +840,9 @@
     grid-template-columns: repeat(2, 1fr);
   }
   .dash-row > .dash-section {
+    flex: 0 0 100%;
+  }
+  .dash-row.asymmetric > .dash-financial-hero {
     flex: 0 0 100%;
   }
   .dash-cat-bar {

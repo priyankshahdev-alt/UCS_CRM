@@ -25,13 +25,14 @@ function getRole() {
 export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle }) {
   const [notices, setNotices] = useState([])
   const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState('')
   const [deletingId, setDeletingId] = useState(null)
-  const [confirmDelete, setConfirmDelete] = useState(null)
   const [editMode, setEditMode] = useState(false)
   const [editForms, setEditForms] = useState({})
   const [savingId, setSavingId] = useState(null)
   const role = getRole()
   const isAdmin = role === 'super_admin'
+  const canDelete = role === 'super_admin' || role === 'admin' || role === 'hr' || role === 'master' || role === 'fro' || role === 'worker'
 
   useEffect(() => {
     const token = getToken()
@@ -60,10 +61,17 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
       })
       if (res.ok) {
         setNotices(prev => prev.filter(n => n.id !== id))
+        setToast('Notice deleted successfully')
       }
     } catch {}
     setDeletingId(null)
   }
+
+  useEffect(() => {
+    if (!toast) return undefined
+    const t = setTimeout(() => setToast(''), 2500)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const toggleEditMode = useCallback(() => {
     setEditMode(prev => {
@@ -231,9 +239,9 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 >
                   {savingId === n.id ? 'Saving' : 'Save'}
                 </button>
-              ) : (
+) : canDelete ? (
                 <button
-                  onClick={() => setConfirmDelete(n)}
+                  onClick={() => handleDelete(n.id)}
                   disabled={deletingId === n.id}
                   title="Delete notice"
                   style={{
@@ -250,53 +258,21 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
 {deletingId === n.id ? 'hourglass_top' : 'delete'}
                   </span>
                 </button>
-              ))}
+              ) : null)}
             </div>
           ))}
         </div>
       )}
 
-      {confirmDelete && (
-        <div onClick={() => setConfirmDelete(null)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 1100, padding: '20px'
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 1200,
+          background: '#16a34a', color: '#fff', padding: '11px 22px', borderRadius: 12,
+          fontSize: 13, fontWeight: 700, boxShadow: '0 10px 30px rgba(0,0,0,.18)',
+          display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: '#FFFFFF', width: '100%', maxWidth: '400px',
-            borderRadius: '16px', boxShadow: '0 25px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08)',
-            overflow: 'hidden'
-          }}>
-            <div style={{ padding: '28px 28px 20px', textAlign: 'center' }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: '50%', background: '#FEE2E2',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto 16px'
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#EF4444' }}>delete</span>
-              </div>
-              <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>
-                Delete Notice?
-              </h3>
-              <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', lineHeight: 1.5 }}>
-                Are you sure you want to delete <strong style={{ color: '#111827' }}>"{confirmDelete.title}"</strong>? This action cannot be undone.
-              </p>
-            </div>
-            <div style={{
-              padding: '16px 28px 24px', display: 'flex', gap: '10px', justifyContent: 'center'
-            }}>
-              <button onClick={() => setConfirmDelete(null)} style={{
-                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                background: '#FFFFFF', color: '#111827', border: '1px solid #E5E7EB',
-                cursor: 'pointer', flex: 1
-              }}>Cancel</button>
-              <button onClick={() => { handleDelete(confirmDelete.id); setConfirmDelete(null); }} style={{
-                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                background: '#EF4444', color: '#FFFFFF', border: 'none',
-                cursor: 'pointer', flex: 1
-              }}>Delete</button>
-            </div>
-          </div>
+          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>check_circle</span>
+          {toast}
         </div>
       )}
     </div>

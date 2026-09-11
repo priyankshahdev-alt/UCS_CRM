@@ -68,12 +68,7 @@ const BAR_CSS = `
 `;
 
 export default function NoticesBar() {
-  const [items, setItems] = useState([]);
-  const dismissedKeyRef = useRef(barSeenKey());
-  const dismissedRef = useRef(readDismissed(dismissedKeyRef.current));
-  const role = getRole();
-  const target = getViewPanel() || role;
-  const inSAPanel = role === 'super_admin' && typeof window !== 'undefined' && String(window.location.pathname).startsWith('/sa');
+  return null;
 
   const refresh = useCallback(async () => {
     try {

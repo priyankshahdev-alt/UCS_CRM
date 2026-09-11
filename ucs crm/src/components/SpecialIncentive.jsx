@@ -48,6 +48,27 @@ const CONFETTI_CSS = `
 .si-confetti { position: fixed; top: -6vh; border-radius: 2px; z-index: 99999; pointer-events: none; animation-name: si-confetti-fall; animation-timing-function: linear; animation-iteration-count: infinite; }
 `;
 
+const NGO_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+
+export function ngoColor(ngoName) {
+  const name = String(ngoName || '').toUpperCase();
+  if (name.includes('MANN') || name.includes('MAA')) return '#ec4899';
+  if (name.includes('BSCT') || name.includes('BS')) return '#38bdf8';
+  if (name.includes('AFL')) return '#8b5cf6';
+  const idx = [...(ngoName || '')].reduce((a, c) => a + (c.charCodeAt(0) || 0), 0) % NGO_COLORS.length;
+  return NGO_COLORS[idx];
+}
+
+export function NgoBadge({ ngoName }) {
+  if (!ngoName) return null;
+  const color = ngoColor(ngoName);
+  return (
+    <span style={{ padding: '2px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, letterSpacing: .4, background: `${color}1a`, color, border: `1px solid ${color}55`, whiteSpace: 'nowrap' }}>
+      {ngoName}
+    </span>
+  );
+}
+
 const readSet = (key) => {
   try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch { return new Set(); }
 };
@@ -162,8 +183,11 @@ function PopupModal({ inc, you, onClose, nowMs }) {
       <div style={{ width: 'min(460px, 100%)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 18, padding: 20, position: 'relative', border: '2px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5 0%,#fff7e0 60%,#ffe9c2 100%)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', animation: 'si-pop .45s cubic-bezier(.22,1,.36,1)' }}>
         <div style={{ position: 'absolute', top: 12, right: 12, cursor: 'pointer', width: 30, height: 30, borderRadius: 50, background: 'var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--ink)', zIndex: 2 }} onClick={onClose}>✕</div>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase' }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'si-pulse 1s linear infinite' }} /> Sir ka Incentive · LIVE
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'si-pulse 1s linear infinite' }} /> Sir ka Incentive · LIVE
+            </div>
+            <NgoBadge ngoName={inc.ngo_name} />
           </div>
           <div style={{ fontSize: 21, fontWeight: 900, color: 'var(--ink)', margin: '10px 0 2px' }}>{inc.title}</div>
           {inc.message && <div style={{ fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.5, margin: '0 auto 4px', maxWidth: 380 }}>{inc.message}</div>}
@@ -192,6 +216,7 @@ function PopupModal({ inc, you, onClose, nowMs }) {
 
 function Celebration({ inc, you, onClose }) {
   const isWinner = you && inc.winner_worker_id === you;
+  const hasPhoto = !!inc.winner_avatar;
   const pieces = useMemo(() => Array.from({ length: 130 }).map((_, i) => ({
     left: Math.random() * 100,
     delay: Math.random() * 3,
@@ -211,8 +236,18 @@ function Celebration({ inc, you, onClose }) {
       ))}
       <div style={{ width: 'min(420px,100%)', borderRadius: 20, padding: 26, textAlign: 'center', background: 'linear-gradient(160deg,#fff8e7,#ffe6b3)', border: '3px solid #f59e0b', boxShadow: '0 30px 80px rgba(0,0,0,.4)', animation: 'si-pop .5s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
         <div style={{ position: 'absolute', top: 12, right: 12, cursor: 'pointer', width: 30, height: 30, borderRadius: 50, background: 'var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--ink)', zIndex: 2 }} onClick={onClose}>✕</div>
-        <div style={{ fontSize: 54, animation: 'si-bounce 1.2s ease-in-out infinite' }}>{isWinner ? '🏆' : '🎉'}</div>
-        <div style={{ fontSize: 15, fontWeight: 800, color: '#b45309', letterSpacing: 1, textTransform: 'uppercase', marginTop: 4 }}>Winner Declared</div>
+        {hasPhoto ? (
+          <div style={{ position: 'relative', display: 'inline-block', marginTop: 2, animation: 'si-bounce 1.2s ease-in-out infinite' }}>
+            <div style={{ position: 'absolute', inset: -6, borderRadius: '50%', background: 'linear-gradient(135deg,#fbbf24,#f59e0b,#d97706)', boxShadow: '0 8px 22px rgba(180,83,9,.4)' }} />
+            <img src={inc.winner_avatar} alt={inc.winner_name || 'Winner'} style={{ width: 108, height: 108, borderRadius: '50%', objectFit: 'cover', border: '4px solid #fff', position: 'relative', display: 'block', background: '#fde68a' }} />
+            <div style={{ position: 'absolute', right: -4, bottom: 0, fontSize: 30, textShadow: '0 2px 6px rgba(0,0,0,.25)' }}>{isWinner ? '🏆' : '🎉'}</div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 54, animation: 'si-bounce 1.2s ease-in-out infinite' }}>{isWinner ? '🏆' : '🎉'}</div>
+        )}
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#b45309', letterSpacing: 1, textTransform: 'uppercase', marginTop: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Winner Declared <NgoBadge ngoName={inc.ngo_name} /></span>
+        </div>
         <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--ink)', margin: '8px 0 4px' }}>
           {isWinner ? 'YOU WON IT!' : `${inc.winner_name || 'A FRO'} won!`}
         </div>
@@ -227,49 +262,43 @@ function Celebration({ inc, you, onClose }) {
   );
 }
 
-// Full-screen winner-photo celebration. Drops in from the top with confetti and
-// shows Sir's posted photo + the AI congratulation on every panel.
-function WinnerPhotoPopup({ inc, onClose }) {
-  const pieces = useMemo(() => Array.from({ length: 150 }).map((_, i) => ({
-    left: Math.random() * 100,
-    delay: Math.random() * 2,
-    dur: 2.4 + Math.random() * 2.4,
-    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-    w: 6 + Math.random() * 9,
-    h: 10 + Math.random() * 12,
-  })), []);
+// Small winner popup pinned to the RIGHT CORNER for that day only. Shows the
+// winner's photo + name + prize, stays for the rest of the day, dismissible.
+// The 5-second Celebration + photo flash still happen at hit-target moment.
+function CornerWinnerCard({ inc }) {
+  const [open, setOpen] = useState(true);
+  if (!inc || !open) return null;
+  const hasPhoto = !!inc.winner_photo_url;
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 99993, background: 'rgba(15,23,42,.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <style>{CONFETTI_CSS}</style>
-      {pieces.map((p, i) => (
-        <div key={i} className="si-confetti" style={{
-          left: `${p.left}%`, width: p.w, height: p.h, background: p.color,
-          animationDelay: `${p.delay}s`, animationDuration: `${p.dur}s`,
-        }} />
-      ))}
-      <div style={{ width: 'min(410px,100%)', borderRadius: 22, padding: 10, background: 'linear-gradient(165deg,#fff8e7,#ffe3a6)', border: '3px solid #f59e0b', boxShadow: '0 32px 90px rgba(0,0,0,.45)', animation: 'si-drop .9s cubic-bezier(.22,1,.36,1) both', position: 'relative', textAlign: 'center' }}>
-        <div style={{ position: 'absolute', top: 18, right: 18, cursor: 'pointer', width: 30, height: 30, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, color: '#b45309', zIndex: 3 }} onClick={onClose}>✕</div>
-        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#b45309', marginTop: 4 }}>🎉 Winner Announcement</div>
-        {inc.winner_photo_url ? (
-          <div style={{ borderRadius: 14, overflow: 'hidden', margin: '10px 0', border: '2px solid #f59e0b', position: 'relative', maxHeight: '38vh' }}>
-            <img src={inc.winner_photo_url} alt="Winner" style={{ width: '100%', height: '100%', maxHeight: '38vh', objectFit: 'cover', display: 'block', background: '#fde68a' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 55%, rgba(120,53,15,.55) 100%)' }} />
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '8px 12px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ color: '#fff', fontWeight: 900, fontSize: 19, textShadow: '0 1px 6px rgba(0,0,0,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.winner_name || 'The Winner'}</span>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: 16, textShadow: '0 1px 6px rgba(0,0,0,.45)', whiteSpace: 'nowrap' }}>🏆 ₹{fmt(inc.incentive_amount)}</span>
+    <div style={{ position: 'fixed', top: 74, right: 14, zIndex: 99983, width: 230, borderRadius: 14, overflow: 'hidden', border: '2px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5 0%,#fff3d6 100%)', boxShadow: '0 14px 34px rgba(0,0,0,.28)', animation: 'si-rise .35s ease' }}>
+      <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, cursor: 'pointer', width: 24, height: 24, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#b45309', boxShadow: '0 2px 6px rgba(0,0,0,.18)' }} onClick={() => setOpen(false)}>✕</div>
+      {hasPhoto ? (
+        <div style={{ height: 108, position: 'relative', overflow: 'hidden' }}>
+          <img src={inc.winner_photo_url} alt="Winner" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#fde68a' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 48%, rgba(120,53,15,.6) 100%)' }} />
+          <div style={{ position: 'absolute', right: 6, top: 6, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,.92)', fontSize: 10, fontWeight: 800, color: '#b45309', letterSpacing: .4 }}>
+            🏆 Winner · Today
+          </div>
+          <div style={{ position: 'absolute', left: 10, right: 10, bottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: '#fff', fontWeight: 900, fontSize: 15, textShadow: '0 1px 6px rgba(0,0,0,.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.winner_name || 'The Winner'}</div>
+              <div style={{ color: '#fff', fontWeight: 800, fontSize: 12.5, textShadow: '0 1px 6px rgba(0,0,0,.5)' }}>Won ₹{fmt(inc.incentive_amount)} 🎉</div>
             </div>
           </div>
-        ) : (
-          <div style={{ margin: '10px 0', padding: '20px 0' }}>
-            <div style={{ fontSize: 48 }}>🏆</div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--ink)', marginTop: 4 }}>{inc.winner_name || 'The Winner'}</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: '#d97706' }}>Won ₹{fmt(inc.incentive_amount)} 🎉</div>
+        </div>
+      ) : (
+        <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ position: 'relative', fontSize: 30, animation: 'si-bounce 1.2s ease-in-out infinite' }}>🏆</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#b45309', letterSpacing: .5, textTransform: 'uppercase' }}>Today's Winner</div>
+            <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.winner_name || 'The Winner'}</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#d97706' }}>Won ₹{fmt(inc.incentive_amount)} 🎉</div>
           </div>
-        )}
-        {inc.congrats_message && (
-          <div style={{ margin: '0 2px 4px', padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,.72)', border: '1.5px solid #fcd34d', fontSize: 13.5, lineHeight: 1.6, color: 'var(--ink)', fontWeight: 600 }}>{inc.congrats_message}</div>
-        )}
-        <div style={{ fontSize: 11, color: '#b45309', fontWeight: 700, margin: '2px 0 6px' }}>{inc.title}</div>
+        </div>
+      )}
+      <div style={{ padding: '7px 10px', borderTop: '1px dashed #f59e0b88', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{inc.title}</span>
+        <NgoBadge ngoName={inc.ngo_name} />
       </div>
     </div>
   );
@@ -285,7 +314,10 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
     <div style={{ width: 300, borderRadius: 14, border: '2px solid #f59e0b', background: 'linear-gradient(150deg,#fffdf5,#fff3d6)', boxShadow: '0 14px 34px rgba(0,0,0,.22)', overflow: 'hidden', animation: 'si-rise .3s ease' }}>
       <div style={{ padding: '10px 14px', background: 'linear-gradient(90deg,#b45309,#f59e0b,#fbbf24)', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 16 }}>💰</span>
-        <div style={{ flex: 1, fontSize: 12.5, fontWeight: 800 }}>{inc.title}</div>
+        <div style={{ flex: 1, fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.title}</span>
+          <span style={{ flexShrink: 0 }}><NgoBadge ngoName={inc.ngo_name} /></span>
+        </div>
         <span style={{ fontSize: 11, fontWeight: 800, background: '#fff', color: '#b45309', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
           {inc.status === 'won' ? '🏆 WON' : inc.status === 'ended' || inc.status === 'cancelled' ? (inc.status === 'cancelled' ? 'CANCELLED' : 'ENDED') : `⏳ ${fmtClock(left)}`}
         </span>
@@ -318,15 +350,19 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
 }
 
 // Shared hook: fetch + realtime + popup/celebration state for any panel.
+// Supports several incentives live at once (one per NGO): popups and winner
+// celebrations are queued and shown one at a time; sticky leaderboard cards
+// stack in the corner for every still-running race.
 export function useSpecialIncentive() {
   const user = useUser();
   const [data, setData] = useState({ incentives: [], recent: [] });
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [celebrate, setCelebrate] = useState(null);
+  const [celebrateQueue, setCelebrateQueue] = useState([]);
   const [photoCeleb, setPhotoCeleb] = useState(null);
-  const [popupOpen, setPopupOpen] = useState(false);
-  const [dismissedId, setDismissedId] = useState(null);
+  const [popupQueue, setPopupQueue] = useState([]);
+  const [dismissedIds, setDismissedIds] = useState(() => new Set());
   const trackedRef = useRef(new Set());
+  const notifiedRef = useRef(new Set());
   const celebrationShownRef = useRef(new Set());
   const photoShownRef = useRef(new Set());
 
@@ -353,87 +389,108 @@ export function useSpecialIncentive() {
     return () => { clearInterval(t); clearInterval(c); };
   }, [load]);
 
-  const active = data.incentives?.[0] || null;
+  const incentives = data.incentives || [];
 
-  // Auto-popup the newest active incentive once per id.
+  // Auto-queue the popup for every new active incentive, once per id.
   useEffect(() => {
-    if (active && !trackedRef.current.has(active.id)) {
-      trackedRef.current.add(active.id);
-      setPopupOpen(true);
+    const fresh = incentives.filter((i) => !trackedRef.current.has(i.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((i) => trackedRef.current.add(i.id));
+    setPopupQueue((prev) => [...prev, ...fresh.map((i) => i.id)]);
+  }, [incentives]);
+
+  // Notify + vibrate when a new popup actually shows (first time only).
+  const popupInc = popupQueue.length ? incentives.find((i) => i.id === popupQueue[0]) || null : null;
+  useEffect(() => {
+    if (popupInc && !notifiedRef.current.has(popupInc.id)) {
+      notifiedRef.current.add(popupInc.id);
       try { if (navigator.vibrate) navigator.vibrate(300); } catch { /* ignore */ }
       requestNotifPermission().then(() => {
-        showDesktopNotification('Sir ka Incentive LIVE 🎯', active.title || 'New special incentive is live — go collect!');
+        showDesktopNotification('Sir ka Incentive LIVE 🎯', popupInc.title || 'New special incentive is live — go collect!');
       }).catch(() => {});
     }
-  }, [active]);
+  }, [popupInc]);
 
-  // Celebration when an incentive resolves as "won" — once per id.
+  // Queue a celebration for every recently closed winner — one NGO's race may
+  // finish while the others are still live, so this no longer waits for all to
+  // close. Shown one at a time for ~6.5s each.
   useEffect(() => {
-    const closed = (data.recent || [])[0];
-    if (closed && closed.status === 'won' && !closed.archived_at && !celebrationShownRef.current.has(closed.id) && !hasInSet(CELEB_KEY, closed.id)) {
-      celebrationShownRef.current.add(closed.id);
-      addToSet(CELEB_KEY, closed.id);
-      setCelebrate(closed);
-      const t = setTimeout(() => setCelebrate(null), 6500);
-      return () => clearTimeout(t);
-    }
+    const closedWins = (data.recent || []).filter(
+      (c) => c.status === 'won' && !c.archived_at && !celebrationShownRef.current.has(c.id) && !hasInSet(CELEB_KEY, c.id)
+    );
+    if (closedWins.length === 0) return;
+    closedWins.forEach((c) => {
+      celebrationShownRef.current.add(c.id);
+      addToSet(CELEB_KEY, c.id);
+    });
+    setCelebrateQueue((prev) => [...prev, ...closedWins]);
   }, [data.recent]);
 
-  // Winner-photo celebration: when Sir posts the winner's photo, drop the popup
-  // on every panel (once per id per device).
+  useEffect(() => {
+    if (celebrateQueue.length === 0) return;
+    const t = setTimeout(() => setCelebrateQueue((prev) => prev.slice(1)), 5000);
+    return () => clearTimeout(t);
+  }, [celebrateQueue]);
+
+  // Winner corner popup: Sir posts the winner's photo → show the small card in
+  // the right corner for the rest of that day (once per id per device).
   useEffect(() => {
     const c = data.celeb;
     if (c && c.celebrated_at && !c.archived_at && !photoShownRef.current.has(c.id) && !hasInSet(CELEB_PHOTO_KEY, c.id)) {
       photoShownRef.current.add(c.id);
       addToSet(CELEB_PHOTO_KEY, c.id);
       setPhotoCeleb(c);
-      const t = setTimeout(() => setPhotoCeleb(null), 12000);
-      return () => clearTimeout(t);
     }
   }, [data.celeb]);
 
   return {
-    active,
-    recent: data.recent?.[0] || null,
-    celebrate,
+    incentives,
+    popupInc,
+    popupOpen: popupInc !== null,
+    recent: data.recent || [],
+    celebrate: celebrateQueue[0] || null,
     photoCeleb,
-    popupOpen,
     nowMs,
     user,
-    dismissedId,
-    dismissCard: (id) => setDismissedId(id ? String(id) : null),
-    closePopup: () => setPopupOpen(false),
-    closeCelebrate: () => setCelebrate(null),
+    dismissedIds,
+    dismissCard: (id) => setDismissedIds((prev) => { const s = new Set(prev); s.add(String(id)); return s; }),
+    closePopup: () => setPopupQueue((prev) => prev.slice(1)),
+    closeCelebrate: () => setCelebrateQueue((prev) => prev.slice(1)),
     closePhotoCeleb: () => setPhotoCeleb(null),
     reload: load,
   };
 }
 
 export default function SpecialIncentive() {
-  const { active, celebrate, photoCeleb, popupOpen, nowMs, user, dismissedId, dismissCard, closePopup, closeCelebrate, closePhotoCeleb } = useSpecialIncentive();
+  const { incentives, popupInc, popupOpen, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
   const you = user?.id || null;
+  // Winner popups (auto hit-target card + Sir's posted photo celebration) show
+  // ONLY in the FRO panel. Other panels keep the LIVE announcement + cards.
+  const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
 
-  // Show the sticky bottom-left card ONLY while an incentive is genuinely
-  // active (running). Once it is won/ended/cancelled, the card disappears
-  // automatically (no winner banner left pinned in the corner).
-  const showCard = !!active && !popupOpen && String(active.id) !== String(dismissedId);
+  // Sticky bottom-left cards: one per still-running race not in the popup and
+  // not dismissed. Once a race is won/ended/cancelled its card disappears.
+  const cards = incentives.filter((i) => !popupInc || i.id !== popupInc.id);
+  const visibleCards = cards.filter((i) => !dismissedIds.has(String(i.id)));
 
   return (
     <>
       <style>{CONFETTI_CSS}</style>
-      {photoCeleb && <WinnerPhotoPopup inc={photoCeleb} onClose={closePhotoCeleb} />}
-      {celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
-      {popupOpen && active && <PopupModal inc={active} you={you} onClose={closePopup} nowMs={nowMs} />}
-      {showCard && !celebrate && (
-        <div style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 99980, width: 312 }}>
-          <div style={{ position: 'relative' }}>
-            <div
-              onClick={() => dismissCard(active.id)}
-              title="Close"
-              style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, cursor: 'pointer', width: 24, height: 24, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#b45309', boxShadow: '0 2px 6px rgba(0,0,0,.18)' }}
-            >✕</div>
-            <SpecialIncentiveCard inc={active} you={you} nowMs={nowMs} />
-          </div>
+      {isFro && photoCeleb && <CornerWinnerCard inc={photoCeleb} />}
+      {isFro && celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
+      {popupOpen && popupInc && <PopupModal inc={popupInc} you={you} onClose={closePopup} nowMs={nowMs} />}
+      {!popupOpen && visibleCards.length > 0 && !celebrate && (
+        <div style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 99980, display: 'flex', flexDirection: 'column', gap: 10, width: 312 }}>
+          {visibleCards.map((inc) => (
+            <div key={inc.id} style={{ position: 'relative' }}>
+              <div
+                onClick={() => dismissCard(inc.id)}
+                title="Close"
+                style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, cursor: 'pointer', width: 24, height: 24, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#b45309', boxShadow: '0 2px 6px rgba(0,0,0,.18)' }}
+              >✕</div>
+              <SpecialIncentiveCard inc={inc} you={you} nowMs={nowMs} />
+            </div>
+          ))}
         </div>
       )}
     </>
