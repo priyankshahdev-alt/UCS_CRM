@@ -136,6 +136,13 @@ const CONNECTED_STATUSES = [
   'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
   'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback',
 ];
+// Donors that could not be reached / engaged. Mirrors froController.js so the
+// "non-connected" pull is consistent everywhere.
+const NOT_CONNECTED_STATUSES = [
+  'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off',
+  'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected',
+  'temporary_network_issue', 'voicemail',
+];
 
 export const getDonors = async (req, res) => {
   try {
@@ -2485,6 +2492,232 @@ export const resetFreshData = async (req, res) => {
     });
   } catch (error) {
     console.error('resetFreshData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ── Non-connected fresh-data pull ─────────────────────────────────────────────
+// GET  /api/ngo-admin/non-connected-fresh   – preview list + summary + options
+// POST /api/ngo-admin/non-connected-fresh/delete – delete matching new_data rows
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getNonConnectedFresh = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ donors: [], summary: { total: 0, by_station: {}, by_category: {}, by_fro: {} }, category_options: [], station_options: [], status_options: [] });
+    }
+
+    let ngoIds = ngoEntries.map(e => e.ngoId);
+    const { ngo_id: filterNgoId, station, status, category } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+    }
+
+    const normalizedCategory = category ? String(category).trim() : '';
+
+    const params = [ngoIds, NOT_CONNECTED_STATUSES];
+    const conds = [
+      'fa.ngo_id = ANY($1)',
+      'fa.status = ANY($2)',
+      '(fa.batch_type = \'new_data\' OR fa.station ILIKE \'%FD-%\')',
+    ];
+    if (station && station !== 'all') {
+      params.push(station);
+      conds.push(`fa.station = $${params.length}`);
+    }
+    if (status && status !== 'all') {
+      params.push(status);
+      conds.push(`fa.status = $${params.length}`);
+    }
+    if (normalizedCategory) {
+      params.push(normalizedCategory);
+      conds.push(`(LOWER(dp.data_category) = LOWER($${params.length}) OR LOWER(dp.category) = LOWER($${params.length}))`);
+    }
+
+    const rows = await sql(`
+      SELECT fa.donor_id, fa.ngo_id, fa.station, fa.status,
+             fa.batch_type, fa.last_contacted_at, fa.assigned_at,
+             dp.id AS donor_profile_id, dp.name, dp.mobile_number,
+             dp.data_category, dp.category, dp.city,
+             w.name AS fro_name
+      FROM fro_assignments fa
+      JOIN donor_profiles dp ON dp.id = fa.donor_id
+      LEFT JOIN workers w ON w.id = fa.fro_worker_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY fa.last_contacted_at ASC NULLS LAST, fa.assigned_at ASC NULLS LAST
+      LIMIT 20000
+    `, params);
+
+    const donors = rows.map(r => ({
+      donor_profile_id: r.donor_profile_id,
+      donor_id: r.donor_id,
+      name: r.name || 'Unknown',
+      mobile_number: r.mobile_number || '',
+      category: String(r.data_category || r.category || '').trim(),
+      station: r.station || '',
+      status: r.status,
+      fro_name: r.fro_name || 'Unassigned',
+      last_contacted_at: r.last_contacted_at,
+      assigned_at: r.assigned_at,
+    }));
+
+    const byStation = {};
+    const byCategory = {};
+    const byFro = {};
+    for (const d of donors) {
+      byStation[d.station] = (byStation[d.station] || 0) + 1;
+      const cat = d.category || '(none)';
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+      byFro[d.fro_name] = (byFro[d.fro_name] || 0) + 1;
+    }
+
+    return res.json({
+      donors,
+      summary: { total: donors.length, by_station: byStation, by_category: byCategory, by_fro: byFro },
+      category_options: Object.keys(byCategory).sort(),
+      station_options: Object.keys(byStation).sort(),
+      status_options: [...new Set(donors.map(d => d.status))].sort(),
+    });
+  } catch (error) {
+    console.error('getNonConnectedFresh ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteNonConnectedFresh = async (req, res) => {
+  try {
+    const { ngo_id: filterNgoId, donor_profile_ids, category } = req.body || {};
+    const dryRun = req.query.dry_run === 'true';
+
+    let access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    if (filterNgoId && filterNgoId !== 'all') {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
+    }
+    if (ngoEntries.length === 0) {
+      return res.status(403).json({ message: 'No NGO access', deleted: 0 });
+    }
+
+    const ids = Array.isArray(donor_profile_ids)
+      ? donor_profile_ids.map(Number).filter(Boolean)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ message: 'donor_profile_ids array is required', deleted: 0 });
+    }
+
+    const normalizedCategory = category ? String(category).trim() : '';
+
+    // Fetch donor profiles to get mobile numbers
+    const { data: profiles, error: pErr } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number')
+      .in('id', ids);
+    if (pErr) throw pErr;
+    const mobiles = (profiles || []).map(p => p.mobile_number).filter(Boolean);
+    if (mobiles.length === 0) {
+      return res.json({ deleted: 0, skipped: ids.length, message: 'No matching donor profiles' });
+    }
+
+    // Resolve NGO name(s) to delete against
+    const ngoNameSet = new Set();
+    for (const e of ngoEntries) {
+      if (e.ngoName) {
+        ngoNameSet.add(e.ngoName);
+      } else {
+        const { data: ngo } = await db.from('ngos').select('name').eq('id', e.ngoId).single();
+        if (ngo?.name) ngoNameSet.add(ngo.name);
+      }
+    }
+
+    // Preview: match new_data rows to get per-category counts
+    const perCategory = {};
+    let totalMatched = 0;
+    for (const ngoName of ngoNameSet) {
+      let pq = db
+        .from('new_data')
+        .select('id, data_category, category, status')
+        .eq('ngo', ngoName)
+        .in('mobile_number', mobiles);
+      if (normalizedCategory) {
+        pq = pq.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const { data: matched } = await pq;
+      for (const m of matched || []) {
+        const cat = String(m.data_category || m.category || '').trim() || '(none)';
+        perCategory[cat] = (perCategory[cat] || 0) + 1;
+        totalMatched++;
+      }
+    }
+
+    if (dryRun) {
+      const previewRows = [];
+      for (const ngoName of ngoNameSet) {
+        let pr = db
+          .from('new_data')
+          .select('id, name, mobile_number, data_category, category, status, station, ngo, created_at')
+          .eq('ngo', ngoName)
+          .in('mobile_number', mobiles)
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        if (normalizedCategory) {
+          pr = pr.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+        }
+        const { data: rows } = await pr;
+        if (rows && rows.length) previewRows.push(...rows);
+      }
+      return res.json({
+        dry_run: true,
+        matched: totalMatched,
+        per_category: perCategory,
+        rows: previewRows,
+        truncated: previewRows.length < totalMatched,
+        message: `Dry run — ${totalMatched} fresh-data record(s) located`,
+      });
+    }
+
+    // Delete new_data rows
+    const perNgoDeleted = [];
+    let totalDeleted = 0;
+    for (const ngoName of ngoNameSet) {
+      let dq = db
+        .from('new_data')
+        .delete()
+        .eq('ngo', ngoName)
+        .in('mobile_number', mobiles);
+      if (normalizedCategory) {
+        dq = dq.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const { data: deletedRows, error: delErr } = await dq.select('id');
+      if (delErr) throw delErr;
+      const deleted = Array.isArray(deletedRows) ? deletedRows.length : 0;
+      totalDeleted += deleted;
+      perNgoDeleted.push({ ngo: ngoName, deleted });
+    }
+
+    console.log(`[NCF] deleteNonConnectedFresh user=${req.user.id} matched=${totalMatched} deleted=${totalDeleted} mobiles=${mobiles.length} ngo=${[...ngoNameSet]} category=${normalizedCategory || 'all'}`);
+
+    return res.json({
+      deleted: totalDeleted,
+      matched: totalMatched,
+      per_category: perCategory,
+      per_ngo: perNgoDeleted,
+      message: totalDeleted > 0
+        ? `${totalDeleted} fresh-data record${totalDeleted === 1 ? '' : 's'} deleted`
+        : 'No matching fresh-data records to delete',
+    });
+  } catch (error) {
+    console.error('deleteNonConnectedFresh ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
