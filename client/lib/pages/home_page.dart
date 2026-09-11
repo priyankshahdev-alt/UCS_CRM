@@ -16,7 +16,6 @@ import 'scanner_page.dart';
 import 'leave_page.dart';
 import 'attendance_list_page.dart';
 import 'advance_page.dart';
-import 'correction_ticket_page.dart';
 
 class HomePage extends StatefulWidget {
   final int tabChangeVersion;
@@ -1147,7 +1146,7 @@ class _RequestSheetState extends State<_RequestSheet> with SingleTickerProviderS
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -1210,7 +1209,6 @@ class _RequestSheetState extends State<_RequestSheet> with SingleTickerProviderS
                   tabs: const [
                     Tab(text: 'Leave'),
                     Tab(text: 'Advance'),
-                    Tab(text: 'Ticket'),
                   ],
                 ),
               ),
@@ -1222,7 +1220,6 @@ class _RequestSheetState extends State<_RequestSheet> with SingleTickerProviderS
                 children: [
                   LeavePage(),
                   AdvancePage(),
-                  const CorrectionTicketPage(),
                 ],
               ),
             ),
