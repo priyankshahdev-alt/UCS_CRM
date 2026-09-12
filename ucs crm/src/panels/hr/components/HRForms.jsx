@@ -260,9 +260,15 @@ const SECTIONS = [
   { id: 'bank', label: 'Bank', icon: <IconBank /> },
 ];
 
+function findNgo(ngos, ngoId) {
+  if (!ngoId || !ngos || !ngos.length) return null;
+  return ngos.find(n => n.id === ngoId) || null;
+}
+
 export default function HRForms() {
-  const { fetchWorkers, fetchWorkerById, updateWorker } = useHR();
+  const { fetchWorkers, fetchWorkerById, updateWorker, fetchNGOs } = useHR();
   const [workers, setWorkers] = useState([]);
+  const [ngos, setNgos] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -279,6 +285,7 @@ export default function HRForms() {
 
   useEffect(() => {
     fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
+    fetchNGOs().then(setNgos).catch((err) => console.error('API error:', err.message));
   }, []);
 
   const filtered = workers.filter((w) => {
@@ -831,6 +838,8 @@ export default function HRForms() {
             place: previewData.declaration_place || 'Mumbai',
             photo_url: previewData.photo_url || '',
             signature_url: previewData.signature_url || '',
+            ngoName: findNgo(ngos, previewData.ngo_id)?.name || 'Organization',
+            ngoCode: findNgo(ngos, previewData.ngo_id)?.code || '',
           }}
           onClose={() => setShowPrint(false)}
         />

@@ -1,3 +1,5 @@
+const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+
 export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
@@ -22,7 +24,7 @@ export default function Template6({ personal, declarationDate, place }) {
         <div className="inner">
           <div className="blue" style={{marginTop: 0}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
-          <p>This agreement is made between the Organization and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Organization. The Volunteer agrees as follows:</p>
+          <p>This agreement is made between the Organization and the Volunteer on <span className="line med">{titleCase(personal?.fullName)}</span>. While volunteering, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Organization. The Volunteer agrees as follows:</p>
 
           <p><span className="b">A.</span> Confidential Information and Proprietary Data are the Organization's exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Organization.</p>
 

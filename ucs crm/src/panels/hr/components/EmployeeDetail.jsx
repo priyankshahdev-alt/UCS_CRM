@@ -513,13 +513,23 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   if (payDate.getDay() === 0) payDate.setDate(payDate.getDate() + 1);
   const payDateStr = payDate.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
 
-  // All months from join date to now
+  // All months from a minimum of August to now (extends earlier if the
+  // employee has a join date or salary history before that)
   const allMonthKeys = [];
-  if (data?.created_at) {
-    const jd = new Date(data.created_at);
-    const jy = jd.getFullYear(), jm = jd.getMonth() + 1;
+  {
+    let startY = now.getFullYear(), startM = 8;
+    if (now.getMonth() + 1 < 8) startY -= 1;
+    const firstOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+    const consider = (d) => {
+      if (!d) return;
+      const t = firstOfMonth(d).getTime();
+      const st = new Date(startY, startM - 1, 1).getTime();
+      if (t < st) { startY = d.getFullYear(); startM = d.getMonth() + 1; }
+    };
+    if (data?.created_at) consider(new Date(data.created_at));
+    sortedSalaries.forEach(s => consider(new Date(s.from_month)));
     const ny = now.getFullYear(), nm = now.getMonth() + 1;
-    let y = jy, m = jm;
+    let y = startY, m = startM;
     while (y < ny || (y === ny && m <= nm)) {
       allMonthKeys.push(`${y}-${String(m).padStart(2, '0')}`);
       m++; if (m > 12) { m = 1; y++; }

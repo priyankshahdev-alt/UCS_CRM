@@ -2,6 +2,16 @@ import { getMonthsEmployed } from './incentive.js';
 
 const pad = n => String(n).padStart(2, '0');
 
+// Accounts payroll compensation calendar. A compensatory Sunday replaces the
+// linked holiday; it does not satisfy the separate compulsory-Sunday quota.
+export const COMPENSATORY_WORKDAYS = {
+  '2026-08': [{ workDate: '2026-08-23', holidayDate: '2026-08-28', name: 'Rashabandhan' }],
+};
+
+export function getCompensatoryWorkdays(month) {
+  return COMPENSATORY_WORKDAYS[month] || [];
+}
+
 // Current date in IST as { year, month (0-based), day }.
 export function getISTToday() {
   const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -19,7 +29,7 @@ export function shiftDate(dateStr, days) {
 // cancelled one) is paid. A clean month also pays every non-worked Sunday;
 // once absences or a late join trigger the Sunday policy, the normal free pool
 // and compulsory Sunday deduction apply.
-export function computeSundayStats({ year, month, daysInMonth, records, skipBeforeDate, lateJoin }) {
+export function computeSundayStats({ year, month, daysInMonth, records, skipBeforeDate, lateJoin, hasCompensatoryWorkday = false }) {
   const inRange = (dateStr) => !skipBeforeDate || dateStr >= skipBeforeDate;
   const dates = [];
   for (let d = 1; d <= daysInMonth; d++) {
@@ -66,7 +76,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
   const attendedCancelled = totalSundays.filter(s => cancelled.has(s) && isAttended(s));
   const workedAll = attendedEligible.length + attendedCancelled.length;
   const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
-  const cleanMonth = regularAbsences === 0 && !lateJoin;
+  const cleanMonth = regularAbsences === 0 && !lateJoin && !hasCompensatoryWorkday;
   const freeSundayLimit = cleanMonth ? totalSundays.length : Math.max(0, totalSundays.length - 1);
   const baseline = Math.max(0, Math.min(freeSundayLimit, eligibleNotWorked));
   const paidSundays = workedAll + baseline;
@@ -91,7 +101,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
 // salaryController.js. `records` are the worker's attendance rows
 // ({ date, status, late_minutes }) for the month; `createdAt` is the worker's
 // created_at. `month` is 0-based.
-export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday }) {
+export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [] }) {
   const joinDate = createdAt ? new Date(createdAt) : null;
   const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
     ? joinDate.getFullYear() === year && joinDate.getMonth() === month
@@ -130,6 +140,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     if (!realByDate.has(day.date)) fabricated.push({ date: day.date, status: 'absent' });
   }
   const records2 = [...records, ...fabricated];
+  const compensationByWorkDate = new Map((compensatoryWorkdays || []).map((entry) => [entry.workDate, entry]));
+  const compensationByHolidayDate = new Map((compensatoryWorkdays || []).map((entry) => [entry.holidayDate, entry]));
+  const sundayRecords = records2.filter((record) => !compensationByWorkDate.has(record.date));
 
   const deducted = new Set();
 
@@ -154,9 +167,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     year,
     month,
     daysInMonth,
-    records: records2,
+    records: sundayRecords,
     skipBeforeDate: joinedThisMonth ? joinDateStr : null,
     lateJoin,
+    hasCompensatoryWorkday: compensationByWorkDate.size > 0,
   });
   for (const d of sundayStats.unpaidSundays) deducted.add(d);
   for (const d of sundayStats.extraSundays) deducted.add(d);
@@ -193,10 +207,30 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
 
   const sundayDeductionDays = [...deducted].filter(d => new Date(d + 'T00:00:00Z').getUTCDay() === 0).length;
   const freeSundayDays = Math.max(0, sundayStats.paidSundays - sundayStats.attendedSundays);
+  const holidayPaidDays = includeHolidayPay
+    ? monthDays.filter((day) => {
+      if (!holidaySet.has(day.date) || beforeJoinSet.has(day.date) || day.day > viewDay) return false;
+      const attendance = afterJoin.find((record) => record.date === day.date);
+      const compensated = compensationByHolidayDate.get(day.date);
+      if (!compensated) return !attendance || attendance.status === 'absent' || attendance.status === 'leave';
+      const workRecord = afterJoin.find((record) => record.date === compensated.workDate);
+      return !workRecord || !['present', 'late', 'half-day'].includes(workRecord.status);
+    }).length
+    : 0;
+  const compensatoryWorkDays = [...compensationByWorkDate.keys()].filter((date) => {
+    const record = afterJoin.find((entry) => entry.date === date);
+    return record && ['present', 'late', 'half-day'].includes(record.status);
+  }).length;
+  const compensatedHolidayDays = [...compensationByHolidayDate.keys()].filter((date) => {
+    const entry = compensationByHolidayDate.get(date);
+    const record = afterJoin.find((item) => item.date === entry.workDate);
+    return record && ['present', 'late', 'half-day'].includes(record.status);
+  }).length;
+  const requiredSundayWorkedDays = Math.min(1, sundayStats.attendedSundays);
   // Keep Sundays in the gross attendance basis. Worked Sundays are already
   // presentDays; the existing Sunday policy adds the free Sunday allowance.
   // Unpaid/extra Sundays are represented by sundayDeductionDays below.
-  const grossPresentDays = presentDays + freeSundayDays + sundayDeductionDays;
+  const grossPresentDays = presentDays + freeSundayDays + holidayPaidDays + sundayDeductionDays;
 
   return {
     joinedThisMonth,
@@ -218,6 +252,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     clubbedSundays: sundayStats.cancelledSundays.length - sundayStats.extraSundays.length,
     extraSundayCount: sundayStats.extraSundays.length,
     freeSundays: Math.max(0, sundayStats.paidSundays - sundayStats.attendedSundays),
+    holidayPaidDays,
+    compensatoryWorkDays,
+    compensatedHolidayDays,
+    requiredSundayWorkedDays,
     sundayReasons,
     sundayStats,
     // Absent days are an attendance balance only. They are not subtracted

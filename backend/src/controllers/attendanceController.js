@@ -17,6 +17,7 @@ import { getApprovedHalfDayLeave, getApprovedLeaves } from '../models/leaveModel
 import { getAllAttendance } from '../models/attendanceModel.js';
 import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
+import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
 
 const MAX_LATE_MINUTES = 180;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -127,8 +128,7 @@ export const punchIn = async (req, res) => {
 
     const now = new Date();
     const lateMinutes = await calculateLateMinutes(now, req.user.id);
-    let status = lateMinutes > 0 ? 'late' : 'present';
-    if (await isHalfDayByLatePunch(now, req.user.id)) status = 'half-day';
+    const status = await calculateAttendanceStatus({ workerId: req.user.id, punchInTime: now });
 
     if (existing) {
       const updated = await updateAttendance(existing.id, {
@@ -187,8 +187,12 @@ export const punchOut = async (req, res) => {
       punch_out_lat: latitude,
       punch_out_lng: longitude,
     };
-    if (existing.status !== 'half-day' && existing.status !== 'leave' && existing.status !== 'absent') {
-      if (await isHalfDayByEarlyPunchOut(now, req.user.id)) updates.status = 'half-day';
+    if (existing.status !== 'leave' && existing.status !== 'absent') {
+      updates.status = await calculateAttendanceStatus({
+        workerId: req.user.id,
+        punchInTime: existing.punch_in_time,
+        punchOutTime: now,
+      });
     }
     const updated = await updateAttendance(existing.id, updates);
 
@@ -257,6 +261,48 @@ export const createAttendanceByHR = async (req, res) => {
     };
     const result = await createAttendance(record);
     return res.status(201).json({ message: 'Attendance created', attendance: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// One-time repair for stale half-day statuses created before punch-out
+// recalculation was enforced. Only records with both punch times are eligible.
+export const repairHalfDayRecords = async (req, res) => {
+  try {
+    const fromDate = '2026-08-01';
+    const { data: records, error } = await db
+      .from('attendance')
+      .select('id, worker_id, date, status, punch_in_time, punch_out_time')
+      .eq('status', 'half-day')
+      .gte('date', fromDate)
+      .not('punch_in_time', 'is', null)
+      .not('punch_out_time', 'is', null)
+      .order('date', { ascending: true });
+    if (error) throw error;
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+    for (const record of records || []) {
+      const status = await calculateAttendanceStatus({
+        workerId: record.worker_id,
+        punchInTime: record.punch_in_time,
+        punchOutTime: record.punch_out_time,
+      });
+      if (status === 'half-day') {
+        skippedCount++;
+        continue;
+      }
+      await updateAttendance(record.id, { status });
+      updatedCount++;
+    }
+
+    return res.json({
+      fromDate,
+      scanned: records?.length || 0,
+      updated: updatedCount,
+      preserved: skippedCount,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -332,10 +378,10 @@ export const hrSelfiePunch = async (req, res) => {
       }
 
       const lateMinutes = await calculateLateMinutes(now, worker_id);
-      const status = lateMinutes > 0 ? 'late' : 'present';
+      const status = await calculateAttendanceStatus({ workerId: worker_id, punchInTime: now });
 
       if (existing) {
-        const updated = await updateAttendance(existing.id, {
+      const updated = await updateAttendance(existing.id, {
           punch_in_time: now.toISOString(),
           punch_in_lat: latitude,
           punch_in_lng: longitude,
@@ -369,13 +415,21 @@ export const hrSelfiePunch = async (req, res) => {
         return res.status(400).json({ message: 'Already punched out today' });
       }
 
-      const updated = await updateAttendance(existing.id, {
+      const updates = {
         punch_out_time: now.toISOString(),
         punch_out_lat: latitude,
         punch_out_lng: longitude,
         punch_out_selfie_url: selfieUrl,
         selfie_status: 'approved',
-      });
+      };
+      if (existing.status !== 'leave' && existing.status !== 'absent') {
+        updates.status = await calculateAttendanceStatus({
+          workerId: worker_id,
+          punchInTime: existing.punch_in_time,
+          punchOutTime: now,
+        });
+      }
+      const updated = await updateAttendance(existing.id, updates);
       return res.json({ message: 'Punch-out recorded', attendance: updated });
     }
   } catch (error) {
@@ -394,7 +448,7 @@ export const updateAttendanceRecord = async (req, res) => {
     if (late_minutes !== undefined) updates.late_minutes = late_minutes;
     if (date !== undefined) updates.date = date;
 
-    const existing = punch_in_time !== undefined ? await getAttendanceById(id) : null;
+    const existing = (punch_in_time !== undefined || punch_out_time !== undefined) ? await getAttendanceById(id) : null;
     if (punch_in_time !== undefined) {
       if (punch_in_time === null) {
         updates.late_minutes = 0;
@@ -404,6 +458,17 @@ export const updateAttendanceRecord = async (req, res) => {
           updates.late_minutes = await calculateLateMinutes(punch_in_time, existing.worker_id);
           if (status === undefined) updates.status = updates.late_minutes > 0 ? 'late' : 'present';
         }
+      }
+    }
+    if (status === undefined && existing && existing.status !== 'leave' && existing.status !== 'absent') {
+      const nextPunchIn = punch_in_time !== undefined ? punch_in_time : existing.punch_in_time;
+      const nextPunchOut = punch_out_time !== undefined ? punch_out_time : existing.punch_out_time;
+      if (nextPunchIn && nextPunchOut) {
+        updates.status = await calculateAttendanceStatus({
+          workerId: existing.worker_id,
+          punchInTime: nextPunchIn,
+          punchOutTime: nextPunchOut,
+        });
       }
     }
 
@@ -581,7 +646,15 @@ export const verifySelfie = async (req, res) => {
     }
 
     if (status === 'verified') {
-      const updated = await updateAttendance(id, { selfie_status: 'verified' });
+      const updates = { selfie_status: 'verified' };
+      if (existing.punch_in_time && existing.punch_out_time && existing.status !== 'leave' && existing.status !== 'absent') {
+        updates.status = await calculateAttendanceStatus({
+          workerId: existing.worker_id,
+          punchInTime: existing.punch_in_time,
+          punchOutTime: existing.punch_out_time,
+        });
+      }
+      const updated = await updateAttendance(id, updates);
       return res.json({ message: 'Selfie verified', attendance: updated });
     }
 

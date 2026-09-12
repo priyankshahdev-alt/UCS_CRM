@@ -1,3 +1,5 @@
+const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+
 export default function Template5({ personal }) {
   return (
     <div className="print-page">
@@ -55,7 +57,7 @@ export default function Template5({ personal }) {
         <p style={{marginBottom:16}}>I accept all the terms and conditions as mentioned in this letter.</p>
 
         <div className="sign" style={{marginBottom:16}}>
-          <div className="field">Volunteer Name <div className="line" style={{display:'block',marginTop:25,paddingBottom:4,minHeight:22}}>{personal.fullName || ''}</div></div>
+          <div className="field">Volunteer Name <div className="line" style={{display:'block',marginTop:25,paddingBottom:4,minHeight:22}}>{titleCase(personal.fullName)}</div></div>
           <div className="field">Signature <div className="line" style={{display:'block',marginTop:25}}></div></div>
         </div>
         <div className="sign">
