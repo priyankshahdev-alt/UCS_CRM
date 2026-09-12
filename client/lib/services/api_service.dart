@@ -268,31 +268,6 @@ class ApiService {
     return body;
   }
 
-  static Future<Map<String, dynamic>> selfiePunch({
-    required String type,
-    required String selfieBase64,
-    required String mimeType,
-    required double latitude,
-    required double longitude,
-  }) async {
-    final res = await _post(
-      Uri.parse('$baseUrl/attendance/selfie-punch'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'type': type,
-        'selfie_base64': selfieBase64,
-        'mime_type': mimeType,
-        'latitude': latitude,
-        'longitude': longitude,
-      }),
-    );
-    final body = jsonDecode(res.body);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body['message'] ?? 'Selfie punch failed');
-    }
-    return body;
-  }
-
   static String _todayCacheKey() {
     final now = DateTime.now();
     final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
