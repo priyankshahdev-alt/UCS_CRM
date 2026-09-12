@@ -209,7 +209,7 @@ export const addReminder = async (req, res) => {
     if (!body.title || !String(body.title).trim()) {
       return res.status(400).json({ message: 'Reminder name is required' });
     }
-    if (body.category && !CATEGORIES.includes(body.category)) {
+    if (body.category !== undefined && body.category !== null && !String(body.category).trim()) {
       return res.status(400).json({ message: 'Invalid category' });
     }
     const reminder = await createReminder(body, await validateUser(req, res));
@@ -250,7 +250,7 @@ export const editReminder = async (req, res) => {
     if (isUndefined(body.title) || !String(body.title).trim()) {
       return res.status(400).json({ message: 'Reminder name is required' });
     }
-    if (body.category && !CATEGORIES.includes(body.category)) {
+    if (body.category !== undefined && body.category !== null && !String(body.category).trim()) {
       return res.status(400).json({ message: 'Invalid category' });
     }
 
@@ -493,7 +493,16 @@ export const getReminderSettings = async (req, res) => {
 export const saveReminderSettings = async (req, res) => {
   try {
     const userKey = await validateUser(req, res);
-    const settings = { ...(req.body || {}), user_key: userKey };
+    const raw = { ...(req.body || {}), user_key: userKey };
+    const ALLOWED_KEYS = [
+      'user_key', 'default_reminder_time', 'default_alarm_enabled',
+      'default_notification_enabled', 'browser_notifications', 'alarm_sound',
+      'alarm_volume', 'due_soon_days', 'auto_create_next', 'timezone'
+    ];
+    const settings = {};
+    for (const k of ALLOWED_KEYS) {
+      if (raw[k] !== undefined) settings[k] = raw[k];
+    }
     const saved = await upsertSettings(settings);
     return res.json({ message: 'Settings saved successfully', settings: saved });
   } catch (error) {

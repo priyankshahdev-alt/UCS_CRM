@@ -180,6 +180,14 @@
 .rem-table thead th.sortable:hover { background: #dbeafe; }
 .rem-table tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rem-line); white-space: nowrap; color: var(--rem-ink); }
 .rem-table tbody tr:hover { background: var(--rem-blue-soft); }
+.rem-table tbody tr.rem-group-row td {
+  background: var(--rem-ink); color: #fff; font-weight: 700;
+  padding: 9px 12px; font-size: 12px; letter-spacing: .02em;
+}
+.rem-table tbody tr.rem-subgroup-row td {
+  background: var(--rem-gray-soft); color: var(--rem-ink); font-weight: 600;
+  padding: 6px 12px 6px 28px; font-size: 12px;
+}
 .sort-arrow { font-size: 9px; margin-left: 3px; opacity: .6; }
 
 .toolbar {
@@ -358,6 +366,7 @@
 .notif-item .nb { font-size: 11px; color: var(--rem-ink-soft); margin-top: 2px; }
 .notif-item .nl { font-size: 10px; margin-top: 3px; }
 .notif-actions { display: flex; gap: 8px; padding: 8px 14px; }
+.notif-test { border-top: 1px solid var(--rem-line); }
 
 /* notification toast in-app */
 .alarm-toast {
@@ -518,4 +527,132 @@
   .rem-main { min-height: 100vh; }
   .rem-topbar { padding-bottom: 10px; }
   .rem-content { padding-bottom: 84px; }
+}
+
+/* ---- Add Bill modal (compact, no scrolling) ---- */
+.bill-overlay {
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.bill-modal .modal-body { padding: 14px 20px; }
+.bill-modal .form-grid { gap: 9px; }
+.bill-modal .rem-input, .bill-modal .rem-select, .bill-modal .rem-textarea {
+  font-size: 12.5px;
+  padding: 6px 10px;
+}
+.bill-title-input {
+  padding: 4px 10px;
+  min-height: 26px;
+}
+
+/* Settings Page */
+.settings-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 24px;
+}
+.settings-save-btn {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+.settings-form-wrap {
+  padding: 20px;
+}
+.settings-preview-wrap {
+  padding: 20px;
+}
+.settings-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+.settings-volume-label {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+.settings-header {
+  padding: 20px;
+}
+.settings-preview-header {
+  padding: 20px;
+}
+
+@media (max-width: 900px) {
+  .settings-preview-grid {
+    gap: 8px 16px;
+  }
+  .settings-form-wrap, .settings-preview-wrap {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .form-row input, .form-row select, .form-row textarea {
+    font-size: 14px;
+    padding: 10px;
+  }
+  .form-row label {
+    font-size: 12px;
+  }
+  .settings-preview-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .settings-form-wrap, .settings-preview-wrap {
+    padding: 12px;
+  }
+  .settings-header, .settings-preview-header {
+    padding: 14px;
+  }
+  .settings-header h3 {
+    font-size: 14px;
+  }
+  .settings-header .ln {
+    font-size: 11px;
+  }
+  .settings-volume-row {
+    gap: 8px;
+  }
+  .settings-volume-label {
+    font-size: 11px;
+    min-width: 28px;
+  }
+  .row-toggle {
+    gap: 8px;
+  }
+  .row-toggle span:last-child {
+    font-size: 12px;
+  }
+  .switch {
+    width: 34px;
+    height: 18px;
+  }
+  .switch::after {
+    width: 14px;
+    height: 14px;
+  }
+  .row-toggle input:checked + .switch::after {
+    left: 16px;
+  }
+  .detail-item .k {
+    font-size: 10px;
+  }
+  .detail-item .v {
+    font-size: 12px;
+  }
+  .rem-btn.primary {
+    width: 100%;
+    justify-content: center;
+    padding: 10px;
+  }
+  .settings-save-btn {
+    margin-top: 16px;
+  }
 }

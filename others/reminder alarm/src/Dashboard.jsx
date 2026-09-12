@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useRem, useUcs } from './store'
-import { useNavigate } from 'react-router-dom'
 import { Icon } from './components'
 import { CATEGORIES, categoryLabel, categoryIcon, formatDate, daysLeft, statusPillClass } from './helpers'
-import { computeEffectiveDueDate, computeCurrentMonthDate, playAlarmSound, requestNotificationPermission, sendBrowserNotification } from './notifications'
+import { computeEffectiveDueDate, computeCurrentMonthDate } from './notifications'
+import PaymentChecklist from './PaymentChecklist'
+import BillChart from './BillChart'
+import { AddBillModal } from './modals'
 import './dashboard.css'
 
 const RENEWAL_CATEGORIES = new Set(['INSURANCE', 'MEDICAL_EXPENSES', 'EDUCATION', 'WEBSITE_DOMAIN', 'VEHICLE_INSURANCE'])
@@ -36,6 +38,89 @@ const GROUP_MAP = {
 const GROUP_ICONS = { Home: 'home', Office: 'file', Vehicles: 'car', Insurance: 'shield', Education: 'book', Subscriptions: 'globe' }
 const GROUP_COLORS = { Home: '#2563eb', Office: '#0891b2', Vehicles: '#dc2626', Insurance: '#7c3aed', Education: '#16a34a', Subscriptions: '#d97706' }
 
+const CATEGORY_SECTIONS = [
+  {
+    title: 'RECHARGE',
+    heading: { col: 1, span: 2, row: 1 },
+    tiles: [
+      { key: 'MOBILE_RECHARGE', label: 'Mobile Recharge', icon: 'zap', col: 1, row: 2, match: r => /mobile/i.test(String(r.title || '')) },
+      { key: 'FASTAG_RECHARGE', label: 'Fastag Recharge', icon: 'car', col: 2, row: 2, match: r => /fastag|MH13EK9999/i.test(String(r.title || '')) },
+    ],
+  },
+  {
+    title: 'Utility Bills',
+    heading: { col: 3, span: 4, row: 1 },
+    tiles: [
+      { key: 'ELECTRICITY', label: 'Electricity Bills', icon: 'zap', col: 3, row: 2, match: r => r.category === 'ELECTRICITY' },
+      { key: 'BROADBAND', label: 'Broadband', icon: 'wifi', col: 4, row: 2, match: r => r.category === 'OTHER_BILL' && /internet/i.test(String(r.title || '')) },
+      { key: 'GAS_PIPELINE', label: 'Gas Pipeline', icon: 'home', col: 5, row: 2, match: r => r.category === 'OTHER_BILL' && /\(Flat No\. 401\)|\(Priyank Sir\)/i.test(String(r.title || '')) },
+      { key: 'EDUCATION', label: 'Education', icon: 'book', col: 6, row: 2, match: r => r.category === 'EDUCATION' },
+    ],
+  },
+  {
+    title: 'Property & Tax',
+    heading: { col: 7, span: 2, row: 1 },
+    tiles: [
+      { key: 'PROPERTY_MAINTENANCE', label: 'Property & Tax', icon: 'home', col: 7, row: 2, match: r => r.category === 'PROPERTY_MAINTENANCE' },
+      { key: 'BMC_TAX', label: 'BMC Tax', icon: 'file', col: 8, row: 2, match: r => r.category === 'BMC_TAX' },
+    ],
+  },
+  {
+    title: 'Rent & TDS',
+    heading: { col: 9, span: 2, row: 1 },
+    tiles: [
+      { key: 'RENT', label: 'Rent', icon: 'money', col: 9, row: 2, match: r => r.category === 'RENT_TDS' && !/tds/i.test(String(r.title || '')) && (/rent/i.test(String(r.title || '')) || String(r.title || '') === 'Raj Cresent (Priyank Sir)') },
+      { key: 'TDS', label: 'TDS', icon: 'file', col: 10, row: 2, match: r => r.category === 'RENT_TDS' && /tds/i.test(String(r.title || '')) },
+    ],
+  },
+  {
+    title: 'Finance & Tax',
+    heading: { col: 1, span: 7, row: 3 },
+    tiles: [
+      { key: 'LIC_INSURANCE', label: 'LIC/Insurance', icon: 'shield', col: 1, row: 4, match: r => r.category === 'INSURANCE' && !/mediclaim/i.test(String(r.title || '')) },
+      { key: 'MEDICLAIM', label: 'Mediclaim', icon: 'file', col: 2, row: 4, match: r => r.category === 'INSURANCE' && /mediclaim/i.test(String(r.title || '')) },
+      { key: 'LOAN_EMI', label: 'Loan/EMI', icon: 'money', col: 3, row: 4, match: r => r.category === 'OTHER_BILL' && /loan emi/i.test(String(r.title || '')) },
+      { key: 'CREDIT_CARD', label: 'Credit Card', icon: 'money', col: 4, row: 4, match: r => r.category === 'OTHER_BILL' && /credit card/i.test(String(r.title || '')) },
+      { key: 'ADVANCE_TAX', label: 'Advance Tax', icon: 'file', col: 5, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Advance Tax' },
+      { key: 'LEGAL_FEES', label: 'Legal Fees', icon: 'file', col: 6, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Accounts and Audit Fees' },
+      { key: 'INCOME_TAX', label: 'Income Tax', icon: 'file', col: 7, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Income Tax' },
+    ],
+  },
+]
+
+const CATEGORY_TILE_COLORS = {
+  PROPERTY_MAINTENANCE: { bg: '#eff6ff', border: '#93c5fd', iconBg: '#dbeafe', color: '#2563eb' },
+  BMC_TAX: { bg: '#f0fdf4', border: '#86efac', iconBg: '#dcfce7', color: '#16a34a' },
+  RENT: { bg: '#fffbeb', border: '#fcd34d', iconBg: '#fef3c7', color: '#d97706' },
+  TDS: { bg: '#f8fafc', border: '#cbd5e1', iconBg: '#e2e8f0', color: '#475569' },
+  LIC_INSURANCE: { bg: '#f5f3ff', border: '#ddd6fe', iconBg: '#ede9fe', color: '#7c3aed' },
+  MEDICLAIM: { bg: '#fef2f2', border: '#fca5a5', iconBg: '#fee2e2', color: '#dc2626' },
+  LOAN_EMI: { bg: '#fff7ed', border: '#fdba74', iconBg: '#ffedd5', color: '#ea580c' },
+  CREDIT_CARD: { bg: '#ecfeff', border: '#67e8f9', iconBg: '#cffafe', color: '#0891b2' },
+  ADVANCE_TAX: { bg: '#f8fafc', border: '#e2e8f0', iconBg: '#e2e8f0', color: '#475569' },
+  LEGAL_FEES: { bg: '#fefce8', border: '#fde047', iconBg: '#fef9c3', color: '#ca8a04' },
+  INCOME_TAX: { bg: '#eff6ff', border: '#93c5fd', iconBg: '#dbeafe', color: '#2563eb' },
+  RENT_TDS: { bg: '#fffbeb', border: '#fcd34d', iconBg: '#fef3c7', color: '#d97706' },
+  INSURANCE: { bg: '#fef2f2', border: '#fca5a5', iconBg: '#fee2e2', color: '#dc2626' },
+  EDUCATION: { bg: '#ecfeff', border: '#67e8f9', iconBg: '#cffafe', color: '#0891b2' },
+  VI_BILL: { bg: '#eef2ff', border: '#a5b4fc', iconBg: '#e0e7ff', color: '#4f46e5' },
+  WEBSITE_DOMAIN: { bg: '#fff7ed', border: '#fdba74', iconBg: '#ffedd5', color: '#ea580c' },
+  VEHICLE_INSURANCE: { bg: '#fefce8', border: '#fde047', iconBg: '#fef9c3', color: '#ca8a04' },
+  ELECTRICITY: { bg: '#f0fdfa', border: '#5eead4', iconBg: '#ccfbf1', color: '#0d9488' },
+  OTHER_BILL: { bg: '#f8fafc', border: '#e2e8f0', iconBg: '#e2e8f0', color: '#475569' },
+  MOBILE_RECHARGE: { bg: '#ecfeff', border: '#67e8f9', iconBg: '#cffafe', color: '#0891b2' },
+  FASTAG_RECHARGE: { bg: '#fefce8', border: '#fde047', iconBg: '#fef9c3', color: '#ca8a04' },
+  BROADBAND: { bg: '#fdf4ff', border: '#e9d5ff', iconBg: '#fae8ff', color: '#a21caf' },
+  GAS_PIPELINE: { bg: '#fff7ed', border: '#fdba74', iconBg: '#ffedd5', color: '#ea580c' },
+}
+
+const TILE_STATUSES = [
+  { key: 'overdue', label: 'Overdue', color: '#dc2626', soft: '#fee2e2' },
+  { key: 'dueToday', label: 'Due Today', color: '#ea580c', soft: '#ffedd5' },
+  { key: 'upcoming', label: 'Upcoming', color: '#2563eb', soft: '#dbeafe' },
+  { key: 'paidToday', label: 'Paid', color: '#16a34a', soft: '#dcfce7' },
+]
+
 function parseAmountFromNotes(notes) {
   if (!notes) return 0
   const match = String(notes).match(/Rs\.?\s*([\d,]+)/i)
@@ -48,6 +133,20 @@ function parseAmountFromNotes(notes) {
 function formatCurrency(num) {
   if (!num) return '₹0'
   return '₹' + num.toLocaleString('en-IN')
+}
+
+function compactAmount(num) {
+  if (!num) return ''
+  if (num >= 10000000) return '₹' + parseFloat((num / 10000000).toFixed(1)) + 'Cr'
+  if (num >= 100000) return '₹' + parseFloat((num / 100000).toFixed(1)) + 'L'
+  if (num >= 1000) return '₹' + parseFloat((num / 1000).toFixed(1)) + 'k'
+  return '₹' + Math.round(num).toLocaleString('en-IN')
+}
+
+function isSameDay(a, b) {
+  const d = a ? new Date(a) : null
+  if (!d) return false
+  return d.getFullYear() === b.getFullYear() && d.getMonth() === b.getMonth() && d.getDate() === b.getDate()
 }
 
 function getDueStatus(r) {
@@ -72,13 +171,16 @@ function getRenewalType(r) {
 }
 
 export default function Dashboard() {
-  const { reminders } = useRem()
-  const navigate = useNavigate()
+  const { reminders, refresh } = useRem()
+
+  const [billOpen, setBillOpen] = useState(false)
 
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calDay, setCalDay] = useState(null)
   const [upcomingTab, setUpcomingTab] = useState('7days')
+  const [upDay, setUpDay] = useState(null)
+  const [upShowAll, setUpShowAll] = useState(false)
   const [catModalKey, setCatModalKey] = useState(null)
 
   const active = useMemo(() => reminders.filter(r => !r.is_deleted), [reminders])
@@ -138,20 +240,33 @@ export default function Dashboard() {
     return { dueToday, overdue, dueIn7, dueIn30, pending, renewals, thisMonth, paidThisMonth, dueTodayAmt, overdueAmt, dueIn7Amt, dueIn30Amt, thisMonthAmt, paidThisMonthAmt, monthlyObligations, monthlyPaid, monthlyPending, monthlyOverdue }
   }, [filtered])
 
-  const todaysAttention = useMemo(() => {
-    return filtered
-      .filter(r => r._dueStatus === 'Overdue' || r._dueStatus === 'Due Today' || r._dueStatus === 'Due Soon')
-      .sort((a, b) => (a._daysLeft ?? 999) - (b._daysLeft ?? 999))
-      .slice(0, 10)
-  }, [filtered])
-
-  const upcomingPayments = useMemo(() => {
+  const upPeriodItems = useMemo(() => {
     const days = upcomingTab === '7days' ? 7 : upcomingTab === '30days' ? 30 : 365
     return filtered
       .filter(r => r._dueStatus !== 'Paid' && r._daysLeft !== null && r._daysLeft > 0 && r._daysLeft <= days)
       .sort((a, b) => a._daysLeft - b._daysLeft)
-      .slice(0, 10)
   }, [filtered, upcomingTab])
+
+  const upDaysTotal = useMemo(() => upPeriodItems.reduce((s, r) => s + (r._amount || 0), 0), [upPeriodItems])
+
+  const upGroups = useMemo(() => {
+    const map = new Map()
+    for (const r of upPeriodItems) {
+      const key = categoryLabel(r.category) || r.category || 'Other'
+      if (!map.has(key)) map.set(key, { key, count: 0, owners: new Set(), total: 0, minDays: null, minDate: null, category: r.category })
+      const g = map.get(key)
+      g.count += 1
+      if (r.owner) g.owners.add(r.owner)
+      g.total += r._amount || 0
+      if (g.minDays === null || r._daysLeft < g.minDays) {
+        g.minDays = r._daysLeft
+        g.minDate = r._effectiveDate || null
+      }
+    }
+    return [...map.values()]
+      .map(g => ({ key: g.key, count: g.count, owners: [...g.owners], total: g.total, minDays: g.minDays, minDate: g.minDate, category: g.category }))
+      .sort((a, b) => a.minDays - b.minDays)
+  }, [upPeriodItems])
 
   const renewalTracker = useMemo(() => {
     return filtered
@@ -163,16 +278,6 @@ export default function Dashboard() {
       })
       .slice(0, 10)
   }, [filtered])
-
-  function testNotification(type) {
-    playAlarmSound(type)
-    requestNotificationPermission()
-    sendBrowserNotification(
-      `Test: ${type}`,
-      `This is a test ${type} notification for Reminder & Alarm.`,
-      `test-${type}-${Date.now()}`
-    )
-  }
 
   const calDays = useMemo(() => {
     const first = new Date(calYear, calMonth, 1)
@@ -232,8 +337,6 @@ export default function Dashboard() {
     return [...new Set(dots)].slice(0, 3)
   }
 
-  const handleAdd = () => navigate('/rem')
-
   const summaryCards = [
     { key: 'dueToday', label: 'Due Today', icon: 'alarm', color: '#d97706', bg: '#fffbeb', num: summary.dueToday, amt: summary.dueTodayAmt },
     { key: 'overdue', label: 'Overdue', icon: 'alert', color: '#dc2626', bg: '#fef2f2', num: summary.overdue, amt: summary.overdueAmt },
@@ -245,30 +348,47 @@ export default function Dashboard() {
     { key: 'paidThisMonth', label: 'Paid This Month', icon: 'check', color: '#16a34a', bg: '#f0fdf4', num: summary.paidThisMonth, amt: 0 },
   ]
 
-  const dashCategories = useMemo(() => {
-    return CATEGORIES.map(c => {
-      const count = enriched.filter(r => r.category === c.key).length
-      return { ...c, count }
-    }).filter(c => c.count > 0)
+  const catSectionItems = useMemo(() => {
+    const now = new Date()
+    const statusFor = rows => {
+      const s = { overdue: { n: 0, amt: 0 }, dueToday: { n: 0, amt: 0 }, upcoming: { n: 0, amt: 0 }, paidToday: { n: 0, amt: 0 } }
+      for (const r of rows) {
+        const amt = r._amount || 0
+        if (r._dueStatus === 'Overdue') { s.overdue.n++; s.overdue.amt += amt }
+        else if (r._dueStatus === 'Due Today') { s.dueToday.n++; s.dueToday.amt += amt }
+        else if (r._dueStatus === 'Upcoming' || r._dueStatus === 'Due Soon') { s.upcoming.n++; s.upcoming.amt += amt }
+        else if (r._dueStatus === 'Paid' && isSameDay(r.paid_at || r.completed_at, now)) { s.paidToday.n++; s.paidToday.amt += amt }
+      }
+      return s
+    }
+    return CATEGORY_SECTIONS.map(section => ({
+      title: section.title,
+      heading: section.heading,
+      tiles: section.tiles
+        .map(t => {
+          const cat = CATEGORIES.find(c => c.key === t.key)
+          const rows = t.match ? enriched.filter(t.match) : enriched.filter(r => r.category === t.key)
+          const count = rows.length
+          return count > 0 ? { key: t.key, label: t.label || cat?.label, icon: t.icon || cat?.icon, count, statuses: statusFor(rows), col: t.col, row: t.row } : null
+        })
+        .filter(Boolean),
+    }))
   }, [enriched])
 
   const catModalItems = useMemo(() => {
     if (!catModalKey) return []
-    return enriched.filter(r => r.category === catModalKey)
+    const tile = CATEGORY_SECTIONS.flatMap(section => section.tiles).find(t => t.key === catModalKey)
+    if (!tile) return []
+    return enriched.filter(tile.match ? tile.match : r => r.category === catModalKey)
   }, [enriched, catModalKey])
 
-  const catModalLabel = catModalKey ? (CATEGORIES.find(c => c.key === catModalKey)?.label || catModalKey) : ''
+  const catModalLabel = catModalKey ? (CATEGORY_SECTIONS.flatMap(section => section.tiles).find(t => t.key === catModalKey)?.label || CATEGORIES.find(c => c.key === catModalKey)?.label || catModalKey) : ''
 
   return (
     <div className="dash-container">
       <div className="dash-header">
         <h2>PAYMENT & RENEWAL MANAGEMENT</h2>
         <p>Track payments, upcoming dues, renewals and overdue obligations.</p>
-        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <button className="rem-btn" onClick={() => testNotification('DUE_SOON')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Due Soon</button>
-          <button className="rem-btn" onClick={() => testNotification('DUE_TODAY')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Due Today</button>
-          <button className="rem-btn" onClick={() => testNotification('OVERDUE')} style={{ fontSize: 11, padding: '4px 10px' }}>🔔 Test Overdue</button>
-        </div>
       </div>
 
       <div className="dash-row asymmetric">
@@ -377,89 +497,86 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="dash-cat-bar">
-        {dashCategories.map(c => (
-          <div key={c.key} className="dash-cat-chip" title={`${c.label} (${c.count})`} onClick={() => setCatModalKey(c.key)} style={{ cursor: 'pointer' }}>
-            <Icon name={c.icon} size={12} />
-            <span>{c.label}</span>
-            <span className="dash-cat-count">{c.count}</span>
+      <div className="dash-cat-sections">
+        {catSectionItems.map(section => (
+          <div key={section.title} className="dash-cat-section">
+            <div className="dash-cat-section-title" style={{ gridColumn: `${section.heading.col} / span ${section.heading.span}`, gridRow: section.heading.row }}>
+              {section.title}
+            </div>
+            {section.tiles.map(c => {
+              const colors = CATEGORY_TILE_COLORS[c.key] || { bg: '#f8fafc', border: '#e2e8f0', iconBg: '#e2e8f0', color: '#475569' }
+              return (
+                <div
+                  key={c.key}
+                  className="dash-cat-tile"
+                  title={`${c.label} (${c.count})`}
+                  onClick={() => setCatModalKey(c.key)}
+                  style={{ gridColumn: c.col, gridRow: c.row, background: colors.bg, borderColor: colors.border }}
+                >
+                  <div className="dash-cat-tile-status">
+                    {TILE_STATUSES.filter(s => c.statuses?.[s.key]?.n > 0).slice(0, 4).map(s => (
+                      <span key={s.key} className="tile-st" style={{ color: s.color, background: s.soft }} title={`${s.label}: ${c.statuses[s.key].n} · ${formatCurrency(c.statuses[s.key].amt)}`}>
+                        {s.label} {c.statuses[s.key].n}{c.statuses[s.key].amt > 0 ? ` · ${compactAmount(c.statuses[s.key].amt)}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="dash-cat-tile-icon" style={{ background: colors.iconBg, color: colors.color }}>
+                    <Icon name={c.icon} size={18} />
+                  </div>
+                  <div className="dash-cat-tile-label">{c.label}</div>
+                  <div className="dash-cat-tile-count" style={{ color: colors.color }}>{c.count}</div>
+                </div>
+              )
+            })}
           </div>
         ))}
       </div>
 
       <div className="dash-row">
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="alert" size={16} /> Today's Attention</h3>
-            <span className="sec-count">{todaysAttention.length}</span>
-          </div>
-          <div className="sec-body">
-            {todaysAttention.length === 0 ? (
-              <div className="dash-empty"><div className="big">No urgent items</div><div>All clear for today.</div></div>
-            ) : todaysAttention.map(r => (
-              <div key={r.id} className="dash-item">
-                <div className="di-icon" style={{ background: r._dueStatus === 'Overdue' ? '#fef2f2' : '#fffbeb', color: r._dueStatus === 'Overdue' ? '#dc2626' : '#d97706' }}>
-                  <Icon name={categoryIcon(r.category)} size={16} />
-                </div>
-                <div className="di-body">
-                  <div className="di-title" title={r.title}>{r.title || '—'}</div>
-                  <div className="di-meta">{categoryLabel(r.category)} · {r.owner || '—'}</div>
-                </div>
-                <div className="di-right">
-                  {r._amount > 0 && <div className="di-amount">{formatCurrency(r._amount)}</div>}
-                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.due_date_display || '—'}</div>
-                  {r._daysLeft !== null && <div className="di-date" style={{ fontSize: 10, color: r._daysLeft <= 3 ? 'var(--rem-red)' : 'var(--rem-ink-soft)' }}>{r._daysLeft < 0 ? `${Math.abs(r._daysLeft)}d overdue` : r._daysLeft === 0 ? 'Today' : `${r._daysLeft}d left`}</div>}
-                </div>
-                <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus === 'Overdue' ? 'Overdue' : r._dueStatus === 'Due Today' ? 'Due Today' : r._dueStatus === 'Due Soon' ? 'Due Soon' : 'Upcoming')}`}>
-                  {r._dueStatus}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PaymentChecklist />
 
-        <div className="dash-section">
-          <div className="sec-head">
-            <h3><Icon name="plus" size={16} /> Quick Actions</h3>
-          </div>
-          <div className="dash-qa">
-            <button onClick={handleAdd}><Icon name="plus" size={14} /> Add Payment</button>
-            <button onClick={handleAdd}><Icon name="plus" size={14} /> Add Renewal</button>
-            <button onClick={() => navigate('/rem')}><Icon name="check" size={14} /> Mark Paid</button>
-            <button onClick={() => navigate('/rem/settings')}><Icon name="settings" size={14} /> Settings</button>
-          </div>
-        </div>
+        <BillChart reminders={enriched} />
       </div>
 
       <div className="dash-row">
         <div className="dash-section">
           <div className="sec-head">
             <h3><Icon name="clock" size={16} /> Upcoming Payments</h3>
+            <span className="sec-count">{upPeriodItems.length} · {formatCurrency(upDaysTotal)}</span>
           </div>
-          <div className="dash-tabs">
-            <button className={`dash-tab ${upcomingTab === '7days' ? 'active' : ''}`} onClick={() => setUpcomingTab('7days')}>Next 7 Days</button>
-            <button className={`dash-tab ${upcomingTab === '30days' ? 'active' : ''}`} onClick={() => setUpcomingTab('30days')}>Next 30 Days</button>
-            <button className={`dash-tab ${upcomingTab === 'all' ? 'active' : ''}`} onClick={() => setUpcomingTab('all')}>All Upcoming</button>
+          <div className="up-tabs">
+            <button className={`up-tab ${upcomingTab === '7days' ? 'active' : ''}`} onClick={() => { setUpcomingTab('7days'); setUpDay(null) }}>Next 7 Days</button>
+            <button className={`up-tab ${upcomingTab === '30days' ? 'active' : ''}`} onClick={() => { setUpcomingTab('30days'); setUpDay(null) }}>Next 30 Days</button>
+            <button className={`up-tab ${upcomingTab === 'all' ? 'active' : ''}`} onClick={() => { setUpcomingTab('all'); setUpDay(null) }}>All Upcoming</button>
           </div>
-          <div className="sec-body">
-            {upcomingPayments.length === 0 ? (
+          <div className="up-list">
+            {upGroups.length === 0 ? (
               <div className="dash-empty"><div className="big">No upcoming payments</div><div>Nothing due in this period.</div></div>
-            ) : upcomingPayments.map(r => (
-              <div key={r.id} className="dash-item">
-                <div className="di-icon" style={{ background: 'var(--rem-blue-soft)', color: 'var(--rem-blue)' }}>
-                  <Icon name={categoryIcon(r.category)} size={16} />
-                </div>
-                <div className="di-body">
-                  <div className="di-title" title={r.title}>{r.title || '—'}</div>
-                  <div className="di-meta">{categoryLabel(r.category)} · {r.owner || '—'}</div>
-                </div>
-                <div className="di-right">
-                  {r._amount > 0 && <div className="di-amount">{formatCurrency(r._amount)}</div>}
-                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.due_date_display || '—'}</div>
-                  {r._daysLeft !== null && <div className="di-date" style={{ fontSize: 10, color: r._daysLeft <= 3 ? 'var(--rem-red)' : 'var(--rem-ink-soft)' }}>{r._daysLeft}d left</div>}
-                </div>
-              </div>
-            ))}
+            ) : (
+              <>
+                {(upShowAll ? upGroups : upGroups.slice(0, 5)).map(g => (
+                  <div key={g.key} className={`up-row ${g.minDays <= 3 ? 'urgent' : ''}`}>
+                    <div className="up-row-icon">
+                      <Icon name={categoryIcon(g.category)} size={14} />
+                    </div>
+                    <div className="up-row-body">
+                      <div className="up-row-top">
+                        <span className="up-row-name">{g.key}</span>
+                        {g.total > 0 && <span className="up-row-amt">{formatCurrency(g.total)}</span>}
+                      </div>
+                      <div className="up-row-meta">
+                        <span className="up-row-owners">{g.owners.join(' · ')}</span>
+                        {g.count > 1 && <span className="up-row-count">{g.count}</span>}
+                        {g.minDays !== null && <span className={`up-row-days ${g.minDays <= 3 ? 'warn' : ''}`}>{g.minDays}d</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {upGroups.length > 5 && !upShowAll && (
+                  <button className="up-more" onClick={() => setUpShowAll(true)}>+{upGroups.length - 5} more</button>
+                )}
+              </>
+            )}
           </div>
         </div>
 
@@ -468,24 +585,30 @@ export default function Dashboard() {
             <h3><Icon name="history" size={16} /> Renewal Tracker</h3>
             <span className="sec-count">{renewalTracker.length}</span>
           </div>
-          <div className="sec-body">
+          <div className="rn-list">
             {renewalTracker.length === 0 ? (
               <div className="dash-empty"><div className="big">No renewals due</div><div>No renewals in this period.</div></div>
-            ) : renewalTracker.map(r => (
-              <div key={r.id} className="dash-item">
-                <div className="di-icon" style={{ background: 'var(--rem-violet-soft)', color: 'var(--rem-violet)' }}>
-                  <Icon name={categoryIcon(r.category)} size={16} />
+            ) : renewalTracker.map(r => {
+              const isExpired = r._daysLeft !== null && r._daysLeft < 0
+              const isUrgent = r._daysLeft !== null && r._daysLeft >= 0 && r._daysLeft <= 30
+              return (
+                <div key={r.id} className={`rn-row ${isExpired ? 'expired' : isUrgent ? 'urgent' : ''}`}>
+                  <div className="rn-icon">
+                    <Icon name={categoryIcon(r.category)} size={12} />
+                  </div>
+                  <div className="rn-body">
+                    <span className="rn-name" title={r.title}>{r.title || '—'}</span>
+                    <span className="rn-meta">{categoryLabel(r.category)} · {r.owner || '—'}</span>
+                  </div>
+                  <div className="rn-right">
+                    <span className="rn-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.renewal_date_display || '—'}</span>
+                    <span className={`rn-badge ${isExpired ? 'red' : isUrgent ? 'amber' : 'blue'}`}>
+                      {isExpired ? 'Expired' : r._daysLeft === 0 ? 'Today' : `${r._daysLeft}d`}
+                    </span>
+                  </div>
                 </div>
-                <div className="di-body">
-                  <div className="di-title" title={r.title}>{r.title || '—'}</div>
-                  <div className="di-meta">{categoryLabel(r.category)} · {r.owner || '—'}</div>
-                </div>
-                <div className="di-right">
-                  <div className="di-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.renewal_date_display || '—'}</div>
-                  {r._daysLeft !== null && <div className="di-date" style={{ fontWeight: 600, color: r._daysLeft <= 30 ? 'var(--rem-amber)' : 'var(--rem-ink-soft)' }}>{r._daysLeft < 0 ? 'Expired' : `${r._daysLeft} days`}</div>}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -518,6 +641,12 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <AddBillModal
+        open={billOpen}
+        onClose={() => setBillOpen(false)}
+        onSaved={() => { refresh() }}
+      />
     </div>
   )
 }
