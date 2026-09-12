@@ -125,8 +125,14 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings) {
     .order('verified_at', { ascending: false });
 
   const allLeads = leads || [];
-  const minLead = Number(settings.min_lead_amount) || 300;
-  const leadRate = Number(settings.lead_rate) || 20;
+  // Per-slab thresholds: each slab carries its own qualify amount + per-lead
+  // reward, falling back to the global settings when not set.
+  const minLead = slab?.min_lead_amount != null
+    ? Number(slab.min_lead_amount)
+    : (Number(settings.min_lead_amount) || 300);
+  const leadRate = slab?.lead_rate != null
+    ? Number(slab.lead_rate)
+    : (Number(settings.lead_rate) || 20);
 
   // Filter qualified leads (amount >= min_lead_amount)
   const qualifiedLeads = allLeads.filter(l => Number(l.amount_collected) >= minLead);
@@ -319,4 +325,43 @@ export const announceChampion = async ({ date, message, userId }) => {
   }
 
   return { announcement };
+};
+
+// Notify every FRO whose monthly target falls in this slab's range that their
+// lead rule (min qualify amount + per-lead reward) has changed. Writes
+// notification_log rows of type 'lead_rule_update', which the FRO app surfaces
+// as a side popup. No-op when no FRO currently maps into the range.
+export const notifyRangeRuleChange = async ({ slab, slabs }) => {
+  if (!slab || !slab.id) return 0;
+
+  const activeSlabs = slabs && slabs.length ? slabs : (await getActiveSlabs());
+  const now = new Date();
+  const monthStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  const { data: froRows } = await db
+    .from('workers')
+    .select('id')
+    .eq('is_active', true)
+    .ilike('department', 'fro');
+
+  const matched = [];
+  for (const w of froRows || []) {
+    const target = await getFroTarget(w.id, monthStr);
+    const s = getSlabForTarget(target, activeSlabs);
+    if (s && s.id === slab.id) matched.push(w.id);
+  }
+  if (matched.length === 0) return 0;
+
+  const rangeLabel = `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}`;
+  const body = `${rangeLabel}: Minimum Lead ₹${fmtMoney(slab.min_lead_amount)} · ₹${fmtMoney(slab.lead_rate)} per qualified lead`;
+
+  const rows = matched.map(worker_id => ({
+    worker_id,
+    type: 'lead_rule_update',
+    title: '📢 Your Lead Range Updated',
+    body,
+    reference_id: String(slab.id),
+  }));
+  await sendNotificationLogs(rows);
+  return rows.length;
 };

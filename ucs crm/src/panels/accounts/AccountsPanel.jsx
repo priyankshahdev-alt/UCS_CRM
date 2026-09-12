@@ -10,7 +10,6 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { useRealtime } from '../../hooks/useRealtime'
 import ToastContainer, { toast } from '../../components/Toast'
 import SpecialIncentive from '../../components/SpecialIncentive'
-import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import LeadAudit from './pages/LeadAudit'
 import Reports from './pages/Reports'
@@ -539,7 +538,6 @@ export default function AccountsPanel() {
         </div>
       </div>
       <SpecialIncentive />
-      <LeadChampionCelebration />
       <NoticePopup />
       <ToastContainer />
     </div>
