@@ -30,6 +30,7 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [alertBusy, setAlertBusy] = useState(false);
+  const [froActionBusy, setFroActionBusy] = useState('');
   const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
@@ -80,6 +81,18 @@ export default function LeadAudit() {
       setTimeout(() => setAlertBusy(false), 10000);
     }
   };
+  const handleFroAction = async (action) => {
+    if (froActionBusy) return;
+    setFroActionBusy(action);
+    try {
+      const res = await apiPost('/notifications/fro-action', { action });
+      toast(`${action === 'follow_up' ? 'Follow-up' : 'Less calls'} sent to ${res?.count || 0} FROs`, 'success');
+    } catch (err) {
+      toast(err.message || 'Failed to send FRO action', 'error');
+    } finally {
+      setFroActionBusy('');
+    }
+  };
   const collectionKeys = ['bsct', 'aflf', 'mann'];
   const collectionTotal = field => collections === null ? null : collectionKeys.reduce((sum, key) => sum + Number(collections.find(x => x.project_id === key)?.[field] || 0), 0);
 
@@ -120,7 +133,10 @@ export default function LeadAudit() {
           })}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2, padding: '10px', borderRadius: 11, background: '#f8fafc', border: '1px solid #eef2f7' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Collection</span>
-            <strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong>
+            <div style={{ display: 'flex', gap: 14, textAlign: 'right' }}>
+              <span><small style={{ display: 'block', color: '#8a93a3', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Today</small><strong style={{ fontSize: 12, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('today_total') || 0)}</strong></span>
+              <span><small style={{ display: 'block', color: '#8a93a3', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Month</small><strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong></span>
+            </div>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -128,9 +144,9 @@ export default function LeadAudit() {
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
           </div>
           <div className="lead-audit-action-row">
-            <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'ALERT'}</button>
-            <button className="lead-audit-action-btn" onClick={() => {}}>FOLLOW UP</button>
-            <button className="lead-audit-action-btn" onClick={() => {}}>LESS CALLS</button>
+            <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'SUSPENSE'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('follow_up')} disabled={!!froActionBusy}>{froActionBusy === 'follow_up' ? 'SENDING' : 'FOLLOW UP'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('less_calls')} disabled={!!froActionBusy}>{froActionBusy === 'less_calls' ? 'SENDING' : 'LESS CALLS'}</button>
             <button className="lead-audit-action-btn" onClick={() => {}}>FRO</button>
             <button className="lead-audit-action-btn" onClick={() => {}}>TEAM</button>
           </div>
