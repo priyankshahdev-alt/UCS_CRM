@@ -31,6 +31,12 @@ export default function LeadAudit() {
   const [matching, setMatching] = useState(false);
   const [alertBusy, setAlertBusy] = useState(false);
   const [froActionBusy, setFroActionBusy] = useState('');
+  const [froModalOpen, setFroModalOpen] = useState(false);
+  const [froWorkers, setFroWorkers] = useState([]);
+  const [froWorkersLoading, setFroWorkersLoading] = useState(false);
+  const [froSelectedId, setFroSelectedId] = useState('');
+  const [froText, setFroText] = useState('');
+  const [froSending, setFroSending] = useState(false);
   const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
@@ -93,6 +99,40 @@ export default function LeadAudit() {
       setFroActionBusy('');
     }
   };
+  const openFroModal = async () => {
+    setFroModalOpen(true);
+    setFroText('');
+    setFroSelectedId('');
+    if (froWorkers.length) return;
+    setFroWorkersLoading(true);
+    try {
+      const workers = await apiGet('/workers?status=active');
+      const fro = (Array.isArray(workers) ? workers : [])
+        .filter(w => String(w.department || '').toLowerCase().trim() === 'fro' && w.is_active !== false)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      setFroWorkers(fro);
+    } catch {
+      toast('Failed to load FROs', 'error');
+    } finally {
+      setFroWorkersLoading(false);
+    }
+  };
+  const selectedFro = froWorkers.find(w => String(w.id) === String(froSelectedId)) || null;
+  const sendFroBroadcast = async () => {
+    if (froSending) return;
+    if (!selectedFro) { toast('Select an FRO', 'error'); return; }
+    if (!froText.trim()) { toast('Enter a message', 'error'); return; }
+    setFroSending(true);
+    try {
+      const res = await apiPost('/notifications/fro-broadcast', { worker_id: selectedFro.id, text: froText });
+      toast(`Announcement sent to ${res?.count || 0} FROs`, 'success');
+      setFroModalOpen(false);
+    } catch (err) {
+      toast(err.message || 'Failed to send announcement', 'error');
+    } finally {
+      setFroSending(false);
+    }
+  };
   const collectionKeys = ['bsct', 'aflf', 'mann'];
   const collectionTotal = field => collections === null ? null : collectionKeys.reduce((sum, key) => sum + Number(collections.find(x => x.project_id === key)?.[field] || 0), 0);
 
@@ -147,7 +187,7 @@ export default function LeadAudit() {
             <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'SUSPENSE'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('follow_up')} disabled={!!froActionBusy}>{froActionBusy === 'follow_up' ? 'SENDING' : 'FOLLOW UP'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('less_calls')} disabled={!!froActionBusy}>{froActionBusy === 'less_calls' ? 'SENDING' : 'LESS CALLS'}</button>
-            <button className="lead-audit-action-btn" onClick={() => {}}>FRO</button>
+            <button className="lead-audit-action-btn" onClick={openFroModal}>FRO</button>
             <button className="lead-audit-action-btn" onClick={() => {}}>TEAM</button>
           </div>
           <div style={{ height: 1, background: '#eef1f6' }} />
@@ -179,6 +219,53 @@ export default function LeadAudit() {
           </div>
         )}
       </div>
+
+      {froModalOpen && (
+        <div className="modal-overlay" onClick={() => { if (!froSending) setFroModalOpen(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, borderRadius: 16, overflow: 'hidden', padding: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>FRO Announcement</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Shows once on every open FRO panel · nothing is stored</div>
+              </div>
+              <button className="btn btn-sm btn-icon" onClick={() => { if (!froSending) setFroModalOpen(false); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: 'var(--ink-soft)' }} aria-label="Close">
+                <X size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>FRO</label>
+              <select value={froSelectedId} onChange={e => setFroSelectedId(e.target.value)} disabled={froWorkersLoading} style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: 'var(--ink)', fontWeight: 600, fontFamily: 'inherit' }}>
+                <option value="">{froWorkersLoading ? 'Loading FROs…' : 'Select an FRO'}</option>
+                {froWorkers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+              {selectedFro && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 12, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                  {selectedFro.photo_url ? (
+                    <img src={selectedFro.photo_url} alt={selectedFro.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', color: '#fff', fontWeight: 700, fontSize: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {(selectedFro.name || '?').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFro.name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>FRO · {selectedFro.employee_id || '—'}</div>
+                  </div>
+                </div>
+              )}
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>Message</label>
+              <textarea rows={4} value={froText} onChange={e => setFroText(e.target.value)} placeholder="e.g. Please complete your follow-up calls before 6 pm." style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: 'var(--ink)', fontFamily: 'inherit', resize: 'vertical' }} />
+              <div style={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                <span>✨</span>
+                <span>Your message is rephrased with correct grammar before it is broadcast to active FRO panels.</span>
+              </div>
+              <button onClick={sendFroBroadcast} disabled={froSending} style={{ marginTop: 2, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--sage, #166534)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: froSending ? 'default' : 'pointer', fontFamily: 'inherit', opacity: froSending ? .7 : 1 }}>
+                {froSending ? 'Sending…' : 'Send to all FROs'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

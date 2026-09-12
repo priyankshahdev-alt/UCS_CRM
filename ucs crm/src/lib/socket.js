@@ -46,3 +46,9 @@ export function onFroAction(handler) {
   s.on('fro:action', handler)
   return () => s.off('fro:action', handler)
 }
+
+export function onFroBroadcast(handler) {
+  const s = getSocket()
+  s.on('fro:broadcast', handler)
+  return () => s.off('fro:broadcast', handler)
+}

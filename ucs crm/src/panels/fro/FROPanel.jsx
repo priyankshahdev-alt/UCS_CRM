@@ -7,7 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { onFroAction } from '../../lib/socket'
+import { onFroAction, onFroBroadcast } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
@@ -473,11 +473,24 @@ export default function FROPanel() {
     return () => clearInterval(poll);
   }, [user?.id]);
 
-  useEffect(() => onFroAction((action) => {
+useEffect(() => onFroAction((action) => {
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls') {
       playFroAction(action.type, action.title);
     }
   }), []);
+
+  const [froBroadcast, setFroBroadcast] = useState(null);
+  const froBroadcastSeen = useRef(new Set());
+  useEffect(() => onFroBroadcast((evt) => {
+    if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
+    froBroadcastSeen.current.add(evt.eventId);
+    setFroBroadcast(evt);
+  }), []);
+  useEffect(() => {
+    if (!froBroadcast) return;
+    const t = setTimeout(() => setFroBroadcast(null), 12000);
+    return () => clearTimeout(t);
+  }, [froBroadcast]);
 
   useRealtime('notification_log', {
     filter: `worker_id=eq.${user?.id}`,
@@ -1020,6 +1033,30 @@ export default function FROPanel() {
       <SpecialIncentive />
       <LeadChampionCelebration />
       <NoticePopup />
+      {froBroadcast && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
+          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }'}</style>
+          <div onClick={e => e.stopPropagation()} style={{ width: 'min(420px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
+            <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
+            <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>
+            <div style={{ padding: '20px 20px 0', display: 'flex', alignItems: 'center', flexDirection: 'column', textAlign: 'center' }}>
+              {froBroadcast.photoUrl ? (
+                <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 84, height: 84, borderRadius: '50%', objectFit: 'cover', border: '4px solid #fff', boxShadow: '0 6px 18px rgba(99,102,241,.35)', display: 'block', background: '#f1f5f9' }} />
+              ) : (
+                <div style={{ width: 84, height: 84, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 30, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <span style={{ marginTop: 10, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
+              <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
+            </div>
+            <div style={{ padding: '12px 20px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 14, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
+              <button onClick={() => setFroBroadcast(null)} style={{ marginTop: 14, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--ink, #0f172a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ToastContainer />
     </div>
     </CallProvider>
