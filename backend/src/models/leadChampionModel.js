@@ -23,6 +23,29 @@ export const getLatestAnnouncement = async (date) => {
   return (data && data[0]) || null;
 };
 
+// Full history of champion announcements, newest first.
+export const getAnnouncements = async () => {
+  const { data, error } = await db
+    .from('lead_champion_announcements')
+    .select('*')
+    .order('announcement_date', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+// Hard delete an announcement row. Returns the deleted row so callers can
+// confirm / broadcast the removal.
+export const deleteAnnouncement = async (id) => {
+  const { data, error } = await db
+    .from('lead_champion_announcements')
+    .delete()
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const insertAnnouncement = async ({
   announcement_date,
   fro_worker_id,
