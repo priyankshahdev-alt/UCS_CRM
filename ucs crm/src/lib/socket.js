@@ -52,3 +52,9 @@ export function onFroBroadcast(handler) {
   s.on('fro:broadcast', handler)
   return () => s.off('fro:broadcast', handler)
 }
+
+export function onFroTeamBroadcast(handler) {
+  const s = getSocket()
+  s.on('fro:team-broadcast', handler)
+  return () => s.off('fro:team-broadcast', handler)
+}
