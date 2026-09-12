@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
 import MatchLines from '../components/MatchLines';
@@ -28,6 +29,7 @@ export default function LeadAudit() {
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
+  const [alertBusy, setAlertBusy] = useState(false);
   const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
@@ -66,6 +68,18 @@ export default function LeadAudit() {
 
   const ready = !!(selectedLead && selectedEntry && !matching);
   const isPanelOpen = !!(detailView || entryDetailView);
+  const handleAlertAll = async () => {
+    if (alertBusy) return;
+    setAlertBusy(true);
+    try {
+      const res = await apiPost('/notifications/suspense-alert', {});
+      toast('Alert sent to ' + (res?.count || 0) + ' FROs', 'success');
+    } catch {
+      toast('Failed to send alert', 'error');
+    } finally {
+      setTimeout(() => setAlertBusy(false), 10000);
+    }
+  };
   const collectionKeys = ['bsct', 'aflf', 'mann'];
   const collectionTotal = field => collections === null ? null : collectionKeys.reduce((sum, key) => sum + Number(collections.find(x => x.project_id === key)?.[field] || 0), 0);
 
@@ -112,6 +126,13 @@ export default function LeadAudit() {
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
+          </div>
+          <div className="lead-audit-action-row">
+            <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'ALERT'}</button>
+            <button className="lead-audit-action-btn" onClick={() => {}}>FOLLOW UP</button>
+            <button className="lead-audit-action-btn" onClick={() => {}}>LESS CALLS</button>
+            <button className="lead-audit-action-btn" onClick={() => {}}>FRO</button>
+            <button className="lead-audit-action-btn" onClick={() => {}}>TEAM</button>
           </div>
           <div style={{ height: 1, background: '#eef1f6' }} />
           <div style={{ padding: '12px 18px' }}>{filterBar}</div>
