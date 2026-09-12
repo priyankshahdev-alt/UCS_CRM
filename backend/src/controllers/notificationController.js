@@ -320,7 +320,13 @@ const generateTeamCongratulation = async (teamList) => {
 export const sendFroTeamBroadcast = async (req, res) => {
   try {
     const raw = Array.isArray(req.body?.teams) ? req.body.teams : [];
-    const teams = [...new Set(raw.map((t) => String(t || '').trim().toUpperCase()).filter(Boolean))];
+    const teams = [...new Set(raw.map((t) => String(t || '').trim().toUpperCase()).filter(Boolean))]
+      .sort((a, b) => {
+        const am = a.match(/^UFS\s*(\d+)$/i);
+        const bm = b.match(/^UFS\s*(\d+)$/i);
+        if (am && bm) return Number(am[1]) - Number(bm[1]);
+        return a.localeCompare(b);
+      });
     if (!teams.length) return res.status(400).json({ message: 'Select at least one team' });
 
     const { rows: memberRows, error: memberErr } = await db._pool.query(

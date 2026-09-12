@@ -36,15 +36,18 @@ import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
 import reelMp3 from '../../assets/audio/reel.mp3'
+import congratsMp3 from '../../assets/audio/congrats.mp3'
 
 const suspenseAlertAudio = new Audio(teleWav);
 suspenseAlertAudio.preload = 'auto';
 const followDueAudio = new Audio(followDueMp3);
 const callLessAudio = new Audio(callLessMp3);
 const entertainAudio = new Audio(reelMp3);
+const congratsAudio = new Audio(congratsMp3);
 followDueAudio.preload = 'auto';
 callLessAudio.preload = 'auto';
 entertainAudio.preload = 'auto';
+congratsAudio.preload = 'auto';
 const SUSPENSE_RING_WINDOW_MS = 90 * 1000;
 function playSuspenseAlert(title) {
   try {
@@ -63,6 +66,13 @@ function playFroAction(type, title) {
   } catch {}
   toast(title || 'FRO action', 'info');
 }
+function playTeamCongratsAudio() {
+  try {
+    congratsAudio.currentTime = 0;
+    const p = congratsAudio.play();
+    if (p && p.then) p.catch(() => {});
+  } catch {}
+}
 let suspenseAudioUnlocked = false;
 function warmupSuspenseAudio() {
   if (suspenseAudioUnlocked) return;
@@ -77,7 +87,7 @@ function warmupSuspenseAudio() {
       suspenseAlertAudio.muted = false;
       suspenseAlertAudio.volume = 1;
     }).catch(() => {});
-    for (const audio of [followDueAudio, callLessAudio, entertainAudio]) {
+    for (const audio of [followDueAudio, callLessAudio, entertainAudio, congratsAudio]) {
       audio.volume = 0;
       audio.muted = true;
       const p = audio.play();
@@ -102,6 +112,14 @@ const NAV_BASE = [
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
 ]
+
+const formatTeamName = (name) => String(name || '').replace(/^UFS\s*(\d+)$/i, 'UFS $1');
+const sortTeamBroadcasts = (teams) => [...(teams || [])].sort((a, b) => {
+  const am = String(a?.name || '').match(/^UFS\s*(\d+)$/i);
+  const bm = String(b?.name || '').match(/^UFS\s*(\d+)$/i);
+  if (am && bm) return Number(am[1]) - Number(bm[1]);
+  return String(a?.name || '').localeCompare(String(b?.name || ''));
+});
 
 const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
 
@@ -495,6 +513,7 @@ useEffect(() => onFroAction((action) => {
   useEffect(() => onFroTeamBroadcast((evt) => {
     if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
     froBroadcastSeen.current.add(evt.eventId);
+    playTeamCongratsAudio();
     setFroBroadcastMin(false);
     setFroBroadcast(evt);
   }), []);
@@ -504,6 +523,7 @@ useEffect(() => onFroAction((action) => {
     const dismiss = setTimeout(() => setFroBroadcast(null), 90000);
     return () => { clearTimeout(minimize); clearTimeout(dismiss); };
   }, [froBroadcast]);
+  const broadcastTeams = sortTeamBroadcasts(froBroadcast?.teams);
 
   useRealtime('notification_log', {
     filter: `worker_id=eq.${user?.id}`,
@@ -1059,8 +1079,8 @@ useEffect(() => onFroAction((action) => {
                   <div style={{ width: 104, height: 104, borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ea580c)', color: '#fff', fontSize: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 28px rgba(245,158,11,.45)' }}>🏆</div>
                   <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: 999 }}>Team Achievement</span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 8 }}>
-                    {(froBroadcast.teams || []).map((t) => (
-                      <span key={t.name} style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', background: '#ffedd5', border: '1px solid #fed7aa', padding: '4px 10px', borderRadius: 999 }}>{t.name}</span>
+                     {broadcastTeams.map((t) => (
+                       <span key={t.name} style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', background: '#ffedd5', border: '1px solid #fed7aa', padding: '4px 10px', borderRadius: 999 }}>{formatTeamName(t.name)}</span>
                     ))}
                   </div>
                 </>
@@ -1080,11 +1100,11 @@ useEffect(() => onFroAction((action) => {
             </div>
             <div style={{ padding: '14px 24px 22px', textAlign: 'center' }}>
               <div style={{ fontSize: 14.5, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
-              {froBroadcast.kind === 'team' && (froBroadcast.teams || []).some(t => t.members.length) && (
-                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
-                  {(froBroadcast.teams || []).filter(t => t.members.length).map((t) => (
-                    <div key={t.name} style={{ fontSize: 11.5, color: '#92400e', lineHeight: 1.45 }}>
-                      <span style={{ fontWeight: 800 }}>{t.name}:</span> {t.members.join(', ')}
+               {froBroadcast.kind === 'team' && broadcastTeams.some(t => t.members.length) && (
+                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+                   {broadcastTeams.filter(t => t.members.length).map((t) => (
+                     <div key={t.name} style={{ fontSize: 11.5, color: '#92400e', lineHeight: 1.45 }}>
+                       <span style={{ fontWeight: 800 }}>{formatTeamName(t.name)}:</span> {t.members.join(', ')}
                     </div>
                   ))}
                 </div>
@@ -1108,7 +1128,7 @@ useEffect(() => onFroAction((action) => {
             </div>
           )}
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.kind === 'team' ? 'Team Achievement · ' + (froBroadcast.teams || []).map(t => t.name).join(' + ') : (froBroadcast.workerName || 'FRO')}</div>
+             <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.kind === 'team' ? 'Team Achievement · ' + broadcastTeams.map(t => formatTeamName(t.name)).join(' + ') : (froBroadcast.workerName || 'FRO')}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{froBroadcast.text || ''}</div>
             <div style={{ marginTop: 6, height: 3, borderRadius: 99, background: '#eef2f7', overflow: 'hidden' }}>
               <span style={{ display: 'block', height: '100%', background: '#8b5cf6', animation: 'fro-bc-dismiss 60s linear forwards' }} />
