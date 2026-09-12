@@ -55,6 +55,35 @@ const TARGET_COLUMNS = [
 
 const MANDATORY = ['Donor Name', 'Amount', 'Receipt No.']
 const PAGE_SIZE = 20
+const RECEIPT_NUMBER_NGOS = {
+  bsct: { label: 'Being Sevak', accent: '#1e40af' },
+  aflf: { label: 'Ashray', accent: '#166534' },
+  mann: { label: 'Mann Care', accent: '#be185d' },
+}
+
+function ReceiptNumberCards({ receiptNums }) {
+  return (
+    <div className="rx-number-card">
+      <div className="rx-number-card-title">Receipt Numbers</div>
+      {receiptNums === null ? [0, 1, 2].map(i => (
+        <div key={i} className="rx-number-row">
+          <span className="sk" style={{ width: 90, height: 11, borderRadius: 5 }} />
+          <span className="sk" style={{ width: 45, height: 11, borderRadius: 5 }} />
+          <span className="sk" style={{ width: 45, height: 11, borderRadius: 5 }} />
+        </div>
+      )) : Object.entries(RECEIPT_NUMBER_NGOS).map(([key, meta]) => {
+        const item = receiptNums.find(n => n.project_id === key)
+        return (
+          <div key={key} className="rx-number-row">
+            <span className="rx-number-ngo" style={{ color: meta.accent }}>{key.toUpperCase()}</span>
+            <span className="rx-number-value"><small>Current</small>{item?.last_no || '\u2014'}</span>
+            <span className="rx-number-value rx-number-next" style={{ color: meta.accent }}><small>Next</small>{item?.next_no || '\u2014'}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function normalize(str) {
   return str.toLowerCase().replace(/[\s.,()\-_]+/g, '')
@@ -227,6 +256,7 @@ export default function Receipts() {
   const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
   const [ngoFilter, setNgoFilter] = useState('all')
   const [receiptSearch, setReceiptSearch] = useState('')
+  const [receiptNums, setReceiptNums] = useState(null)
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
@@ -267,6 +297,14 @@ export default function Receipts() {
         return true
       }))
     }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    apiGet('/accounts/receipts/numbers')
+      .then(data => { if (!cancelled) setReceiptNums(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setReceiptNums([]) })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -759,6 +797,8 @@ export default function Receipts() {
           </div>
         </div>
       </div>
+
+      <ReceiptNumberCards receiptNums={receiptNums} />
 
       <div className="rx-card">
         <button className="rx-upload-toggle" aria-expanded={uploadOpen} onClick={() => setUploadOpen(o => !o)}>
