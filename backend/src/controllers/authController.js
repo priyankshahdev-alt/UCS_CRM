@@ -10,7 +10,9 @@ import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } fr
 
 dotenv.config();
 
-const TOKEN_EXPIRY = '100y';
+// CRMs / admin and salary portals get a rolling 24h session; the mobile
+// (Flutter) worker login override below emits tokens with no expiry.
+const TOKEN_EXPIRY = '24h';
 
 export const adminLogin = async (req, res) => {
   try {
@@ -128,7 +130,10 @@ export const unifiedLogin = async (req, res) => {
 
     const isUfsLogin = identifier.endsWith('@ufs');
     const isEmail = !isUfsLogin && identifier.includes('@');
-    const expiry = TOKEN_EXPIRY;
+    // /auth/worker/login is used by the Flutter apps -> token never expires;
+    // every CRM login (/auth/login) -> 24h.
+    const expiry = req.route?.path === '/worker/login' ? undefined : TOKEN_EXPIRY;
+    const signOptions = expiry ? { expiresIn: expiry } : {};
 
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);
@@ -155,7 +160,7 @@ export const unifiedLogin = async (req, res) => {
       const token = jwt.sign(
         { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
         process.env.JWT_SECRET,
-        { expiresIn: expiry }
+        signOptions
       );
       return res.json({
         token,
@@ -173,7 +178,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
         return res.json({ token, role: 'super_admin', user: { name: 'Super Admin', email: identifier, role: 'super_admin' }, message: 'Login successful' });
       }
@@ -185,7 +190,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: -1, email: identifier, role: 'user', name: 'User' },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
         return res.json({ token, role: 'user', user: { name: 'User', email: identifier, role: 'user' }, message: 'Login successful' });
       }
@@ -202,7 +207,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: user.id, ngo_id: user.ngo_id, email: user.email, role: user.role, name: user.name },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
         const { password_hash, ...safeUser } = user;
         return res.json({ token, role: user.role, user: safeUser, message: 'Login successful' });
@@ -220,7 +225,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: hr.id, ngo_id: hr.ngo_id, email: hr.email, role: 'hr', name: hr.name },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
         const { password_hash, ...safeHR } = hr;
         return res.json({ token, role: 'hr', user: safeHR, message: 'Login successful' });
@@ -249,7 +254,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: workerByLogin.id, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, name: workerByLogin.name, role: wRole, department: workerByLogin.department },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
         return res.json({
           token,
@@ -274,7 +279,7 @@ export const unifiedLogin = async (req, res) => {
       const token = jwt.sign(
         { id: userFromName.id, ngo_id: userFromName.ngo_id, email: userFromName.email, role: userFromName.role, name: userFromName.name },
         process.env.JWT_SECRET,
-        { expiresIn: expiry }
+        signOptions
       );
       const { password_hash, ...safeUser } = userFromName;
       return res.json({ token, role: userFromName.role, user: safeUser, message: 'Login successful' });
@@ -304,7 +309,7 @@ export const unifiedLogin = async (req, res) => {
     const token = jwt.sign(
       { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
       process.env.JWT_SECRET,
-      { expiresIn: expiry }
+      signOptions
     );
     return res.json({
       token,
