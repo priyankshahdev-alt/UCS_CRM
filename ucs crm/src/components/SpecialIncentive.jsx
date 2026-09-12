@@ -4,10 +4,46 @@ import { useRealtime } from '../hooks/useRealtime';
 import { CoinsBag } from './AkiBanner';
 import { useUcs } from '../store';
 import { requestNotifPermission, showDesktopNotification } from '../utils/desktopNotif';
+import beingMp3 from '../assets/audio/being.mp3';
+import mannMp3 from '../assets/audio/mann.mp3';
+import ashrayMp3 from '../assets/audio/ashray.mp3';
+import ngoMp3 from '../assets/audio/ngo.mp3';
 
 const SEEN_KEY = 'si_seen_v1';
 const CELEB_KEY = 'si_celeb_v1';
 const CELEB_PHOTO_KEY = 'si_celeb_photo_v1';
+
+// One recycled Audio object per file so repeated incentives don't re-download.
+const siAudioCache = {};
+const getSiAudio = (src) => {
+  if (!siAudioCache[src]) {
+    try {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      siAudioCache[src] = a;
+    } catch { siAudioCache[src] = null; }
+  }
+  return siAudioCache[src] || null;
+};
+// NGO-specific intro sound when the "Sir ka Incentive" popup appears:
+// BSCT -> being, MANN -> mann, ASHRAY -> ashray, everything else / all-NGO -> ngo.
+const ngoAudioFor = (ngoName) => {
+  const name = String(ngoName || '').toUpperCase();
+  if (name.includes('BSCT') || name.includes('BS')) return beingMp3;
+  if (name.includes('MANN') || name.includes('MAA')) return mannMp3;
+  if (name.includes('ASHRAY')) return ashrayMp3;
+  return ngoMp3;
+};
+const playNgoAudio = (ngoName) => {
+  try {
+    const a = getSiAudio(ngoAudioFor(ngoName));
+    if (a) {
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch { /* ignore */ }
+};
 
 const fmt = (n) => {
   const v = Number(n);
@@ -428,6 +464,7 @@ export function useSpecialIncentive() {
     if (popupInc && !notifiedRef.current.has(popupInc.id)) {
       notifiedRef.current.add(popupInc.id);
       try { if (navigator.vibrate) navigator.vibrate(300); } catch { /* ignore */ }
+      playNgoAudio(popupInc.ngo_name);
       requestNotifPermission().then(() => {
         showDesktopNotification('Sir ka Incentive LIVE 🎯', popupInc.title || 'New special incentive is live — go collect!');
       }).catch(() => {});
