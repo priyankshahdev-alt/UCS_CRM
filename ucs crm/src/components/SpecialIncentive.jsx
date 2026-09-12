@@ -485,34 +485,67 @@ export function useSpecialIncentive() {
 }
 
 export default function SpecialIncentive() {
-  const { incentives, popupInc, popupOpen, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
+  const { incentives, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
   const you = user?.id || null;
   // Winner popups, LIVE cards and celebrations show ONLY in the FRO panel.
   // Accounts / HR / Super Admin render nothing from this widget.
   const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
   if (!isFro) return null;
 
-  // Sticky bottom-left cards: one per still-running race not in the popup and
-  // not dismissed. Once a race is won/ended/cancelled its card disappears.
-  const cards = incentives.filter((i) => !popupInc || i.id !== popupInc.id);
-  const visibleCards = cards.filter((i) => !dismissedIds.has(String(i.id)));
+  const [openModalId, setOpenModalId] = useState(null);
+  const [freshIds, setFreshIds] = useState(() => new Set());
+  const freshTimersRef = useRef(new Map());
+
+  // Brand-new races get a pulsing "NEW" tag on their corner card for ~12s.
+  useEffect(() => {
+    if (incentives.length === 0) return;
+    const ids = new Set(freshIds);
+    let changed = false;
+    incentives.forEach((i) => {
+      if (!ids.has(i.id)) { ids.add(i.id); changed = true; }
+    });
+    if (changed) {
+      setFreshIds(ids);
+      incentives.forEach((i) => {
+        if (freshTimersRef.current.has(i.id)) return;
+        freshTimersRef.current.set(i.id, setTimeout(() => {
+          freshTimersRef.current.delete(i.id);
+          setFreshIds((prev) => { const n = new Set(prev); n.delete(i.id); return n; });
+        }, 12000));
+      });
+    }
+  }, [incentives]);
+
+  const expanded = openModalId ? incentives.find((i) => i.id === openModalId) || null : null;
+
+  // Sticky bottom-left cards: one per still-running race; click a card to open
+  // the big leaderboard view. Dismissed cards hide until the race ends.
+  const visibleCards = incentives.filter((i) => !dismissedIds.has(String(i.id)));
 
   return (
     <>
       <style>{CONFETTI_CSS}</style>
       {isFro && photoCeleb && <CornerWinnerCard inc={photoCeleb} />}
       {isFro && celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
-      {popupOpen && popupInc && <PopupModal inc={popupInc} you={you} onClose={closePopup} nowMs={nowMs} />}
-      {!popupOpen && visibleCards.length > 0 && !celebrate && (
+      {expanded && <PopupModal inc={expanded} you={you} nowMs={nowMs} onClose={() => { setOpenModalId(null); closePopup(); }} />}
+      {visibleCards.length > 0 && !celebrate && (
         <div style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 99980, display: 'flex', flexDirection: 'column', gap: 10, width: 312 }}>
           {visibleCards.map((inc) => (
-            <div key={inc.id} style={{ position: 'relative' }}>
+            <div
+              key={inc.id}
+              style={{ position: 'relative', cursor: 'pointer' }}
+              onClick={() => { setOpenModalId(inc.id); closePopup(); }}
+            >
               <div
-                onClick={() => dismissCard(inc.id)}
+                onClick={(e) => { e.stopPropagation(); dismissCard(inc.id); }}
                 title="Close"
                 style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, cursor: 'pointer', width: 24, height: 24, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#b45309', boxShadow: '0 2px 6px rgba(0,0,0,.18)' }}
               >✕</div>
+              {freshIds.has(inc.id) && (
+                <div style={{ position: 'absolute', top: -7, left: 10, zIndex: 3, padding: '2px 8px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: .4, animation: 'si-pulse 1s linear infinite' }}>🔴 NEW</div>
+              )}
               <SpecialIncentiveCard inc={inc} you={you} nowMs={nowMs} />
+              <div style={{ marginTop: 4, textAlign: 'center', fontSize: 11, fontWeight: 800, color: '#b45309', background: '#fffdf5', border: '1.5px dashed #f59e0b', borderRadius: 9, padding: '5px 8px' }}>&#128072; Tap to view full leaderboard &#9654;</div>
             </div>
           ))}
         </div>
