@@ -12,6 +12,7 @@ import { getAttendanceById, updateAttendance, createAttendance } from '../models
 import { getWorkerById } from '../models/workerModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
+import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -216,20 +217,18 @@ export const approveTicket = async (req, res) => {
     if (ticket.field === 'punch_in') {
       updates.punch_in_time = ticket.requested_time;
       updates.late_minutes = await calculateLateMinutes(ticket.requested_time, ticket.worker_id);
-      let status = updates.late_minutes > 0 ? 'late' : 'present';
-      if (await isHalfDayByLatePunch(ticket.requested_time, ticket.worker_id)) status = 'half-day';
+      const status = await calculateAttendanceStatus({ workerId: ticket.worker_id, punchInTime: ticket.requested_time });
       updates.status = status;
     } else {
       updates.punch_out_time = ticket.requested_time;
       if (attendance.status !== 'leave' && attendance.status !== 'absent') {
         const punchInTime = attendance.punch_in_time;
         updates.late_minutes = await calculateLateMinutes(punchInTime, ticket.worker_id);
-        let recalcStatus = updates.late_minutes > 0 ? 'late' : 'present';
-        if (await isHalfDayByLatePunch(punchInTime, ticket.worker_id)) recalcStatus = 'half-day';
-        if (await isHalfDayByEarlyPunchOut(ticket.requested_time, ticket.worker_id)) {
-          recalcStatus = 'half-day';
-        }
-        updates.status = recalcStatus;
+        updates.status = await calculateAttendanceStatus({
+          workerId: ticket.worker_id,
+          punchInTime,
+          punchOutTime: ticket.requested_time,
+        });
       }
     }
 

@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
+import { computePaidDays, getCompensatoryWorkdays, getISTToday } from '../utils/salaryDays.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
 
 export const getSalariesByWorker = async (workerId) => {
@@ -728,6 +728,8 @@ export const getPagarExportData = async (month) => {
       createdAt: w.created_at || '',
       holidayDates,
       viewingToday,
+      includeHolidayPay: true,
+      compensatoryWorkdays: getCompensatoryWorkdays(monthStr),
     });
 
     const target = targetByWorker[w.id] || 0;
@@ -793,6 +795,10 @@ export const getPagarExportData = async (month) => {
       achieved_mann: ngo.MANN || 0,
       gross_present_days: grossPresentDays,
       present_days: attResult.presentDays,
+      holiday_paid_days: attResult.holidayPaidDays,
+      compensatory_work_days: attResult.compensatoryWorkDays,
+      compensated_holiday_days: attResult.compensatedHolidayDays,
+      required_sunday_worked_days: attResult.requiredSundayWorkedDays,
       absent_days: attResult.absentDatesAfterJoin.length,
       half_days: attResult.halfDayCount * 0.5,
       late_deduction_days: lateDeductionDays,
@@ -835,6 +841,10 @@ export const getPagarExportData = async (month) => {
     achieved_mann: cat.MANN || 0,
     gross_present_days: 0,
     present_days: 0,
+    holiday_paid_days: 0,
+    compensatory_work_days: 0,
+    compensated_holiday_days: 0,
+    required_sunday_worked_days: 0,
     late_deduction_days: 0,
     sunday_deduction_days: 0,
     training_deduction_days: 0,

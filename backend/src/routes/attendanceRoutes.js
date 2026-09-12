@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, deleteAttendanceRecord, getWorkerMonthlyAttendance, verifySelfie, todayAll, hrSelfiePunch } from '../controllers/attendanceController.js';
+import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, repairHalfDayRecords, deleteAttendanceRecord, getWorkerMonthlyAttendance, verifySelfie, todayAll, hrSelfiePunch } from '../controllers/attendanceController.js';
 import { selfiePunch } from '../controllers/selfiePunchController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
@@ -14,6 +14,7 @@ router.get('/today-all', authenticateRole('super_admin', 'admin', 'hr', 'account
 router.get('/history', authenticate, myHistory);
 router.get('/all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), listAll);
 router.post('/', authenticateRole('super_admin', 'admin', 'hr'), createAttendanceByHR);
+router.post('/repair-half-days', authenticateRole('super_admin', 'admin', 'hr'), repairHalfDayRecords);
 router.put('/:id', authenticateRole('super_admin', 'admin', 'hr'), updateAttendanceRecord);
 router.put('/:id/verify-selfie', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), verifySelfie);
 router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr'), deleteAttendanceRecord);
