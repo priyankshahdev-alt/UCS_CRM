@@ -36,10 +36,29 @@ const ngoAudioFor = (ngoName) => {
   if (name.includes('ASHRAY') || name.includes('AFL')) return ashrayMp3;
   return ngoMp3;
 };
+const playSiAudioSrc = (src) => {
+  if (!siAudioUnlocked) {
+    siPendingAudioSrc = src;
+    return;
+  }
+  try {
+    const a = getSiAudio(src);
+    if (a) {
+      a.muted = false;
+      a.volume = 1;
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch { /* ignore */ }
+};
 const warmupSiAudio = () => {
   if (siAudioUnlocked) return;
   siAudioUnlocked = true;
+  const pending = siPendingAudioSrc;
+  siPendingAudioSrc = null;
   for (const src of [beingMp3, mannMp3, ashrayMp3, ngoMp3]) {
+    if (src === pending) continue;
     const a = getSiAudio(src);
     if (!a) continue;
     try {
@@ -54,31 +73,14 @@ const warmupSiAudio = () => {
       }).catch(() => {});
     } catch { /* ignore */ }
   }
-  if (siPendingAudioSrc) {
-    const pending = siPendingAudioSrc;
-    siPendingAudioSrc = null;
-    setTimeout(() => playSiAudioSrc(pending), 0);
-  }
+  // Keep this synchronous: setTimeout would lose the browser's user gesture.
+  if (pending) playSiAudioSrc(pending);
 };
 if (typeof window !== 'undefined') {
   window.addEventListener('pointerdown', warmupSiAudio, { once: false, passive: true });
   window.addEventListener('keydown', warmupSiAudio, { once: false });
   window.addEventListener('touchstart', warmupSiAudio, { once: false, passive: true });
 }
-const playSiAudioSrc = (src) => {
-  if (!siAudioUnlocked) {
-    siPendingAudioSrc = src;
-    return;
-  }
-  try {
-    const a = getSiAudio(src);
-    if (a) {
-      a.currentTime = 0;
-      const p = a.play();
-      if (p && p.catch) p.catch(() => {});
-    }
-  } catch { /* ignore */ }
-};
 const playNgoAudio = (ngoName) => {
   playSiAudioSrc(ngoAudioFor(ngoName));
 };
@@ -609,7 +611,7 @@ export default function SpecialIncentive() {
             <div
               key={inc.id}
               style={{ position: 'relative', cursor: 'pointer' }}
-              onClick={() => { setOpenModalId(inc.id); closePopup(); }}
+              onClick={() => { playNgoAudio(inc.ngo_name); setOpenModalId(inc.id); closePopup(); }}
             >
               <div
                 onClick={(e) => { e.stopPropagation(); dismissCard(inc.id); }}
