@@ -7,7 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { onFroAction, onFroBroadcast } from '../../lib/socket'
+import { onFroAction, onFroBroadcast, onFroTeamBroadcast } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
@@ -487,6 +487,12 @@ useEffect(() => onFroAction((action) => {
   const [froBroadcastMin, setFroBroadcastMin] = useState(false);
   const froBroadcastSeen = useRef(new Set());
   useEffect(() => onFroBroadcast((evt) => {
+    if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
+    froBroadcastSeen.current.add(evt.eventId);
+    setFroBroadcastMin(false);
+    setFroBroadcast(evt);
+  }), []);
+  useEffect(() => onFroTeamBroadcast((evt) => {
     if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
     froBroadcastSeen.current.add(evt.eventId);
     setFroBroadcastMin(false);
@@ -1048,18 +1054,41 @@ useEffect(() => onFroAction((action) => {
             <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
             <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>
             <div style={{ padding: '24px 24px 0', display: 'flex', alignItems: 'center', flexDirection: 'column', textAlign: 'center' }}>
-              {froBroadcast.photoUrl ? (
-                <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 150, height: 150, borderRadius: '50%', objectFit: 'cover', border: '5px solid #fff', boxShadow: '0 10px 28px rgba(99,102,241,.4)', display: 'block', background: '#f1f5f9' }} />
+              {froBroadcast.kind === 'team' ? (
+                <>
+                  <div style={{ width: 104, height: 104, borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ea580c)', color: '#fff', fontSize: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 28px rgba(245,158,11,.45)' }}>🏆</div>
+                  <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: 999 }}>Team Achievement</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 8 }}>
+                    {(froBroadcast.teams || []).map((t) => (
+                      <span key={t.name} style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', background: '#ffedd5', border: '1px solid #fed7aa', padding: '4px 10px', borderRadius: 999 }}>{t.name}</span>
+                    ))}
+                  </div>
+                </>
               ) : (
-                <div style={{ width: 150, height: 150, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 52, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
-                </div>
+                <>
+                  {froBroadcast.photoUrl ? (
+                    <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 150, height: 150, borderRadius: '50%', objectFit: 'cover', border: '5px solid #fff', boxShadow: '0 10px 28px rgba(99,102,241,.4)', display: 'block', background: '#f1f5f9' }} />
+                  ) : (
+                    <div style={{ width: 150, height: 150, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 52, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
+                </>
               )}
-              <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
-              <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
             </div>
             <div style={{ padding: '14px 24px 22px', textAlign: 'center' }}>
               <div style={{ fontSize: 14.5, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
+              {froBroadcast.kind === 'team' && (froBroadcast.teams || []).some(t => t.members.length) && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+                  {(froBroadcast.teams || []).filter(t => t.members.length).map((t) => (
+                    <div key={t.name} style={{ fontSize: 11.5, color: '#92400e', lineHeight: 1.45 }}>
+                      <span style={{ fontWeight: 800 }}>{t.name}:</span> {t.members.join(', ')}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-soft, #94a3b8)', fontWeight: 600 }}>Minimizes in 30s · moves to top-right</div>
               <button onClick={() => setFroBroadcast(null)} style={{ marginTop: 12, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--ink, #0f172a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
             </div>
@@ -1069,7 +1098,9 @@ useEffect(() => onFroAction((action) => {
       {froBroadcast && froBroadcastMin && (
         <div onClick={() => setFroBroadcastMin(false)} title="Expand announcement" style={{ position: 'fixed', top: 72, right: 16, zIndex: 99996, maxWidth: 320, width: 'calc(100vw - 32px)', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-bg, #fff)', boxShadow: '0 12px 32px rgba(0,0,0,.28)', border: '1px solid var(--line, #e2e8f0)', cursor: 'pointer', animation: 'fro-bc-slide .3s ease' }}>
           <style>{'@keyframes fro-bc-slide { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes fro-bc-dismiss { from { width: 100%; } to { width: 0%; } }'}</style>
-          {froBroadcast.photoUrl ? (
+          {froBroadcast.kind === 'team' ? (
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ea580c)', color: '#fff', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🏆</div>
+          ) : froBroadcast.photoUrl ? (
             <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, background: '#f1f5f9' }} />
           ) : (
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1077,7 +1108,7 @@ useEffect(() => onFroAction((action) => {
             </div>
           )}
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.workerName || 'FRO'}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.kind === 'team' ? 'Team Achievement · ' + (froBroadcast.teams || []).map(t => t.name).join(' + ') : (froBroadcast.workerName || 'FRO')}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{froBroadcast.text || ''}</div>
             <div style={{ marginTop: 6, height: 3, borderRadius: 99, background: '#eef2f7', overflow: 'hidden' }}>
               <span style={{ display: 'block', height: '100%', background: '#8b5cf6', animation: 'fro-bc-dismiss 60s linear forwards' }} />

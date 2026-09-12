@@ -274,6 +274,100 @@ export const sendFroBroadcast = async (req, res) => {
   }
 };
 
+// One-shot team congratulations. Accounts picks one or more collection teams in
+// a modal; the backend looks up their active member names and has Groq write a
+// warm congratulatory message naming the teams and members. Broadcast live over
+// the socket to role:fro as a Team Achievement popup (same dedupe/expiry rules
+// as the FRO announcement). Nothing is persisted.
+const generateTeamCongratulation = async (teamList) => {
+  const teamLines = teamList
+    .map((t) => `- ${t.name}${t.members.length ? ': ' + t.members.join(', ') : ''}`)
+    .join('\n');
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const prompt = [
+        'You are a supervisor congratulating collection teams on an achievement.',
+        'Here are the teams and their member names:',
+        '',
+        teamLines,
+        '',
+        'Write ONE short congratulatory message of at most 2 lines (about 12-15 words).',
+        'Mention the team names. Keep it punchy and warm.',
+        'Do not list members. Do not invent amounts, dates or specific accomplishments.',
+        'Do not use markdown or headings.',
+      ].join('\n');
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You return only the congratulatory message as plain text, at most 2 short lines. No markdown, no quotes, no commentary.' },
+          { role: 'user', content: prompt },
+        ],
+        model: FRO_BROADCAST_MODEL,
+        max_tokens: 80,
+        temperature: 0.7,
+      });
+      const out = String(completion.choices?.[0]?.message?.content || '')
+        .replace(/^[\s"'`]+|[\s"'`]+$/g, '')
+        .trim();
+      if (out) return out;
+    } catch (e) {
+      console.error('Team congratulation generation failed:', e.message);
+    }
+  }
+  const names = teamList.map((t) => t.name).join(', ');
+  return `🎉 Congratulations ${names}! Outstanding teamwork — keep shining!`;
+};
+
+export const sendFroTeamBroadcast = async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.teams) ? req.body.teams : [];
+    const teams = [...new Set(raw.map((t) => String(t || '').trim().toUpperCase()).filter(Boolean))];
+    if (!teams.length) return res.status(400).json({ message: 'Select at least one team' });
+
+    const { rows: memberRows, error: memberErr } = await db._pool.query(
+      `SELECT name, team FROM workers
+       WHERE COALESCE(is_active, true) = true
+         AND team IS NOT NULL
+         AND btrim(team) <> ''
+         AND team = ANY($1)
+       ORDER BY team, name`,
+      [teams]
+    );
+    if (memberErr) throw memberErr;
+
+    const byTeam = new Map();
+    for (const r of memberRows || []) {
+      const key = String(r.team).trim().toUpperCase();
+      const entry = byTeam.get(key) || { name: key, members: [] };
+      if (r.name) entry.members.push(r.name.trim());
+      byTeam.set(key, entry);
+    }
+    const teamList = teams.map((t) => byTeam.get(t) || { name: t, members: [] });
+
+    const text = await generateTeamCongratulation(teamList);
+
+    const { rows: froRows, error: froErr } = await db._pool.query(
+      `SELECT id FROM workers
+       WHERE lower(btrim(coalesce(department, ''))) = 'fro'
+         AND COALESCE(is_active, true) = true`
+    );
+    if (froErr) throw froErr;
+    const count = (froRows || []).length;
+
+    const payload = {
+      kind: 'team',
+      eventId: `fro-tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      teams: teamList,
+      text,
+      sentAt: new Date().toISOString(),
+    };
+    emitRealtime('fro:team-broadcast', payload, 'role:fro');
+
+    return res.json({ count, data: payload });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const sendTestNotification = async (req, res) => {
   try {
     const { worker_id } = req.body;
