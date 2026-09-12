@@ -90,6 +90,7 @@ export default function LeadAudit() {
 
   return (
     <>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
       <SectionTitle>Collections</SectionTitle>
           {collectionKeys.map(key => {
             const c = NGO_COLLECTION[key];
@@ -113,6 +114,7 @@ export default function LeadAudit() {
           <div style={{ height: 1, background: '#eef1f6' }} />
           <div style={{ padding: '12px 18px' }}>{filterBar}</div>
         </div>
+      </div>
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
         <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
           <div style={{ alignSelf: 'flex-start' }}>
