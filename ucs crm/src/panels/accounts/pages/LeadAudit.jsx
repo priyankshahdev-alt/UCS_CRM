@@ -202,64 +202,53 @@ return (
             {receiptNums === null ? receiptSkeleton : (receiptRows.length ? receiptRows : null)}
           </div>
         </div>
-        <div className="top-summary-right">
-          <div className="top-summary-pair">
-            <div className="top-summary-card">
-              <SectionTitle><Sigma size={15} strokeWidth={2.4} /> Suspense</SectionTitle>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseRows}</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151' }}>TOTAL</span>
-                  <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.all?.amount || 0)}</span>
-                </div>
-              </div>
-            </div>
-            <div className="top-summary-card">
-              <SectionTitle>Collections</SectionTitle>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {collectionRows}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151', flex: 1, whiteSpace: 'nowrap' }}>TOTAL</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                    <div style={{ textAlign: 'center', minWidth: 64 }}>
-                      <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
-                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{colTotal('today_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 40, height: 11, borderRadius: 6 }} /> : currency(colTotal('today_total') || 0)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center', minWidth: 80 }}>
-                      <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
-                      <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{colTotal('month_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(colTotal('month_total') || 0)}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+        <div className="top-summary-card">
+          <SectionTitle><Sigma size={15} strokeWidth={2.4} /> Suspense</SectionTitle>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '7px 10px', borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#8a93a3' }}>Total Suspense</span>
+            <span style={{ textAlign: 'right' }}>
+              <strong style={{ display: 'block', color: '#111827', fontSize: 18, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 30, height: 18, borderRadius: 5 }} /> : audit.combo?.all?.count || 0}</strong>
+              <small style={{ color: '#64748b', fontSize: 9.5, fontWeight: 600 }}>{summaryLoading ? 'Loading...' : `${audit.combo?.all?.count || 0} leads \u00B7 ${currency(audit.combo?.all?.amount || 0)}`}</small>
+            </span>
           </div>
-          <div className="top-summary-space">
-            <div className="top-summary-kpi">
-              <div className="top-summary-kpi-label">Suspense</div>
-              <div className="top-summary-kpi-value">
-                {summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 42, height: 30, borderRadius: 7 }} /> : (audit.combo?.all?.count || 0)}
-              </div>
-              <div className="top-summary-kpi-sub">
-                {summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 132, height: 12, borderRadius: 5 }} /> : `${audit.combo?.all?.count || 0} leads \u00B7 ${currency(audit.combo?.all?.amount || 0)}`}
-              </div>
-            </div>
-            <div className="top-summary-kpi">
-              <div className="top-summary-kpi-label">Total Collection</div>
-              <div className="top-summary-kpi-value">
-                {collections === null ? <span className="sk" style={{ display: 'inline-block', width: 118, height: 30, borderRadius: 7 }} /> : currency(colTotal('month_total') || 0)}
-              </div>
-              <div className="top-summary-kpi-sub">
-                {collections === null ? <span className="sk" style={{ display: 'inline-block', width: 112, height: 12, borderRadius: 5 }} /> : `Today ${currency(colTotal('today_total') || 0)}`}
-              </div>
-            </div>
-          </div>
-          <div className="dash-actions">
-            <div className="dash-actions-filters">{filterBar}</div>
-            <button className="dash-action-btn" onClick={() => {}} title="Work">WORK</button>
-            <button className="dash-action-btn dash-action-alert" onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs">{alertBusy ? 'SENT ✓' : '🔔 ALERT'}</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseRows}</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8, marginTop: 10 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151' }}>TOTAL</span>
+            <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.all?.amount || 0)}</span>
           </div>
         </div>
+        <div className="top-summary-card">
+          <SectionTitle>Collections</SectionTitle>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '7px 10px', borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#8a93a3' }}>Total Collection</span>
+            <span style={{ textAlign: 'right' }}>
+              <strong style={{ display: 'block', color: '#111827', fontSize: 16, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 92, height: 16, borderRadius: 5 }} /> : currency(colTotal('month_total') || 0)}</strong>
+              <small style={{ color: '#64748b', fontSize: 9.5, fontWeight: 600 }}>{collections === null ? 'Loading...' : `Today ${currency(colTotal('today_total') || 0)}`}</small>
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {collectionRows}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151', flex: 1, whiteSpace: 'nowrap' }}>TOTAL</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                <div style={{ textAlign: 'center', minWidth: 64 }}>
+                  <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
+                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{colTotal('today_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 40, height: 11, borderRadius: 6 }} /> : currency(colTotal('today_total') || 0)}</div>
+                </div>
+                <div style={{ textAlign: 'center', minWidth: 80 }}>
+                  <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
+                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{colTotal('month_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(colTotal('month_total') || 0)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="dash-actions">
+        <div className="dash-actions-filters">{filterBar}</div>
+        <button className="dash-action-btn" onClick={() => {}} title="Work">WORK</button>
+        <button className="dash-action-btn dash-action-alert" onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs">{alertBusy ? 'SENT ✓' : '🔔 ALERT'}</button>
       </div>
 
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
