@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import WelcomeLetter from './WelcomeLetter'
 import Template1 from './Template1'
 import Template2 from './Template2'
 import Template3 from './Template3'
@@ -30,6 +31,7 @@ export default function PrintForms({ data, onClose }) {
         body { margin: 0; padding: 0; background: #fff; }
         .print-page { page-break-after: always; }
         .t1 { margin-top: 40px !important; }
+        .wl { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         .t2 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         .t4 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         .t5 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
@@ -69,6 +71,7 @@ export default function PrintForms({ data, onClose }) {
         </div>
       </div>
       <div ref={ref}>
+        <WelcomeLetter personal={data.personal} ngoName={data.ngoName} ngoCode={data.ngoCode} />
         <Template1 personal={data.personal} education={data.education} family={data.family || []} organizations={data.organizations || []} photo_url={data.photo_url || ''} />
         <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
