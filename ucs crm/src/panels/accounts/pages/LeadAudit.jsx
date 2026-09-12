@@ -91,8 +91,7 @@ export default function LeadAudit() {
   return (
     <>
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
-        <>
-          <SectionTitle>Collections</SectionTitle>
+      <SectionTitle>Collections</SectionTitle>
           {collectionKeys.map(key => {
             const c = NGO_COLLECTION[key];
             const item = collections?.find(x => x.project_id === key);
@@ -108,7 +107,6 @@ export default function LeadAudit() {
             <span style={{ fontSize: 10, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Collection</span>
             <strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong>
           </div>
-        </>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
@@ -117,7 +115,6 @@ export default function LeadAudit() {
           <div style={{ padding: '12px 18px' }}>{filterBar}</div>
         </div>
       </div>
-
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
         <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
           <div style={{ alignSelf: 'flex-start' }}>
