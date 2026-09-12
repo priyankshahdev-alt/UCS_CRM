@@ -11,11 +11,10 @@ function SectionTitle({ children }) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
 
-const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
-const NGO_RECEIPT = {
-  bsct: { bg: '#d4e4ff', accent: '#1e40af' },
-  mann: { bg: '#ecc9df', accent: '#be185d' },
-  aflf: { bg: '#c8ecd4', accent: '#166534' },
+const NGO_COLLECTION = {
+  bsct: { label: 'BSCT', bg: '#d4e4ff', accent: '#1e40af' },
+  aflf: { label: 'AFLF', bg: '#c8ecd4', accent: '#166534' },
+  mann: { label: 'MANN', bg: '#ecc9df', accent: '#be185d' },
 };
 
 export default function LeadAudit() {
@@ -29,14 +28,14 @@ export default function LeadAudit() {
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
-  const [receiptNums, setReceiptNums] = useState(null);
+  const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiGet('/accounts/receipts/numbers')
-      .then(d => { if (!cancelled) setReceiptNums(d || []); })
-      .catch(() => { if (!cancelled) setReceiptNums([]); });
+    apiGet('/accounts/collections')
+      .then(d => { if (!cancelled) setCollections(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setCollections([]); });
     return () => { cancelled = true; };
   }, [audit]);
 
@@ -67,6 +66,8 @@ export default function LeadAudit() {
 
   const ready = !!(selectedLead && selectedEntry && !matching);
   const isPanelOpen = !!(detailView || entryDetailView);
+  const collectionKeys = ['bsct', 'aflf', 'mann'];
+  const collectionTotal = field => collections === null ? null : collectionKeys.reduce((sum, key) => sum + Number(collections.find(x => x.project_id === key)?.[field] || 0), 0);
 
   const filterBar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -89,32 +90,24 @@ export default function LeadAudit() {
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch' }}>
-        <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
-          {receiptNums === null ? (
-            [0, 1, 2].map(i => (
-              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
-                </div>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        <div style={{ width: 'min(360px, 100%)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, padding: 14, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)' }}>
+          <SectionTitle>Collections</SectionTitle>
+          {collectionKeys.map(key => {
+            const c = NGO_COLLECTION[key];
+            const item = collections?.find(x => x.project_id === key);
+            return <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 10px', border: '1px solid ' + c.accent + '44', borderRadius: 11, background: c.bg }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: c.accent, letterSpacing: '.05em' }}>{c.label}</span>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ textAlign: 'right' }}><small style={{ display: 'block', color: c.accent, opacity: .7, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Today</small><strong style={{ fontSize: 12, color: '#111827' }}>{collections === null ? '...' : currency(item?.today_total || 0)}</strong></div>
+                <div style={{ textAlign: 'right' }}><small style={{ display: 'block', color: c.accent, opacity: .7, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Month</small><strong style={{ fontSize: 12, color: c.accent }}>{collections === null ? '...' : currency(item?.month_total || 0)}</strong></div>
               </div>
-            ))
-          ) : receiptNums && receiptNums.length > 0 ? (
-            receiptNums.map(n => {
-              const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
-              return (
-                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                    <div style={{ textAlign: 'center' }}><div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div><div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div></div>
-                    <div style={{ textAlign: 'center' }}><div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div><div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div></div>
-                  </div>
-                </div>
-              );
-            })
-          ) : null}
+            </div>;
+          })}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2, padding: '10px', borderRadius: 11, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Collection</span>
+            <strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong>
+          </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
