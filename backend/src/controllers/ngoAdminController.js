@@ -4685,12 +4685,15 @@ export const getTLDashboard = async (req, res) => {
     if (isNaN(rangeEnd.valueOf())) rangeEnd = todayEnd;
 
     // 1. Live status counts (fresh rows only; stale rows count as offline)
-    const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since').in('worker_id', workerIds);
+    const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name').in('worker_id', workerIds);
     const liveFreshCutoff = new Date(now.getTime() - 2 * 60 * 1000);
     const isLiveFresh = (s) => s.updated_at && new Date(s.updated_at) >= liveFreshCutoff;
-    const calling = (liveStatus || []).filter(s => s.status === 'on_call' && isLiveFresh(s)).length;
-    const idle = (liveStatus || []).filter(s => s.status === 'idle' && isLiveFresh(s)).length;
-    const online = (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s)).length;
+    // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
+    // NOT present, so it never counts as calling/idle/online (it counts offline).
+    const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
+    const calling = (liveStatus || []).filter(s => s.status === 'on_call' && isLiveFresh(s) && !isWorkAs(s)).length;
+    const idle = (liveStatus || []).filter(s => s.status === 'idle' && isLiveFresh(s) && !isWorkAs(s)).length;
+    const online = (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
     const offline = froWorkers.length - calling - idle - online;
 
     // 2. Call analytics for the selected range
@@ -4713,25 +4716,42 @@ export const getTLDashboard = async (req, res) => {
     const unclassified = (callLogs || []).filter(l => classifyLogSide(l) === 'unclassified').length;
     const interested = (callLogs || []).filter(l => interestedStatuses.has(l.disposition_detail)).length;
     const donations = (callLogs || []).filter(l => l.accounts_status === 'verified').length;
-    const receivedAmount = (callLogs || []).filter(l => l.accounts_status === 'verified').reduce((sum, l) => sum + parseFloat(l.amount_collected || 0), 0);
     const connectionRate = totalCalls > 0 ? Math.round((connected / totalCalls) * 100) : 0;
 
-    // Per-NGO collection split (Collection card) across all accessible NGOs in the active range
+    // Per-NGO collection split (Collection card) — attributed by RECEIPT DATE
+    // via the receipts table (receipts.log_id -> fro_donor_logs -> fro_assignments.ngo_id),
+    // matching the Accounts panel totals instead of the call-log timestamp.
+    const rangeFromDay = from && String(from).length <= 10 ? String(from).slice(0, 10) : todayStart.toISOString().slice(0, 10);
+    const rangeToDay = to && String(to).length <= 10 ? String(to).slice(0, 10) : todayEnd.toISOString().slice(0, 10);
     const ngoNameById = {};
     for (const a of access) ngoNameById[String(a.ngo_id)] = a.ngo_name;
     const perNgoCollectionMap = {};
-    for (const l of callLogs || []) {
-      if (l.accounts_status !== 'verified') continue;
-      const fa = l.fro_assignments;
-      const nid = Array.isArray(fa) ? fa?.[0]?.ngo_id : (fa?.ngo_id ?? fa?.[0]?.ngo_id);
+    const recParams = [rangeFromDay, rangeToDay, ngoIds];
+    let recSql = `SELECT fa.ngo_id, COALESCE(SUM(r.amount),0) AS total
+                  FROM receipts r
+                  LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+                  LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+                  WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
+                    AND r.receipt_date < (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
+                    AND fa.ngo_id = ANY($3)`;
+    if (fro_id) {
+      recParams.push(fro_id);
+      recSql += ` AND l.fro_worker_id = $${recParams.length}`;
+    }
+    recSql += ` GROUP BY fa.ngo_id`;
+    const receiptRows = await sql(recSql, recParams);
+    for (const row of receiptRows) {
+      const nid = row.ngo_id;
       if (nid == null) continue;
-      perNgoCollectionMap[String(nid)] = (perNgoCollectionMap[String(nid)] || 0) + parseFloat(l.amount_collected || 0);
+      perNgoCollectionMap[String(nid)] = (perNgoCollectionMap[String(nid)] || 0) + parseFloat(row.total || 0);
     }
     const collections_per_ngo = (origNgoIds && origNgoIds.length ? origNgoIds : ngoIds).map(nid => ({
       ngo_id: nid,
       ngo_name: ngoNameById[String(nid)] || `NGO-${nid}`,
       amount: Math.round(perNgoCollectionMap[String(nid)] || 0),
     }));
+    // Collection card headline: sum of the per-NGO receipt-date totals across the active range.
+    const receivedAmount = Object.values(perNgoCollectionMap).reduce((s, a) => s + (a || 0), 0);
 
     // Connected / non-connected reason breakdowns
     const connectedBreakdownMap = {};
@@ -4980,9 +5000,13 @@ export const getTLDashboard = async (req, res) => {
       const ls = liveStatusMap[w.id] || {};
       const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
       const lsFresh = ls.updated_at && (now - new Date(ls.updated_at)) <= 2 * 60 * 1000;
+      // Work-as: the row's heartbeat belongs to another operator (abc) covering
+      // this FRO. The listed FRO (cbd) is not present — show offline, but let the
+      // UI annotate "abc work as cbd" via work_as_operator_name.
+      const workAsName = (lsFresh && ls.work_as_operator_id && ls.work_as_operator_name) ? ls.work_as_operator_name : null;
       // True current idle streak while the FRO panel's 2-minute call-idle
       // detector has them flagged idle (idle_since = streak start).
-      const idleMinutes = (ls.status === 'idle' && lsFresh && ls.idle_since)
+      const idleMinutes = (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
         ? Math.floor((now - new Date(ls.idle_since)) / 60000)
         : 0;
 
@@ -5030,7 +5054,8 @@ export const getTLDashboard = async (req, res) => {
         targetPct: targetPct,
         target_amount: targetAmt,
         target_pct: targetPct,
-        status: (ls.status && lsFresh) ? ls.status : 'offline',
+        status: workAsName ? 'offline' : ((ls.status && lsFresh) ? ls.status : 'offline'),
+        work_as_operator_name: workAsName,
         idleMinutes: idleMinutes,
         claims_pending: claims.pending,
         claims_verified: claims.verified,
@@ -5053,12 +5078,14 @@ export const getTLDashboard = async (req, res) => {
     // 8. Idle Alerts (15 min no activity)
     const { data: idleFros } = await db
       .from('fro_live_status')
-      .select('worker_id, status, updated_at, today_talk_seconds, today_idle_seconds')
+      .select('worker_id, status, updated_at, today_talk_seconds, today_idle_seconds, work_as_operator_id')
       .in('worker_id', workerIds)
       .in('status', ['online', 'idle']);
     
+    // Rows being worked-as are excluded: the listed FRO is covered, not idle.
     const idleAlerts = (idleFros || [])
       .filter(f => {
+        if (f.work_as_operator_id) return false;
         const lastUpdate = new Date(f.updated_at);
         return (now - lastUpdate) > 15 * 60 * 1000;
       })
@@ -5080,6 +5107,7 @@ export const getTLDashboard = async (req, res) => {
     //     productivity-alert Notify buttons.
     const callIdleAlerts = (idleFros || [])
       .filter(f => {
+        if (f.work_as_operator_id) return false;
         const lsFresh = f.updated_at && (now - new Date(f.updated_at)) <= 2 * 60 * 1000;
         const hasIdleSince = f.idle_since != null;
         // New detector: status idle + idle_since set + heartbeat fresh (<=2 min)
@@ -5518,7 +5546,7 @@ export const getIdleAlerts = async (req, res) => {
     const now = new Date();
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('worker_id, status, updated_at, idle_since')
+      .select('worker_id, status, updated_at, idle_since, work_as_operator_id')
       .in('worker_id', workerIds)
       .in('status', ['online', 'idle']);
 
@@ -5528,6 +5556,7 @@ export const getIdleAlerts = async (req, res) => {
 
     const idleAlerts = (liveStatus || [])
       .filter(f => {
+        if (f.work_as_operator_id) return false;
         const isFresh = f.updated_at && new Date(f.updated_at) >= fifteenMinAgo;
         const hasIdleSince = f.idle_since != null;
         const fromNewDetector = f.status === 'idle' && hasIdleSince && isFresh;

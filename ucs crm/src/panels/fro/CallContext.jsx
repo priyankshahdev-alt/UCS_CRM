@@ -221,9 +221,9 @@ export function CallProvider({ children, userId }) {
     }).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
-  // ---------- Call-idle engine (2 min) ----------
+  // ---------- Call-idle engine (3 min) ----------
   const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
-    callIdleThreshold: 2 * 60 * 1000,
+    callIdleThreshold: 3 * 60 * 1000,
     // Breaks, live calls and open donor views are exempt from idle detection
     isExempt: () => onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
     onCallIdle: (sinceIso) => {

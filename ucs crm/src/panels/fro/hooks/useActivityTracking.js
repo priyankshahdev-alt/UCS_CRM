@@ -8,7 +8,7 @@ export function useActivityTracking(userId, options = {}) {
     onIdle,
     onActive,
     onHeartbeat,
-    callIdleThreshold = 2 * 60 * 1000, // 2 minutes (call-based idle)
+    callIdleThreshold = 3 * 60 * 1000, // 3 minutes (call-based idle)
     onCallIdle,
     onCallResume,
     isExempt, // () => boolean — true while on a call, on break, or in a donor view
@@ -47,7 +47,7 @@ export function useActivityTracking(userId, options = {}) {
     }, idleThreshold);
   }, [idleThreshold]);
 
-  // ---------- Call-idle engine (2 min) ----------
+  // ---------- Call-idle engine (3 min) ----------
   // Tracks time since the last call event (call start/end, disposition save,
   // donor view open/close, break end). Mouse/keyboard DO NOT reset this.
   const lastCallActivityRef = useRef(Date.now());

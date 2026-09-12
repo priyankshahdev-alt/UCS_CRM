@@ -29,20 +29,32 @@ export const getSlabById = async (id) => {
   return data;
 };
 
-export const createSlab = async ({ min_amount, max_amount, incentive_amount }) => {
+export const createSlab = async ({
+  min_amount,
+  max_amount,
+  incentive_amount,
+  min_lead_amount = 300,
+  lead_rate = 20,
+}) => {
   const { data, error } = await db
     .from('incentive_slabs')
-    .insert([{ min_amount, max_amount, incentive_amount, is_active: true }])
+    .insert([{ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, is_active: true }])
     .select()
     .single();
   if (error) throw error;
   return data;
 };
 
-export const updateSlab = async (id, { min_amount, max_amount, incentive_amount }) => {
+export const updateSlab = async (id, {
+  min_amount,
+  max_amount,
+  incentive_amount,
+  min_lead_amount = 300,
+  lead_rate = 20,
+}) => {
   const { data, error } = await db
     .from('incentive_slabs')
-    .update({ min_amount, max_amount, incentive_amount, updated_at: new Date().toISOString() })
+    .update({ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();

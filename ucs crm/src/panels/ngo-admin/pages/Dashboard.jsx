@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
 import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
@@ -37,6 +37,21 @@ const CONNECTED_STATUS_COLUMNS = [
   { key: 'not_interested_np', label: 'Not Inter / Disc / NP', color: '#16a34a' },
   { key: 'dnd', label: 'DND', color: '#16a34a' },
 ];
+
+const STATUS_SHORT = {
+  scheduled: 'FU',
+  callback: 'C/B',
+  office_program_visit: 'Off/Prog Visit',
+  promise_pay_wa_email: 'P-Pay/WA/Email',
+  not_interested_np: 'NI/Disc/NP',
+  dnd: 'DND',
+};
+
+// FRO hourly call target: 200 connected calls per FRO per day over a 12-hr
+// (09:00–21:00) working window => ~17 connected calls/hr.
+const HOURS_IN_WORKDAY = 12;
+const DAILY_CONNECTED_TARGET = 200;
+const HOURLY_CONNECTED_TARGET = Math.round(DAILY_CONNECTED_TARGET / HOURS_IN_WORKDAY);
 
 const MERGED_STATUS_GROUPS = {
   office_program_visit: ['office_visit_scheduled', 'program_visit_scheduled', 'office_program_visit'],
@@ -1027,7 +1042,7 @@ export default function Dashboard() {
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
   const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
   const [froSearch, setFroSearch] = useState('');
-  const [perfTab, setPerfTab] = useState('connected');
+  const [perfTab, setPerfTab] = useState('online');
   const [selectedFro, setSelectedFro] = useState(null);
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
   const [hourlyExportTo, setHourlyExportTo] = useState(() => toIstDate());
@@ -1037,6 +1052,11 @@ export default function Dashboard() {
   const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [showAllIdleAlerts, setShowAllIdleAlerts] = useState(false);
+  // FRO hourly table: which FRO blocks are expanded + whether all are revealed
+  const [hourlyExpanded, setHourlyExpanded] = useState(() => new Set());
+  const [hourlyShowAll, setHourlyShowAll] = useState(false);
+  const hourlySeedKeyRef = useRef('');
+  const hourlySeedLenRef = useRef(-1);
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1125,37 +1145,6 @@ export default function Dashboard() {
     return t;
   }, [hourlyList]);
 
-  const hourlyAlerts = useMemo(() => {
-    const byFro = {};
-    for (const r of hourlyFroRows) {
-      if (!r.fro_worker_id) continue;
-      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, slots: Array(12).fill(0) };
-      const f = byFro[r.fro_worker_id];
-      f.calls += r.calls || 0;
-      f.connected += r.connected || 0;
-      const idx = parseInt(r.hour, 10) - 9;
-      if (idx >= 0 && idx < 12) f.slots[idx] = r.calls || 0;
-    }
-    const isToday = hourlyDate === toIstDate();
-    const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
-    // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
-    const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
-    const idle = [];
-    const noCalls = [];
-    for (const f of Object.values(byFro)) {
-      if (f.calls > 0) {
-        let idleSlots = 0;
-        for (let i = 0; i < elapsed; i++) if (f.slots[i] === 0) idleSlots++;
-        if (idleSlots > 0) idle.push({ ...f, idleSlots });
-      } else {
-        noCalls.push(f);
-      }
-    }
-    idle.sort((a, b) => b.idleSlots - a.idleSlots || a.name.localeCompare(b.name));
-    noCalls.sort((a, b) => a.name.localeCompare(b.name));
-    return { idle, noCalls, elapsed, isToday };
-  }, [hourlyFroRows, hourlyDate]);
-
   const todayStr = new Date().toISOString().slice(0,10);
   const monthStart = new Date().toISOString().slice(0,7) + '-01';
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0,10);
@@ -1189,16 +1178,121 @@ export default function Dashboard() {
   })), [accessibleNgos]);
 
   const [tlData, setTlData] = useState(null);
+
+  // Derived: day totals + per-FRO productivity alerts for the selected hourly date
+  const hourlyAlerts = useMemo(() => {
+    const workAsNameById = new Map();
+    for (const pf of (tlData?.performance || [])) {
+      if (pf.work_as_operator_name && pf.fro_id) workAsNameById.set(pf.fro_id, pf.work_as_operator_name);
+    }
+    const byFro = {};
+    for (const r of hourlyFroRows) {
+      if (!r.fro_worker_id) continue;
+      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, slots: Array(12).fill(0), workAsName: workAsNameById.get(r.fro_worker_id) || null };
+      const f = byFro[r.fro_worker_id];
+      f.calls += r.calls || 0;
+      f.connected += r.connected || 0;
+      const idx = parseInt(r.hour, 10) - 9;
+      if (idx >= 0 && idx < 12) f.slots[idx] = r.calls || 0;
+    }
+    const isToday = hourlyDate === toIstDate();
+    const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
+    // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
+    const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
+    const idle = [];
+    const noCalls = [];
+    for (const f of Object.values(byFro)) {
+      if (f.calls > 0) {
+        let idleSlots = 0;
+        for (let i = 0; i < elapsed; i++) if (f.slots[i] === 0) idleSlots++;
+        if (idleSlots > 0) idle.push({ ...f, idleSlots });
+      } else {
+        noCalls.push(f);
+      }
+    }
+    idle.sort((a, b) => b.idleSlots - a.idleSlots || a.name.localeCompare(b.name));
+    noCalls.sort((a, b) => a.name.localeCompare(b.name));
+    return { idle, noCalls, elapsed, isToday };
+  }, [hourlyFroRows, hourlyDate, tlData]);
+
+  // FRO × hour groups for the hourly performance table — active (online/on-call/idle)
+  // FROs only, sorted low-performer-first; future hours are excluded from totals today.
+  const hourlyGroups = useMemo(() => {
+    const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
+    const dayIST = toIstDate();
+    const isToday = hourlyDate === dayIST;
+    const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
+    const hourIdxOf = (r) => {
+      const m = /^(\d{2}):/.exec(r.hour || '');
+      return m ? parseInt(m[1], 10) - 9 : -1;
+    };
+    const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
+
+    // Live-status filter: only show FROs currently online / on a call / idle.
+    const activeIds = tlData ? new Set(
+      (tlData.performance || [])
+        .filter(p => ['online', 'on_call', 'idle'].includes(p.status))
+        .map(p => p.fro_id)
+    ) : null;
+
+    const map = {};
+    for (const r of hourlyFroRows) {
+      if (activeIds && !activeIds.has(r.fro_worker_id)) continue;
+      const id = r.fro_worker_id ?? r.fro_name ?? 'Unknown';
+      if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, avgCalls: 0 };
+      map[id].rows.push(r);
+    }
+    const groups = Object.values(map).map(g => {
+      g.rows.sort((a, b) => (a.hour || '').localeCompare(b.hour || ''));
+      g.connected = 0; g.nonConnected = 0; g.cells = 0;
+      for (const r of g.rows) {
+        if (isFuture(r)) continue;
+        g.connected += r.connected || 0;
+        g.nonConnected += r.non_connected || 0;
+        g.cells++;
+      }
+      g.avgCalls = g.cells > 0 ? Math.round(((g.connected + g.nonConnected) / g.cells) * 10) / 10 : 0;
+      return g;
+    });
+    groups.sort((a, b) => (a.connected - b.connected) || a.name.localeCompare(b.name));
+    return groups;
+  }, [hourlyFroRows, tlData, hourlyDate]);
+
+  const hourlyTotalsCalc = useMemo(() => {
+    const totalConn = hourlyGroups.reduce((s, g) => s + g.connected, 0);
+    const totalNon = hourlyGroups.reduce((s, g) => s + g.nonConnected, 0);
+    const totalCells = hourlyGroups.reduce((s, g) => s + g.cells, 0);
+    return {
+      totalConn,
+      totalNon,
+      totalCells,
+      overallAvg: totalCells > 0 ? (totalConn + totalNon) / totalCells : 0,
+    };
+  }, [hourlyGroups]);
+
+  // Seed the default "top 3 expanded" when the date/NGO changes, or the first time
+  // data arrives after mount. Subsequent live polls must NOT re-collapse user state.
+  useEffect(() => {
+    const key = `${hourlyDate}|${selectedNgoId}`;
+    const changedKey = hourlySeedKeyRef.current !== key;
+    const firstData = hourlySeedLenRef.current === 0 && hourlyGroups.length > 0;
+    if (changedKey) {
+      hourlySeedKeyRef.current = key;
+      hourlySeedLenRef.current = hourlyGroups.length;
+      setHourlyShowAll(false);
+      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
+    } else if (firstData) {
+      hourlySeedLenRef.current = hourlyGroups.length;
+      setHourlyShowAll(false);
+      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hourlyDate, selectedNgoId, hourlyGroups.length]);
+
   // Telecaller performance rows (search-filtered) + tab totals for the redesign
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
     !froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase())
   ), [tlData, froSearch]);
-  const perfTotals = useMemo(() => perfRows.reduce((a, p) => {
-    a.calls += p.calls_range || 0;
-    a.connected += p.connected_range || 0;
-    a.nonConnected += p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
-    return a;
-  }, { calls: 0, connected: 0, nonConnected: 0 }), [perfRows]);
   const [followups, setFollowups] = useState([]);
   const [followupTab, setFollowupTab] = useState('overdue');
   const [followupLoading, setFollowupLoading] = useState(false);
@@ -2167,68 +2261,28 @@ export default function Dashboard() {
           padding: '3px 10px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22`,
         });
 
-        const dispTable = (title, iconName, iconColor, cols, statusesKey, totalKey) => {
-          const maxPerCol = cols.map(c => Math.max(...hourlyList.map(h => (h[statusesKey] || {})[c.key] || 0), 1));
-          const colTotals = cols.map(c => hourlyList.reduce((t, h) => t + ((h[statusesKey] || {})[c.key] || 0), 0));
-          const grandTotal = hourlyList.reduce((t, h) => t + (h[totalKey] || 0), 0);
-          const thBase = { padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', background: 'var(--bg)' };
-          return (
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-head">
-                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: iconColor }}>{iconName}</span> {title}
-                </h3>
-                <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>{hourlyDate}</span>
-              </div>
-              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 340, overflowY: 'auto' }}>
-                {hourlyLoading ? (
-                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
-                ) : hourlyTotals.calls === 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No calls recorded on this date</div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                      <tr>
-                        <th style={{ ...thBase, textAlign: 'left', color: 'var(--ink-soft)' }}>Hour</th>
-                        {cols.map(c => <th key={c.key} style={{ ...thBase, color: c.color, fontWeight: 700 }}>{c.label}</th>)}
-                        <th style={{ ...thBase, color: 'var(--ink)', fontWeight: 700, paddingRight: 12 }}>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {hourlyList.map(h => {
-                        const hasRow = (h.calls || 0) > 0;
-                        return (
-                          <tr key={h.hour} style={{ background: !hasRow ? '#fafafa' : 'transparent', borderBottom: '1px solid var(--line)' }}>
-                            <td style={{ padding: '6px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{h.hour}</td>
-                            {cols.map((c, i) => {
-                              const v = (h[statusesKey] || {})[c.key] || 0;
-                              const heat = v > 0 ? (c.color + Math.round(20 + 90 * Math.min(1, v / maxPerCol[i])).toString(16).padStart(2, '0')) : undefined;
-                              return (
-                                <td key={c.key} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: v > 0 ? c.color : 'var(--ink-soft)', background: heat }}>
-                                  {v > 0 ? v : '—'}
-                                </td>
-                              );
-                            })}
-                            <td style={{ padding: '6px 12px 6px 10px', textAlign: 'right', fontWeight: 700, color: (h[totalKey] || 0) > 0 ? iconColor : 'var(--ink-soft)' }}>{h[totalKey] || 0}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ borderTop: '2px solid var(--line)', background: 'var(--bg)' }}>
-                        <td style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Total</td>
-                        {colTotals.map((t, i) => (
-                          <td key={cols[i].key} style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: t > 0 ? cols[i].color : 'var(--ink-soft)' }}>{t > 0 ? t : '—'}</td>
-                        ))}
-                        <td style={{ padding: '8px 12px 8px 10px', textAlign: 'right', fontWeight: 800, color: iconColor }}>{grandTotal}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                )}
-              </div>
-            </div>
-          );
+        const dayIST = toIstDate();
+        const isToday = hourlyDate === dayIST;
+        const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
+        // how many working hours are in the past/bucketable from 09:00 IST
+        const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
+        const hourIdxOf = (r) => {
+          const m = /^(\d{2}):/.exec(r.hour || '');
+          return m ? parseInt(m[1], 10) - 9 : -1;
         };
+        const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
+        const connColor = (c) => (c >= HOURLY_CONNECTED_TARGET ? '#16a34a' : c >= 9 ? '#d97706' : '#dc2626');
+
+        const froGroups = hourlyGroups;
+        const totalConn = hourlyTotalsCalc.totalConn;
+        const totalNon = hourlyTotalsCalc.totalNon;
+        const overallAvg = hourlyTotalsCalc.overallAvg;
+        const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
+        const toggleFro = (id) => setHourlyExpanded(prev => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id); else next.add(id);
+          return next;
+        });
 
         // Compress idle slot indices into "09–12, 15–17" IST hour ranges
         const idleRangesOf = (f, elapsed) => {
@@ -2287,10 +2341,106 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Two side-by-side disposition tables (Connected / Non-Connected) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 16 }}>
-              {dispTable('Connected — by Disposition', '📞', '#16a34a', CONNECTED_STATUS_COLUMNS, 'connected_statuses', 'connected')}
-              {dispTable('Non-Connected — by Disposition', '📵', '#dc2626', NOT_CONNECTED_STATUS_COLUMNS, 'non_connected_statuses', 'non_connected')}
+            {/* Single FRO × hour performance table (low performer first) */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head">
+                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#16a34a' }}>📞</span> FRO Hourly Performance — Connected vs Target
+                </h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>{hourlyDate}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#f0fdf4', color: '#15803d' }}>target {DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr</span>
+                </div>
+              </div>
+              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+                {hourlyLoading ? (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
+                ) : hourlyTotals.calls === 0 && elapsedIdx < 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                ) : hourlyTotals.calls === 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No calls recorded on this date</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr>
+                        <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Name</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#3f4a38', background: 'var(--bg)', fontWeight: 700 }}>
+                          Conn Tgt
+                          <span style={{ display: 'block', fontSize: 8, color: 'var(--ink-soft)', fontWeight: 500 }}>of {DAILY_CONNECTED_TARGET}/day</span>
+                        </th>
+                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#16a34a', background: 'var(--bg)', fontWeight: 700 }}>Conn</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#dc2626', background: 'var(--bg)', fontWeight: 700 }}>Non-Conn</th>
+                        <th style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#7c3aed', background: 'var(--bg)', fontWeight: 700 }}>Avg Calls</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {froGroups.map((g, gi) => {
+                        if (!hourlyShowAll && gi >= 3) return null;
+                        const expanded = hourlyExpanded.has(g.id);
+                        let cumCalls = 0;
+                        const hourRows = g.rows.map((r, i) => {
+                          const fut = isFuture(r);
+                          const conn = r.connected || 0;
+                          const non = r.non_connected || 0;
+                          if (!fut) cumCalls += conn + non;
+                          const avg = fut ? null : Math.round((cumCalls / (i + 1)) * 10) / 10;
+                          return (
+                            <tr key={g.id + r.hour} style={{ borderBottom: '1px solid var(--line)', background: fut ? '#fafafa' : 'transparent' }}>
+                              <td style={{ padding: '6px 10px', fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)' }}>{g.name}</td>
+                              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: fut ? 'var(--ink-soft)' : 'var(--ink)' }}>{r.hour}</td>
+                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)' }}>{fut ? '—' : HOURLY_CONNECTED_TARGET}</td>
+                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: (fut || conn === 0) ? 'var(--ink-soft)' : connColor(conn) }}>{fut || conn === 0 ? '—' : conn}</td>
+                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: (fut || non === 0) ? 'var(--ink-soft)' : '#dc2626' }}>{fut || non === 0 ? '—' : non}</td>
+                              <td style={{ padding: '6px 12px 6px 8px', textAlign: 'right', fontWeight: 700, color: fut ? 'var(--ink-soft)' : 'var(--ink)' }}>{fut || avg == null ? '—' : avg}</td>
+                            </tr>
+                          );
+                        });
+                        return (
+                          <Fragment key={g.id}>
+                            <tr
+                              onClick={() => toggleFro(g.id)}
+                              style={{ cursor: 'pointer', borderBottom: '1px solid var(--line)', background: '#f6f8f3' }}
+                            >
+                              <td colSpan={6} style={{ padding: '7px 10px' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 10, color: 'var(--ink-soft)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}>▶</span>
+                                  <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{g.name}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '1px 8px', borderRadius: 999 }}>Conn {g.connected}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '1px 8px', borderRadius: 999 }}>Non-Conn {g.nonConnected}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '1px 8px', borderRadius: 999 }}>Avg {g.avgCalls}</span>
+                                  <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>of {DAILY_CONNECTED_TARGET}/day</span>
+                                </span>
+                              </td>
+                            </tr>
+                            {expanded && hourRows}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--line)', background: 'var(--bg)' }}>
+                        <td style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Total</td>
+                        <td style={{ padding: '8px 8px', fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}>{elapsedHrs} hrs</td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--ink-soft)' }}>{DAILY_CONNECTED_TARGET}/FRO</td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
+                        <td style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontWeight: 800, color: '#7c3aed' }}>{Math.round(overallAvg * 10) / 10}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+              {froGroups.length > 3 && (
+                <div style={{ padding: '8px 10px', borderTop: '1px solid var(--line)', textAlign: 'center', background: 'var(--bg)' }}>
+                  <button
+                    onClick={() => setHourlyShowAll(v => !v)}
+                    style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', border: '1px solid var(--sage)', background: '#fff', color: 'var(--sage)', cursor: 'pointer' }}
+                  >
+                    {hourlyShowAll ? 'Show top 3 only' : `Show all (${froGroups.length - 3}) FROs`}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Productivity alerts: idle FROs by hour */}
@@ -2334,7 +2484,14 @@ export default function Dashboard() {
                             {hourlyAlerts.idle.slice(0, showAllIdleAlerts ? hourlyAlerts.idle.length : 8).map((f, i) => (
                               <tr key={f.id} style={{ borderBottom: '1px solid var(--line)' }}>
                                 <td style={{ fontSize: 10, fontWeight: 700, color: i < 3 ? '#dc2626' : 'var(--ink-soft)', padding: '5px 8px' }}>{i + 1}</td>
-                                <td style={{ fontWeight: 600, padding: '5px 8px' }}>{f.name}</td>
+                                <td style={{ fontWeight: 600, padding: '5px 8px' }}>
+                                  {f.name}
+                                  {f.workAsName && (
+                                    <div style={{ fontSize: 8, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '0 6px', borderRadius: 999, marginTop: 2, display: 'inline-block', whiteSpace: 'nowrap' }}>
+                                      ⚡ {f.workAsName} work as {f.name}
+                                    </div>
+                                  )}
+                                </td>
                                 <td style={{ padding: '5px 8px', textAlign: 'center' }}>
                                   <span style={{
                                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 16, padding: '0 6px',
@@ -2376,7 +2533,7 @@ export default function Dashboard() {
                         </div>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                           {hourlyAlerts.noCalls.slice(0, 12).map(f => (
-                            <span key={f.id} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: '#fef2f2', color: '#dc2626', border: '1px solid #dc262622' }}>{f.name}</span>
+                            <span key={f.id} title={f.workAsName ? `${f.workAsName} work as ${f.name}` : undefined} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: '#fef2f2', color: '#dc2626', border: '1px solid #dc262622' }}>{f.name}</span>
                           ))}
                           {hourlyAlerts.noCalls.length > 12 && (
                             <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'var(--bg)', color: 'var(--ink-soft)' }}>+{hourlyAlerts.noCalls.length - 12} more</span>
@@ -2399,12 +2556,17 @@ export default function Dashboard() {
       {/* Section 6: Telecaller Performance Table */}
       {perfRows.length > 0 && (() => {
         const sc = (p) => FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
-        const connSorted = [...perfRows].sort((a, b) => ((b.connected_range || 0) - (a.connected_range || 0)) || ((b.receivedAmount_range || 0) - (a.receivedAmount_range || 0)));
-        const ncSorted = [...perfRows].sort((a, b) => {
-          const na = a.non_connected_range ?? Math.max(0, (a.calls_range || 0) - (a.connected_range || 0));
-          const nb = b.non_connected_range ?? Math.max(0, (b.calls_range || 0) - (b.connected_range || 0));
-          return (nb - na) || ((b.receivedAmount_range || 0) - (a.receivedAmount_range || 0));
-        });
+        const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], offline: ['offline'] };
+        const bucketRows = Object.fromEntries(Object.keys(statusBuckets).map(k => [
+          k,
+          perfRows.filter(p => (statusBuckets[k] || []).includes(p.status || 'offline')),
+        ]));
+        const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
+        const currentRows = [...(bucketRows[perfTab] || [])].sort((a, b) =>
+          ((b.connected_range || 0) - (a.connected_range || 0)) ||
+          (ncOf(b) - ncOf(a)) ||
+          ((b.receivedAmount_range || 0) - (a.receivedAmount_range || 0))
+        );
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
         const nameCell = (p) => {
           const m = sc(p);
@@ -2424,6 +2586,11 @@ export default function Dashboard() {
                   </span>
                 )}
               </span>
+              {p.work_as_operator_name && (
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>
+                  ⚡ {p.work_as_operator_name} work as {p.fro_name}
+                </div>
+              )}
             </td>
           );
         };
@@ -2443,8 +2610,9 @@ export default function Dashboard() {
           </th>
         );
         const tabs = [
-          { key: 'connected', label: 'Connected', count: perfTotals.connected, color: '#16a34a', suffix: PERIOD_LABELS[dashPeriod] },
-          { key: 'non_connected', label: 'Non Connected', count: perfTotals.nonConnected, color: '#dc2626', suffix: PERIOD_LABELS[dashPeriod] },
+          { key: 'online', label: 'Online', count: bucketRows.online.length, color: '#16a34a' },
+          { key: 'idle', label: 'Idle', count: bucketRows.idle.length, color: '#d97706' },
+          { key: 'offline', label: 'Offline', count: bucketRows.offline.length, color: '#dc2626' },
         ];
         return (
           <div className="card" style={{ marginBottom: 16 }}>
@@ -2501,7 +2669,6 @@ export default function Dashboard() {
                     }}>
                       <AnimatedNumber value={t.count} />
                     </span>
-                    <span style={{ fontSize: 10, fontWeight: 500, opacity: .75 }}>{t.suffix}</span>
                   </button>
                 );
               })}
@@ -2511,67 +2678,36 @@ export default function Dashboard() {
             <div key={perfTab} className="perf-view">
               <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 440, overflowY: 'auto' }}>
 
-                {perfTab === 'connected' && (
+                {currentRows.length === 0 ? (
+                  <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
+                    No FROs currently {tabs.find(t => t.key === perfTab)?.label}.
+                  </div>
+                ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr>
-                        {tH('#', { textAlign: 'left' })}
                         {tH('Name', { textAlign: 'left' })}
-                        {thSub('Connected Total', PERIOD_LABELS[dashPeriod], '#16a34a')}
-                        {CONNECTED_STATUS_COLUMNS.map(c => thSub(c.label, PERIOD_LABELS[dashPeriod], c.color, 'perf-hide-mobile'))}
-                        {thSub('Received Amount', PERIOD_LABELS[dashPeriod], '#3f4a38')}
+                        {thSub('Non-Conn', PERIOD_LABELS[dashPeriod], '#dc2626')}
+                        {thSub('Conn', PERIOD_LABELS[dashPeriod], '#16a34a')}
+                        {CONNECTED_STATUS_COLUMNS.map(c => thSub(STATUS_SHORT[c.key] || c.label, PERIOD_LABELS[dashPeriod], c.color, 'perf-hide-mobile'))}
+                        {thSub('Recvd Amt', PERIOD_LABELS[dashPeriod], '#3f4a38')}
                       </tr>
                     </thead>
                     <tbody>
-                      {connSorted.map((p, i) => {
+                      {currentRows.map((p, i) => {
                         const total = p.connected_range || 0;
+                        const ncTotal = ncOf(p);
                         const statuses = p.connectedStatuses_range || {};
                         return (
                           <tr key={p.fro_id} className="perf-row-in" style={{ borderBottom: '1px solid var(--line)', animationDelay: `${Math.min(i, 10) * 25}ms` }}
                             onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                             onMouseLeave={e => e.currentTarget.style.background = ''}>
-                            <td style={{ padding: '10px', color: 'var(--ink-soft)', fontSize: 11 }}>{i + 1}</td>
                             {nameCell(p)}
+                            {cntCell(`nc-total-${p.fro_id}`, ncTotal, '#dc2626', (e) => { e.stopPropagation(); if (ncTotal > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); })}
                             {cntCell(`conn-total-${p.fro_id}`, total, '#16a34a', (e) => { e.stopPropagation(); if (total > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected' }); })}
                             {CONNECTED_STATUS_COLUMNS.map(col => {
                               const c = statuses[col.key] || 0;
                               return cntCell(col.key, c, col.color, (e) => { e.stopPropagation(); if (c > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected', status: col.key }); });
-                            })}
-                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount_range || 0) > 0 ? '#166534' : 'var(--ink-soft)' }}>
-                              {fmt(p.receivedAmount_range)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-
-                {perfTab === 'non_connected' && (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        {tH('#', { textAlign: 'left' })}
-                        {tH('Name', { textAlign: 'left' })}
-                        {thSub('Non-Conn. Total', PERIOD_LABELS[dashPeriod], '#dc2626')}
-                        {NOT_CONNECTED_STATUS_COLUMNS.map(c => thSub(c.label, PERIOD_LABELS[dashPeriod], c.color, 'perf-hide-mobile'))}
-                        {thSub('Received Amount', PERIOD_LABELS[dashPeriod], '#3f4a38')}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ncSorted.map((p, i) => {
-                        const total = p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
-                        const statuses = p.notConnectedStatuses_range || {};
-                        return (
-                          <tr key={p.fro_id} className="perf-row-in" style={{ borderBottom: '1px solid var(--line)', animationDelay: `${Math.min(i, 10) * 25}ms` }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                            onMouseLeave={e => e.currentTarget.style.background = ''}>
-                            <td style={{ padding: '10px', color: 'var(--ink-soft)', fontSize: 11 }}>{i + 1}</td>
-                            {nameCell(p)}
-                            {cntCell(`nc-total-${p.fro_id}`, total, '#dc2626', (e) => { e.stopPropagation(); if (total > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); })}
-                            {NOT_CONNECTED_STATUS_COLUMNS.map(col => {
-                              const c = statuses[col.key] || 0;
-                              return cntCell(col.key, c, col.color, (e) => { e.stopPropagation(); if (c > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected', status: col.key }); });
                             })}
                             <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount_range || 0) > 0 ? '#166534' : 'var(--ink-soft)' }}>
                               {fmt(p.receivedAmount_range)}

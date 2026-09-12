@@ -47,6 +47,12 @@ export async function listSlabsHandler(req, res) {
   }
 }
 
+const numOr = (v, dflt) => {
+  if (v === undefined || v === null || v === '') return dflt;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : dflt;
+};
+
 export async function createSlabHandler(req, res) {
   try {
     const { min_amount, max_amount, incentive_amount } = req.body || {};
@@ -74,6 +80,8 @@ export async function createSlabHandler(req, res) {
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
+      min_lead_amount: numOr(req.body.min_lead_amount, 300),
+      lead_rate: numOr(req.body.lead_rate, 20),
     });
     return res.status(201).json(slab);
   } catch (e) {
@@ -109,6 +117,8 @@ export async function updateSlabHandler(req, res) {
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
+      min_lead_amount: numOr(req.body.min_lead_amount, 300),
+      lead_rate: numOr(req.body.lead_rate, 20),
     });
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
     return res.json(slab);

@@ -3562,6 +3562,16 @@ export const updateLiveStatus = async (req, res) => {
       status,
       updated_at: new Date().toISOString(),
     };
+    // Work-as context: when an operator (abc) is covering this FRO's stations,
+    // record who is actually operating. Regular logins must clear any residue
+    // left behind by an earlier work-as session.
+    if (req.user.impersonation && req.user.imposter_id) {
+      payload.work_as_operator_id = String(req.user.imposter_id);
+      payload.work_as_operator_name = req.user.imposter_name || null;
+    } else {
+      payload.work_as_operator_id = null;
+      payload.work_as_operator_name = null;
+    }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
     if (today_calls !== undefined) payload.today_calls = today_calls;
