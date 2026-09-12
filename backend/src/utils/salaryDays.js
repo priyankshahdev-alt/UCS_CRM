@@ -16,8 +16,9 @@ export function shiftDate(dateStr, days) {
 }
 
 // Mirrors computeSundayStats() — every worked Sunday (present/late, even a
-// cancelled one) is paid; on top, (totalSundays - 1) are paid free from the
-// non-cancelled, not-worked pool. Cap = total Sundays in the month.
+// cancelled one) is paid. A clean month also pays every non-worked Sunday;
+// once absences or a late join trigger the Sunday policy, the normal free pool
+// and compulsory Sunday deduction apply.
 export function computeSundayStats({ year, month, daysInMonth, records, skipBeforeDate, lateJoin }) {
   const inRange = (dateStr) => !skipBeforeDate || dateStr >= skipBeforeDate;
   const dates = [];
@@ -65,7 +66,9 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
   const attendedCancelled = totalSundays.filter(s => cancelled.has(s) && isAttended(s));
   const workedAll = attendedEligible.length + attendedCancelled.length;
   const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
-  const baseline = Math.max(0, Math.min(totalSundays.length - 1, eligibleNotWorked));
+  const cleanMonth = regularAbsences === 0 && !lateJoin;
+  const freeSundayLimit = cleanMonth ? totalSundays.length : Math.max(0, totalSundays.length - 1);
+  const baseline = Math.max(0, Math.min(freeSundayLimit, eligibleNotWorked));
   const paidSundays = workedAll + baseline;
   const unpaidCount = eligibleNotWorked - baseline;
   const attendedEligibleSet = new Set(attendedEligible);

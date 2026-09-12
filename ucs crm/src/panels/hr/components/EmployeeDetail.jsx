@@ -468,7 +468,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   );
   const attendedAll = attendedEligible.length + attendedCancelledList.length;
   const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
-  const freeCount = Math.max(0, Math.min(sundayCount - 1, eligibleNotWorked));
+  const cleanMonth = absentDates.length === 0 && !(joinedThisMonth && joinDayNum > 10);
+  const freeCount = Math.max(0, Math.min(cleanMonth ? sundayCount : sundayCount - 1, eligibleNotWorked));
   const paidSundayCount = attendedAll + freeCount;
   const unpaidSundays = eligibleSundays
     .filter(d => !attendedEligible.includes(d))
