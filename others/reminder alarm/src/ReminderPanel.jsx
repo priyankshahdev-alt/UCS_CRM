@@ -19,8 +19,8 @@ import DashboardPage from './Dashboard'
 import { ReminderFormModal, HistoryModal, DeleteConfirmModal, ImportModal, NotificationPanel, AlarmToast } from './modals'
 
 const PAGE_META = {
-  '/rem': ['Reminder & Alarm', 'All Reminders', 'One table for every reminder, category filter, due date and renewal.'],
-  '/rem/settings': ['Reminder & Alarm', 'Settings', 'Configure reminder defaults, alarms and notifications.'],
+  '/rem': ['Priyank Shah Reminder', 'All Reminders', 'One table for every reminder, category filter, due date and renewal.'],
+  '/rem/settings': ['Priyank Shah Reminder', 'Settings', 'Configure reminder defaults, alarms and notifications.'],
 }
 
 function alarmCheck(reminders, settings, onFire) {
@@ -115,7 +115,18 @@ function PanelInner() {
   }, [])
 
   const onSettings = location.pathname.startsWith('/rem/settings')
+  const onDashboard = location.pathname === '/rem/dashboard'
   const meta = onSettings ? PAGE_META['/rem/settings'] : PAGE_META['/rem']
+
+  function testNotification(type) {
+    playAlarmSound(type)
+    requestNotificationPermission()
+    sendBrowserNotification(
+      `Test: ${type}`,
+      `This is a test ${type} notification for Priyank Shah Reminder.`,
+      `test-${type}-${Date.now()}`
+    )
+  }
   const initials = (user?.name || user?.login_id || 'U').toString().split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
   function openAdd() { setEditing(null); setFormKey(k => k + 1); setFormOpen(true) }
@@ -178,7 +189,7 @@ function PanelInner() {
         <aside className="rem-sidebar">
           <div className="rem-brand">
             <div className="mark">REM</div>
-            <div><h1>Reminder & Alarm</h1><span>Management System</span></div>
+            <div><h1>Priyank Shah Reminder</h1></div>
           </div>
           <div className="rem-side-label">Navigation</div>
           <nav className="rem-nav">
@@ -224,9 +235,13 @@ function PanelInner() {
             </div>
             <div className="rem-actions" style={{ position: 'relative' }}>
               <button className="rem-btn primary" onClick={openAdd}><Icon name="plus" size={14} /> Add Reminder</button>
-              <button className="rem-btn" onClick={() => { exportToCSV(reminders.filter(r => !r.is_deleted)); toast('CSV exported', 'success') }}>Export CSV</button>
-              <button className="rem-btn" onClick={() => { exportToExcel(reminders.filter(r => !r.is_deleted)); toast('Excel exported', 'success') }}>Export</button>
-              <button className="rem-btn" onClick={() => setImportOpen(true)}>Import</button>
+              {onDashboard ? null : (
+                <>
+                  <button className="rem-btn" onClick={() => { exportToCSV(reminders.filter(r => !r.is_deleted)); toast('CSV exported', 'success') }}>Export CSV</button>
+                  <button className="rem-btn" onClick={() => { exportToExcel(reminders.filter(r => !r.is_deleted)); toast('Excel exported', 'success') }}>Export</button>
+                  <button className="rem-btn" onClick={() => setImportOpen(true)}>Import</button>
+                </>
+              )}
               <div style={{ position: 'relative' }}>
                 <button className="notif-badge" onClick={() => setNotifOpen(!notifOpen)}>
                   <Icon name="bell" size={18} />
@@ -239,6 +254,7 @@ function PanelInner() {
                     onMarkRead={async (id) => { await markNotificationRead(id); await refreshNotifications() }}
                     onMarkAllRead={async () => { await markAllNotificationsRead(); await refreshNotifications() }}
                     onClickReminder={(id) => { setActiveFilter(''); navigate('/rem'); setNotifOpen(false) }}
+                    onTest={testNotification}
                   />
                 )}
               </div>

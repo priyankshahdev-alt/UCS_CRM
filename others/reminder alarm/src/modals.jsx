@@ -105,20 +105,17 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
     }
 
     const payload = {};
+    const norm = (v) => (v === undefined || v === null) ? '' : String(v);
     Object.keys(form).forEach((k) => {
       if (k === 'title') {
         payload[k] = form[k];
         return;
       }
       if (isEdit && originalRef.current) {
-        const orig = originalRef.current[k];
-        const curr = form[k];
-        if (curr !== orig && curr !== '' && curr !== false) {
-          payload[k] = curr;
-        } else if (curr === false && orig === true) {
-          payload[k] = false;
-        } else if (curr === '' && orig) {
-          payload[k] = curr;
+        const orig = norm(originalRef.current[k]);
+        const curr = norm(form[k]);
+        if (orig !== curr) {
+          payload[k] = form[k];
         }
       } else {
         if (form[k] !== '' && form[k] !== false) {
@@ -925,7 +922,7 @@ const LEVEL_LABELS = {
   upcoming: 'Upcoming',
 };
 
-export function NotificationPanel({ notifications = [], onClose, onMarkRead, onMarkAllRead, onClickReminder }) {
+export function NotificationPanel({ notifications = [], onClose, onMarkRead, onMarkAllRead, onClickReminder, onTest }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -1025,6 +1022,33 @@ export function NotificationPanel({ notifications = [], onClose, onMarkRead, onM
           })
         )}
       </div>
+      {onTest && (
+        <div className="notif-test">
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              color: '#888',
+              padding: '8px 14px 4px',
+              letterSpacing: 0.5,
+            }}
+          >
+            Test Notifications
+          </div>
+          <div style={{ display: 'flex', gap: 6, padding: '4px 14px 12px' }}>
+            <button className="rem-btn" onClick={() => onTest('DUE_SOON')} style={{ fontSize: 11, padding: '4px 10px' }}>
+              🔔 Test Due Soon
+            </button>
+            <button className="rem-btn" onClick={() => onTest('DUE_TODAY')} style={{ fontSize: 11, padding: '4px 10px' }}>
+              🔔 Test Due Today
+            </button>
+            <button className="rem-btn" onClick={() => onTest('OVERDUE')} style={{ fontSize: 11, padding: '4px 10px' }}>
+              🔔 Test Overdue
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1146,6 +1170,152 @@ export function AlarmToast({ reminder, alarmType, onDismiss, onComplete, onSnooz
         <button className="rem-btn" onClick={() => onDismiss?.()}>
           Dismiss
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  AddBillModal — clean "Add Bill" form for the dashboard            */
+/* ================================================================== */
+export function AddBillModal({ open, onClose, onSaved }) {
+  const emptyForm = {
+    title: '',
+    category: '',
+    owner: '',
+    amount: '',
+    due_date: '',
+    notes: '',
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(emptyForm);
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleChange = (key) => (e) => {
+    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  };
+
+  const handleSave = async () => {
+    if (!String(form.title).trim()) {
+      toast('Bill name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { title: String(form.title).trim() };
+      const catValue = String(form.category || '').trim();
+      const catMatch = CATEGORIES.find((c) => c.label.toLowerCase() === catValue.toLowerCase());
+      if (catMatch) payload.category = catMatch.key;
+      else if (catValue) payload.category = catValue;
+      if (form.owner) payload.owner = String(form.owner).trim();
+      if (form.amount !== '' && form.amount != null && !isNaN(Number(form.amount))) {
+        payload.amount = Number(form.amount);
+      }
+      if (form.due_date) payload.due_date = form.due_date;
+      if (form.notes) payload.notes = String(form.notes).trim();
+      await addReminder(payload);
+      toast('Bill added successfully', 'success');
+      onClose();
+      onSaved?.();
+    } catch (err) {
+      toast(err.message || 'Failed to add bill', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay bill-overlay" onClick={onClose}>
+      <div className="modal bill-modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Add Bill</h3>
+          <button className="rem-btn" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="form-grid">
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label>
+                Bill Name <span style={{ color: '#e74c3c' }}>*</span>
+              </label>
+              <input
+                className="rem-input bill-title-input"
+                value={form.title}
+                onChange={handleChange('title')}
+                placeholder="e.g. Electricity Bill, Broadband Recharge…"
+                autoFocus
+              />
+            </div>
+            <div className="form-row">
+              <label>Category</label>
+              <input
+                className="rem-input"
+                list="bill-category-options"
+                value={form.category}
+                onChange={handleChange('category')}
+                placeholder="Select or type a category…"
+              />
+              <datalist id="bill-category-options">
+                {CATEGORIES.map((c) => (
+                  <option key={c.key} value={c.label} />
+                ))}
+              </datalist>
+            </div>
+            <div className="form-row">
+              <label>Owner</label>
+              <input
+                className="rem-input"
+                value={form.owner}
+                onChange={handleChange('owner')}
+                placeholder="Owner name (optional)"
+              />
+            </div>
+            <div className="form-row">
+              <label>Amount (₹)</label>
+              <input
+                className="rem-input"
+                type="number"
+                min={0}
+                value={form.amount}
+                onChange={handleChange('amount')}
+                placeholder="e.g. 2500"
+              />
+            </div>
+            <div className="form-row">
+              <label>Due Date</label>
+              <input
+                className="rem-input"
+                type="date"
+                value={form.due_date}
+                onChange={handleChange('due_date')}
+              />
+            </div>
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label>Notes (optional)</label>
+              <textarea
+                className="rem-textarea"
+                rows={2}
+                value={form.notes}
+                onChange={handleChange('notes')}
+                placeholder="Any extra details"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="rem-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="rem-btn primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Add Bill'}
+          </button>
+        </div>
       </div>
     </div>
   );

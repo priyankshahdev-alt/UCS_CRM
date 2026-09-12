@@ -33,7 +33,8 @@ export default function RemSettings() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await saveSettings(form)
+      const { default_remind_before, ...payload } = form
+      await saveSettings(payload)
       toast('Settings saved successfully', 'success', 2000)
     } catch (err) {
       toast(err.message || 'Failed to save settings', 'error')
@@ -47,11 +48,11 @@ export default function RemSettings() {
   return (
     <div>
       <div className="card-block">
-        <div className="tb">
+        <div className="tb settings-header">
           <h3>Reminder Settings</h3>
           <span className="ln">Configure default behaviour for reminders and alarms</span>
         </div>
-        <div style={{ padding: 20 }}>
+        <div className="settings-form-wrap">
           <div className="form-grid">
 
             <div className="form-row">
@@ -89,7 +90,7 @@ export default function RemSettings() {
 
             <div className="form-row">
               <label>Alarm Volume</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+              <div className="settings-volume-row">
                 <input
                   type="range"
                   min={0}
@@ -99,7 +100,7 @@ export default function RemSettings() {
                   onChange={e => set('alarm_volume', Number(e.target.value))}
                   style={{ flex: 1 }}
                 />
-                <span style={{ fontSize: 12, fontWeight: 600, minWidth: 32, textAlign: 'right' }}>
+                <span className="settings-volume-label">
                   {Math.round(form.alarm_volume * 100)}%
                 </span>
               </div>
@@ -177,7 +178,7 @@ export default function RemSettings() {
 
           </div>
 
-          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+          <div className="settings-save-btn">
             <button className="rem-btn primary" disabled={saving} onClick={handleSave}>
               {saving ? 'Saving...' : 'Save Settings'}
             </button>
@@ -186,12 +187,12 @@ export default function RemSettings() {
       </div>
 
       <div className="card-block">
-        <div className="tb">
+        <div className="tb settings-preview-header">
           <h3>Current Settings Preview</h3>
           <span className="ln">Live view of saved values</span>
         </div>
-        <div style={{ padding: 20 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 24px' }}>
+        <div className="settings-preview-wrap">
+          <div className="settings-preview-grid">
             <div className="detail-item">
               <div className="k">Default Reminder Time</div>
               <div className="v">{form.default_reminder_time || '—'}</div>

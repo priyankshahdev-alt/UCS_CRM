@@ -28,7 +28,7 @@ function Login({ onSuccess }) {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h2>Reminder & Alarm</h2>
+        <h2>Priyank Shah Reminder</h2>
         <p className="login-sub">Sign in to manage reminders</p>
         <form className="login-form" onSubmit={submit}>
           {error && <div className="login-error">{error}</div>}
