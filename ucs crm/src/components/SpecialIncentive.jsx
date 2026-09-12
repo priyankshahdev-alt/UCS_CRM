@@ -318,7 +318,7 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.title}</span>
           <span style={{ flexShrink: 0 }}><NgoBadge ngoName={inc.ngo_name} /></span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 800, background: '#fff', color: '#b45309', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, background: '#fff', color: '#b45309', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>
           {inc.status === 'won' ? '🏆 WON' : inc.status === 'ended' || inc.status === 'cancelled' ? (inc.status === 'cancelled' ? 'CANCELLED' : 'ENDED') : `⏳ ${fmtClock(left)}`}
         </span>
       </div>
@@ -341,7 +341,10 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
                 <div style={{ flex: 1, fontSize: 12, color: 'var(--ink-soft)' }}>Win ₹{fmt(inc.incentive_amount)} — first past ₹{fmt(target)}! 🏁</div>
               )}
             </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)' }}>Leader: {((inc.leaderboard || [])[0]?.name) || '—'} · Ends {fmtEnd(inc.end_at)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Leader: {((inc.leaderboard || [])[0]?.name) || '—'}</span>
+              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>· Ends {fmtEnd(inc.end_at)}</span>
+            </div>
           </>
         )}
       </div>
@@ -376,15 +379,30 @@ export function useSpecialIncentive() {
   const debMsg = useRef(0);
   const reloadSoon = useCallback(() => {
     clearTimeout(debMsg.current);
-    debMsg.current = setTimeout(() => load(), 1200);
+    debMsg.current = setTimeout(() => load(), 300);
   }, [load]);
 
-  useRealtime('special_incentives', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  // Instantly drop a deleted/stopped incentive from every piece of local state
+  // so popups, corner cards, winner cards and queues vanish on deletion.
+  const purgeIncentive = useCallback((id) => {
+    const sid = String(id);
+    setData((prev) => ({
+      ...prev,
+      incentives: (prev.incentives || []).filter((i) => String(i.id) !== sid),
+      recent: (prev.recent || []).filter((c) => String(c.id) !== sid),
+      celeb: prev.celeb && String(prev.celeb.id) === sid ? null : prev.celeb,
+    }));
+    setPopupQueue((prev) => prev.filter((qid) => String(qid) !== sid));
+    setCelebrateQueue((prev) => prev.filter((qid) => String(qid) !== sid));
+    setPhotoCeleb((prev) => (prev && String(prev.id) === sid ? null : prev));
+  }, []);
+
+  useRealtime('special_incentives', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: (old) => { if (old && old.id) { purgeIncentive(old.id); reloadSoon(); } } });
   useRealtime('special_incentive_progress', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon });
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 20000);
+    const t = setInterval(load, 5000);
     const c = setInterval(() => setNowMs(Date.now()), 1000);
     return () => { clearInterval(t); clearInterval(c); };
   }, [load]);
@@ -393,6 +411,11 @@ export function useSpecialIncentive() {
 
   // Auto-queue the popup for every new active incentive, once per id.
   useEffect(() => {
+    const liveIds = new Set(incentives.map((i) => String(i.id)));
+    setPopupQueue((prev) => {
+      const stray = prev.some((id) => !liveIds.has(String(id)));
+      return stray ? prev.filter((id) => liveIds.has(String(id))) : prev;
+    });
     const fresh = incentives.filter((i) => !trackedRef.current.has(i.id));
     if (fresh.length === 0) return;
     fresh.forEach((i) => trackedRef.current.add(i.id));

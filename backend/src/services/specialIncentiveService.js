@@ -471,6 +471,11 @@ export const deleteSpecialIncentive = async (incentiveId) => {
   } catch (e) {
     console.error('[special incentive] progress delete:', e.message);
   }
+  try {
+    await db.from('notification_log').delete().eq('type', 'special_incentive').eq('reference_id', String(incentiveId));
+  } catch (e) {
+    console.error('[special incentive] notification delete:', e.message);
+  }
   const { data, error } = await db
     .from('special_incentives')
     .delete()

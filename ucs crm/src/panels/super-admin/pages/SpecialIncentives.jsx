@@ -7,6 +7,15 @@ import LeadIncentive from '../../../components/LeadIncentive'
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`
 const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
+const activeByKeyFor = (history) => {
+  const m = {}
+  ;(history || []).filter(i => i.status === 'active').forEach(inc => {
+    const k = inc.ngo_id ? String(inc.ngo_id) : 'all'
+    if (!m[k]) m[k] = inc
+  })
+  return m
+}
+
 const toLocalInput = (d) => {
   const dt = new Date(d)
   const pad = n => String(n).padStart(2, '0')
@@ -37,10 +46,47 @@ function TabBtn({ active, onClick, children }) {
   )
 }
 
+function LiveNowStrip({ races, busyId, onDelete }) {
+  return (
+    <div style={{ marginBottom: 20, border: '1.5px solid #bbf7d0', borderRadius: 16, padding: 16, background: '#f0fdf4' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#15803d', marginBottom: 10 }}>🟢 LIVE RIGHT NOW — click <b>Delete</b> to stop & remove instantly</div>
+      {races.map(inc => (
+        <div key={inc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 10, background: '#fff', marginBottom: 8 }}>
+          <NgoBadge ngoName={inc.ngo_name} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.title}</span>
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>until {fmtDate(inc.end_at).split(',')[1]}</span>
+          <button onClick={() => onDelete(inc)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fff', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
+            {busyId === inc.id ? '…' : 'Delete'}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function SpecialIncentives() {
   const [tab, setTab] = useState('create')
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState(null)
+
+  const removeIncentive = async (inc) => {
+    if (busyId) return
+    const live = inc.status === 'active'
+    const msg = live
+      ? 'Stop this incentive on all FRO panels and delete it permanently? All live popups will be removed immediately. This cannot be undone.'
+      : 'Delete this incentive permanently? This cannot be undone.'
+    if (!window.confirm(msg)) return
+    setBusyId(inc.id)
+    try {
+      await api(`/incentive/special/${inc.id}`, { method: 'DELETE', _prefix: 'ucs' })
+      loadHistory()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const loadHistory = useCallback(() => {
     api('/incentive/special')
@@ -64,7 +110,10 @@ export default function SpecialIncentives() {
         <TabBtn active={tab === 'lead'} onClick={() => setTab('lead')}>📊 Lead Incentive</TabBtn>
       </div>
 
-      {tab === 'create' ? <CreateForm onCreated={loadHistory} /> : tab === 'photo' ? <PhotoTab history={history} onRefresh={loadHistory} /> : tab === 'lead' ? <LeadIncentive /> : <HistoryList history={history} loading={loading} onRefresh={loadHistory} />}
+      {tab === 'create' ? <>
+        {history.some(i => i.status === 'active') && <LiveNowStrip races={history.filter(i => i.status === 'active')} busyId={busyId} onDelete={removeIncentive} />}
+        <CreateForm onCreated={loadHistory} activeByKey={activeByKeyFor(history)} busyId={busyId} onDelete={removeIncentive} />
+      </> : tab === 'photo' ? <PhotoTab history={history} onRefresh={loadHistory} /> : tab === 'lead' ? <LeadIncentive /> : <HistoryList history={history} loading={loading} onRefresh={loadHistory} />}
     </div>
   )
 }
@@ -75,7 +124,7 @@ const defaultRace = () => {
   return { title: '', message: '', target: '', reward: '', start: toLocalInput(now), end: toLocalInput(end) }
 }
 
-function CreateForm({ onCreated }) {
+function CreateForm({ onCreated, activeByKey, busyId, onDelete }) {
   const [ngos, setNgos] = useState([])
   const [forms, setForms] = useState(() => ({ all: defaultRace() }))
   const [cardMsg, setCardMsg] = useState({})
@@ -137,16 +186,17 @@ function CreateForm({ onCreated }) {
   return (
     <div>
       <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)', marginBottom: 12 }}>NGO races · each saved independently</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, alignItems: 'start' }}>
         {cards.map(card => {
           const f = cur(card.key)
           const msg = cardMsg[card.key]
           const saving = msg && msg.type === 'saving'
+          const live = activeByKey[card.key]
           return (
             <div key={card.key} style={{ border: '1.5px solid var(--line)', borderRadius: 16, overflow: 'hidden', background: 'var(--card-bg)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: card.color, color: '#fff' }}>
-                <span style={{ fontSize: 14, fontWeight: 800 }}>{card.name}</span>
-                {card.full && <span style={{ fontSize: 11, opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.full}</span>}
+                <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{card.name}</span>
+                {card.full && <span style={{ fontSize: 11, opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{card.full}</span>}
               </div>
               <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
@@ -160,13 +210,13 @@ function CreateForm({ onCreated }) {
                       <button
                         key={t.key}
                         onClick={() => applyTemplate(card.key, t)}
-                        style={{ padding: '5px 10px', borderRadius: 999, border: '1.5px solid #f59e0b', background: '#fffdf5', color: '#b45309', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        style={{ padding: '5px 10px', borderRadius: 999, border: '1.5px solid #f59e0b', background: '#fffdf5', color: '#b45309', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
                       >{t.label}</button>
                     ))}
                   </div>
                   <textarea style={{ ...field, minHeight: 68, resize: 'vertical' }} value={f.message} onChange={e => setField(card.key, 'message', e.target.value)} placeholder="Whoever collects the fastest…" />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                   <div>
                     <label style={label}>Target (₹)</label>
                     <input style={field} type="number" value={f.target} onChange={e => setField(card.key, 'target', e.target.value)} placeholder="12000" />
@@ -176,7 +226,7 @@ function CreateForm({ onCreated }) {
                     <input style={field} type="number" value={f.reward} onChange={e => setField(card.key, 'reward', e.target.value)} placeholder="500" />
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                   <div>
                     <label style={label}>Starts (only this NGO)</label>
                     <input style={field} type="datetime-local" value={f.start} onChange={e => setField(card.key, 'start', e.target.value)} />
@@ -188,7 +238,15 @@ function CreateForm({ onCreated }) {
                 </div>
                 {msg && msg.type === 'error' && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 600 }}>{msg.text}</div>}
                 {msg && msg.type === 'ok' && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#dcfce7', color: '#15803d', fontSize: 12, fontWeight: 600 }}>{msg.text}</div>}
-                <button onClick={() => save(card)} disabled={saving} style={{ padding: '11px 0', borderRadius: 10, border: 'none', background: card.color, color: '#fff', fontWeight: 800, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .6 : 1 }}>
+                {live && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 12px', borderRadius: 8, background: '#fef2f2', border: '1.5px solid #fecaca' }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: '#b91c1c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🟢 {live.title} is LIVE</span>
+                    <button onClick={() => onDelete(live)} disabled={busyId === live.id} style={{ padding: '5px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fff', color: '#b91c1c', fontSize: 11.5, fontWeight: 800, cursor: busyId === live.id ? 'wait' : 'pointer', flexShrink: 0 }}>
+                      {busyId === live.id ? '…' : 'Stop & Delete'}
+                    </button>
+                  </div>
+                )}
+                <button onClick={() => save(card)} disabled={saving || !!live} style={{ padding: '11px 0', borderRadius: 10, border: 'none', background: card.color, color: '#fff', fontWeight: 800, fontSize: 14, cursor: (saving || live) ? 'not-allowed' : 'pointer', opacity: (saving || live) ? .55 : 1 }}>
                   {saving ? msg.text : `💾 Save / Update ${card.key === 'all' ? 'All-NGO' : card.name} Incentive`}
                 </button>
               </div>
@@ -231,10 +289,14 @@ function HistoryList({ history, loading, onRefresh }) {
     }
   }
 
-  const remove = async (id) => {
+  const remove = async (inc) => {
     if (busyId) return
-    if (!window.confirm('Delete this incentive permanently? This cannot be undone.')) return
-    setBusyId(id)
+    const live = inc.status === 'active'
+    const msg = live
+      ? 'Stop this incentive on all FRO panels and delete it permanently? All live popups will be removed immediately. This cannot be undone.'
+      : 'Delete this incentive permanently? This cannot be undone.'
+    if (!window.confirm(msg)) return
+    setBusyId(inc.id)
     try {
       await api(`/incentive/special/${id}`, { method: 'DELETE', _prefix: 'ucs' })
       onRefresh()
@@ -260,7 +322,7 @@ function HistoryList({ history, loading, onRefresh }) {
         const isArchived = !!inc.archived_at
         return (
           <div key={inc.id} style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)', opacity: isArchived ? .72 : 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <NgoBadge ngoName={inc.ngo_name} />
@@ -268,7 +330,7 @@ function HistoryList({ history, loading, onRefresh }) {
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>{fmtDate(inc.start_at)} → {fmtDate(inc.end_at)}</div>
               </div>
-              <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: meta.bg, color: meta.text }}>
+              <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: meta.bg, color: meta.text, flexShrink: 0 }}>
                 {(inc.status === 'won' || inc.status === 'verified') ? `🏆 ${meta.label} · ${inc.winner_name || '—'}` : meta.label}
               </span>
               {isArchived ? (
@@ -289,7 +351,7 @@ function HistoryList({ history, loading, onRefresh }) {
                   )}
                 </>
               )}
-              <button onClick={() => remove(inc.id)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fff', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
+              <button onClick={() => remove(inc)} disabled={busyId === inc.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fff', color: '#b91c1c', fontSize: 11.5, fontWeight: 700, cursor: busyId === inc.id ? 'wait' : 'pointer' }}>
                 Delete
               </button>
             </div>
