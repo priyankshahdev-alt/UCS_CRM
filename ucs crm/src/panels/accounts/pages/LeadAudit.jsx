@@ -118,6 +118,8 @@ export default function LeadAudit() {
     ? null
     : collectionKeys.reduce((s, k) => s + Number(collections.find(x => x.project_id === k)?.[field] || 0), 0);
 
+  const summaryLoading = audit.loading || !audit.combo;
+
   const receiptSkeleton = [0, 1, 2].map(i => (
     <div key={i} style={{ border: '1px solid #eef2f7', borderRadius: 11, background: '#fff', padding: '9px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -162,19 +164,22 @@ export default function LeadAudit() {
     const count = audit.combo?.[key]?.count;
     return (
       <button key={key} onClick={() => setSuspenseCardNgo(active ? '' : key)} title={'Filter suspense to ' + key.toUpperCase()}
-        style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid #eef2f7', borderRadius: 12, background: c.bg, padding: '9px 12px', boxShadow: active ? '0 3px 12px ' + c.accent + '2a' : 'none' }}>
-        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: c.accent, letterSpacing: '.05em', whiteSpace: 'nowrap' }}>{key.toUpperCase()}{count ? <span style={{ fontWeight: 700, opacity: .65, marginLeft: 5, fontSize: 10 }}>{count}</span> : null}</span>
-          <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: '#8a93a3', whiteSpace: 'nowrap' }}>Suspense</span>
-        </span>
-        <span style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minWidth: 0, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid #eef2f7', borderRadius: 12, background: c.bg, padding: '9px 12px', boxShadow: active ? '0 3px 12px ' + c.accent + '2a' : 'none' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 9, background: '#fff', color: c.accent, fontSize: 10.5, fontWeight: 800, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{key.toUpperCase()}</span>
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: '#8a93a3' }}>Today</span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 44, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</span>
+            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3', whiteSpace: 'nowrap' }}>Suspense{count > 0 ? ` \u00B7 ${count}` : ''}</span>
+            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.[key]?.amount || 0)}</span>
           </span>
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: '#8a93a3' }}>Month</span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, color: c.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 60, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</span>
+            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3' }}>Today</span>
+            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 44, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</span>
+          </span>
+          <span style={{ minWidth: 0, textAlign: 'right' }}>
+            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3' }}>Month</span>
+            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, color: c.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 60, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</span>
           </span>
         </span>
       </button>
@@ -193,7 +198,7 @@ return (
         <div className="top-summary-card">
           <SectionTitle><Sigma size={15} strokeWidth={2.4} /> Suspense</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>{suspenseMiniCards}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseMiniCards}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
               <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151', flex: 1, whiteSpace: 'nowrap' }}>TOTAL</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
