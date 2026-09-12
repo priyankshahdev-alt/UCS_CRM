@@ -480,16 +480,19 @@ useEffect(() => onFroAction((action) => {
   }), []);
 
   const [froBroadcast, setFroBroadcast] = useState(null);
+  const [froBroadcastMin, setFroBroadcastMin] = useState(false);
   const froBroadcastSeen = useRef(new Set());
   useEffect(() => onFroBroadcast((evt) => {
     if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
     froBroadcastSeen.current.add(evt.eventId);
+    setFroBroadcastMin(false);
     setFroBroadcast(evt);
   }), []);
   useEffect(() => {
     if (!froBroadcast) return;
-    const t = setTimeout(() => setFroBroadcast(null), 12000);
-    return () => clearTimeout(t);
+    const minimize = setTimeout(() => setFroBroadcastMin(true), 30000);
+    const dismiss = setTimeout(() => setFroBroadcast(null), 90000);
+    return () => { clearTimeout(minimize); clearTimeout(dismiss); };
   }, [froBroadcast]);
 
   useRealtime('notification_log', {
@@ -1036,25 +1039,46 @@ useEffect(() => onFroAction((action) => {
       {froBroadcast && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
           <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }'}</style>
-          <div onClick={e => e.stopPropagation()} style={{ width: 'min(420px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
             <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
             <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>
-            <div style={{ padding: '20px 20px 0', display: 'flex', alignItems: 'center', flexDirection: 'column', textAlign: 'center' }}>
+            <div style={{ padding: '24px 24px 0', display: 'flex', alignItems: 'center', flexDirection: 'column', textAlign: 'center' }}>
               {froBroadcast.photoUrl ? (
-                <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 84, height: 84, borderRadius: '50%', objectFit: 'cover', border: '4px solid #fff', boxShadow: '0 6px 18px rgba(99,102,241,.35)', display: 'block', background: '#f1f5f9' }} />
+                <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 150, height: 150, borderRadius: '50%', objectFit: 'cover', border: '5px solid #fff', boxShadow: '0 10px 28px rgba(99,102,241,.4)', display: 'block', background: '#f1f5f9' }} />
               ) : (
-                <div style={{ width: 84, height: 84, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 30, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 150, height: 150, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 52, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
                 </div>
               )}
-              <span style={{ marginTop: 10, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
-              <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
+              <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
+              <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
             </div>
-            <div style={{ padding: '12px 20px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: 14, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
-              <button onClick={() => setFroBroadcast(null)} style={{ marginTop: 14, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--ink, #0f172a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
+            <div style={{ padding: '14px 24px 22px', textAlign: 'center' }}>
+              <div style={{ fontSize: 14.5, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
+              <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-soft, #94a3b8)', fontWeight: 600 }}>Minimizes in 30s · moves to top-right</div>
+              <button onClick={() => setFroBroadcast(null)} style={{ marginTop: 12, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--ink, #0f172a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
             </div>
           </div>
+        </div>
+      )}
+      {froBroadcast && froBroadcastMin && (
+        <div onClick={() => setFroBroadcastMin(false)} title="Expand announcement" style={{ position: 'fixed', top: 72, right: 16, zIndex: 99996, maxWidth: 320, width: 'calc(100vw - 32px)', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-bg, #fff)', boxShadow: '0 12px 32px rgba(0,0,0,.28)', border: '1px solid var(--line, #e2e8f0)', cursor: 'pointer', animation: 'fro-bc-slide .3s ease' }}>
+          <style>{'@keyframes fro-bc-slide { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes fro-bc-dismiss { from { width: 100%; } to { width: 0%; } }'}</style>
+          {froBroadcast.photoUrl ? (
+            <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, background: '#f1f5f9' }} />
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.workerName || 'FRO'}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{froBroadcast.text || ''}</div>
+            <div style={{ marginTop: 6, height: 3, borderRadius: 99, background: '#eef2f7', overflow: 'hidden' }}>
+              <span style={{ display: 'block', height: '100%', background: '#8b5cf6', animation: 'fro-bc-dismiss 60s linear forwards' }} />
+            </div>
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); setFroBroadcast(null); }} aria-label="Close" style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>✕</button>
         </div>
       )}
       <ToastContainer />
