@@ -72,3 +72,17 @@ export const deleteSlab = async (id) => {
   if (error) throw error;
   return data;
 };
+
+export const updateAllSlabs = async ({ min_lead_amount, lead_rate }) => {
+  const { data, error } = await db
+    .from('incentive_slabs')
+    .update({
+      min_lead_amount,
+      lead_rate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('is_active', true)
+    .select();
+  if (error) throw error;
+  return data || [];
+};

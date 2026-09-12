@@ -13,6 +13,8 @@ import {
   getWorkerAttendance,
   updateWorkerAttendance,
   getPagarExport,
+  getAccountsSalaryCompensations,
+  saveAccountsSalaryCompensations,
   getSalaryAccessCodeStatus,
   createSalaryAccessCode,
   verifySalaryAccessCode,
@@ -41,12 +43,14 @@ router.patch('/attendance', authenticateSalary, updateWorkerAttendance);
 router.get('/worker/:workerId', adminHrAccounts, getWorkerSalaries);
 router.post('/', adminHrAccounts, addSalary);
 router.put('/hold', adminHrAccounts, setSalaryHold);
+router.put('/compensations', authenticateRole('accounts'), saveAccountsSalaryCompensations);
 router.put('/:id', adminHrAccounts, editSalary);
 router.put('/:id/pay', adminOrHrOrHo, paySalary);
 router.delete('/:id', adminHrAccounts, removeSalary);
 router.get('/my-breakdown', authenticate, getMySalaryBreakdown);
 router.get('/worker/:workerId/allocations', adminHrAccounts, getWorkerSalaryWithAllocations);
 router.get('/pagar-export', adminHrAccounts, getPagarExport);
+router.get('/compensations', authenticateRole('accounts'), getAccountsSalaryCompensations);
 router.get('/hold/:workerId', adminHrAccounts, getSalaryHold);
 router.put('/hold', adminHrAccounts, setSalaryHold);
 router.delete('/hold/:workerId', adminHrAccounts, releaseSalaryHold);

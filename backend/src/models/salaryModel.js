@@ -1,7 +1,57 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { computePaidDays, getCompensatoryWorkdays, getISTToday } from '../utils/salaryDays.js';
+import { COMPENSATORY_WORKDAYS, computePaidDays, getISTToday } from '../utils/salaryDays.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
+import { getSetting, upsertSetting } from './settingsModel.js';
+
+const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
+
+const parseSalaryCompensations = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+};
+
+export const getSalaryCompensations = async () => {
+  const stored = parseSalaryCompensations(await getSetting(SALARY_COMPENSATIONS_KEY));
+  const all = [...stored];
+  for (const fallback of Object.values(COMPENSATORY_WORKDAYS).flat()) {
+    if (!all.some((entry) => entry.workDate === fallback.workDate && entry.holidayDate === fallback.holidayDate)) {
+      all.push({ ...fallback, month: fallback.workDate.slice(0, 7) });
+    }
+  }
+  return all.sort((a, b) => String(a.workDate).localeCompare(String(b.workDate)));
+};
+
+export const saveSalaryCompensations = async (compensations) => {
+  if (!Array.isArray(compensations)) throw new Error('compensations must be an array');
+  const normalized = compensations.map((entry) => ({
+    month: String(entry.month || entry.workDate || '').slice(0, 7),
+    workDate: String(entry.workDate || '').slice(0, 10),
+    holidayDate: String(entry.holidayDate || '').slice(0, 10),
+    name: String(entry.name || 'Compensatory holiday').trim(),
+  }));
+  for (const entry of normalized) {
+    if (!/^\d{4}-\d{2}$/.test(entry.month) || !/^\d{4}-\d{2}-\d{2}$/.test(entry.workDate) || !/^\d{4}-\d{2}-\d{2}$/.test(entry.holidayDate)) {
+      throw new Error('Each compensation needs a valid month, work date, and holiday date');
+    }
+    if (entry.workDate === entry.holidayDate) throw new Error('Work date and holiday date must be different');
+    if (entry.month !== entry.workDate.slice(0, 7) || entry.month !== entry.holidayDate.slice(0, 7)) {
+      throw new Error('The month must match both compensation dates');
+    }
+    if (new Date(`${entry.workDate}T00:00:00Z`).getUTCDay() !== 0) {
+      throw new Error('The compensatory work date must be a Sunday');
+    }
+  }
+  const unique = normalized.filter((entry, index, list) => list.findIndex((item) => item.workDate === entry.workDate && item.holidayDate === entry.holidayDate) === index);
+  await upsertSetting(SALARY_COMPENSATIONS_KEY, JSON.stringify(unique));
+  return getSalaryCompensations();
+};
 
 export const getSalariesByWorker = async (workerId) => {
   const { data, error } = await db
@@ -511,6 +561,7 @@ export const getPagarExportData = async (month) => {
     .gte('date', startDate)
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
+  const salaryCompensations = (await getSalaryCompensations()).filter((entry) => entry.month === monthStr);
 
   const attByWorker = {};
   for (const r of attRecords) {
@@ -729,7 +780,7 @@ export const getPagarExportData = async (month) => {
       holidayDates,
       viewingToday,
       includeHolidayPay: true,
-      compensatoryWorkdays: getCompensatoryWorkdays(monthStr),
+      compensatoryWorkdays: salaryCompensations,
     });
 
     const target = targetByWorker[w.id] || 0;

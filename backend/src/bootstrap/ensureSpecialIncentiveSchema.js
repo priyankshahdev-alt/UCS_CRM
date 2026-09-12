@@ -58,10 +58,18 @@ CREATE TABLE IF NOT EXISTS incentive_slabs (
   min_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   max_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   incentive_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  min_lead_amount NUMERIC(12,2) NOT NULL DEFAULT 300,
+  lead_rate NUMERIC(12,2) NOT NULL DEFAULT 20,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Self-heal for older DBs: add per-slab columns (ADD COLUMN ... DEFAULT fills
+-- existing rows with the sane baseline; migration 124 copies the then-current
+-- global values across once).
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS min_lead_amount NUMERIC(12,2) NOT NULL DEFAULT 300;
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT NULL DEFAULT 20;
 
 CREATE TABLE IF NOT EXISTS incentive_settings (
   id SERIAL PRIMARY KEY,

@@ -133,6 +133,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [workerDetails, setWorkerDetails] = useState({});
   const [pagarMonth, setPagarMonth] = useState('');
   const [showPagarModal, setShowPagarModal] = useState(false);
+  const [salaryCompensations, setSalaryCompensations] = useState([]);
+  const [showCompensationModal, setShowCompensationModal] = useState(false);
+  const [compensationMonth, setCompensationMonth] = useState('');
+  const [compensationWorkDate, setCompensationWorkDate] = useState('');
+  const [compensationHolidayDate, setCompensationHolidayDate] = useState('');
+  const [compensationName, setCompensationName] = useState('');
+  const [compensationSaving, setCompensationSaving] = useState(false);
   const PAGE_SIZE = 20;
   const tableRef = useRef(null);
 
@@ -171,7 +178,58 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         setSalaryMap(map);
       })
       .catch((err) => { console.error('Error:', err.message); });
-  }, [reload]);
+    if (showPagarExport) {
+      api('/salary/compensations', { _prefix: 'ucs' })
+        .then(data => setSalaryCompensations(data?.compensations || []))
+        .catch((err) => { console.error('Compensation settings error:', err.message); });
+    }
+  }, [reload, showPagarExport]);
+
+  const saveCompensation = async () => {
+    if (!compensationMonth || !compensationWorkDate || !compensationHolidayDate) {
+      alert('Select the month, compensatory work date, and holiday date.');
+      return;
+    }
+    const entry = {
+      month: compensationMonth,
+      workDate: compensationWorkDate,
+      holidayDate: compensationHolidayDate,
+      name: compensationName.trim() || 'Compensatory holiday',
+    };
+    setCompensationSaving(true);
+    try {
+      const data = await api('/salary/compensations', {
+        method: 'PUT',
+        body: JSON.stringify({ compensations: [...salaryCompensations, entry] }),
+        _prefix: 'ucs',
+      });
+      setSalaryCompensations(data?.compensations || []);
+      setCompensationName('');
+      setCompensationWorkDate('');
+      setCompensationHolidayDate('');
+      alert('Compensation saved.');
+    } catch (err) {
+      alert(err.message || 'Could not save compensation.');
+    } finally {
+      setCompensationSaving(false);
+    }
+  };
+
+  const removeCompensation = async (entry) => {
+    if (!window.confirm(`Remove ${entry.workDate} → ${entry.holidayDate}?`)) return;
+    try {
+      const data = await api('/salary/compensations', {
+        method: 'PUT',
+        body: JSON.stringify({
+          compensations: salaryCompensations.filter(item => !(item.workDate === entry.workDate && item.holidayDate === entry.holidayDate)),
+        }),
+        _prefix: 'ucs',
+      });
+      setSalaryCompensations(data?.compensations || []);
+    } catch (err) {
+      alert(err.message || 'Could not remove compensation.');
+    }
+  };
 
   const roles = [...new Set(workers.map(w => (w.department || 'Team Member')).filter(Boolean))].sort();
   const clientOf = (w) => {
@@ -889,6 +947,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
             {showPagarExport && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
+            {showPagarExport && <button className="btn btn-outline btn-sm" onClick={() => {
+              const currentMonth = new Date().toISOString().slice(0, 7);
+              setCompensationMonth(pagarMonth || currentMonth);
+              setShowCompensationModal(true);
+            }} title="Manage compensatory Sundays and holidays">Compensations</button>}
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
             <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
@@ -1024,7 +1087,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           </div>
         )}
       </div>
-    {showPagarModal && (
+     {showPagarModal && (
       <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
         <div onClick={e => e.stopPropagation()} style={{ 
           width: 360, 
@@ -1058,8 +1121,69 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             </div>
           </div>
         </div>
-      </div>
-    )}
+       </div>
+     )}
+     {showCompensationModal && (
+       <div className="modal-overlay" onClick={() => setShowCompensationModal(false)}>
+         <div onClick={e => e.stopPropagation()} style={{
+           width: 540,
+           maxWidth: 'calc(100vw - 32px)',
+           background: 'var(--card-bg)',
+           borderRadius: 14,
+           boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+           border: '1px solid var(--line)',
+           maxHeight: 'calc(100vh - 40px)',
+           overflow: 'auto'
+         }}>
+           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderBottom:'1px solid var(--line)' }}>
+             <h4 style={{ margin: 0, fontSize: 15 }}>Salary Compensations</h4>
+             <button onClick={() => setShowCompensationModal(false)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:'rgba(0,0,0,.08)', color:'#666', fontSize:18, cursor:'pointer' }}>×</button>
+           </div>
+           <div style={{ padding: 20 }}>
+             <p style={{ margin:'0 0 14px', color:'var(--ink-soft)', fontSize:13 }}>
+               Link a worked Sunday to a holiday. The linked Sunday replaces the holiday and does not satisfy the separate required Sunday.
+             </p>
+             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+               <label className="field">Salary month
+                 <input type="month" className="input" value={compensationMonth} onChange={e => setCompensationMonth(e.target.value)} />
+               </label>
+               <label className="field">Name
+                 <input className="input" value={compensationName} onChange={e => setCompensationName(e.target.value)} placeholder="e.g. Rashabandhan" />
+               </label>
+               <label className="field">Compensatory work Sunday
+                 <input type="date" className="input" value={compensationWorkDate} onChange={e => setCompensationWorkDate(e.target.value)} />
+               </label>
+               <label className="field">Holiday date
+                 <input type="date" className="input" value={compensationHolidayDate} onChange={e => setCompensationHolidayDate(e.target.value)} />
+               </label>
+             </div>
+             <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
+               <button className="btn btn-primary" disabled={compensationSaving} onClick={saveCompensation}>
+                 {compensationSaving ? 'Saving…' : 'Add Compensation'}
+               </button>
+             </div>
+             <div style={{ marginTop:20, borderTop:'1px solid var(--line)', paddingTop:14 }}>
+               <strong style={{ fontSize:13 }}>Saved mappings</strong>
+               {salaryCompensations.length === 0 ? (
+                 <div style={{ color:'var(--ink-soft)', fontSize:12, marginTop:8 }}>No compensation mappings.</div>
+               ) : salaryCompensations.map(entry => (
+                 <div key={`${entry.workDate}-${entry.holidayDate}`} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, padding:'9px 0', borderBottom:'1px solid var(--line)', fontSize:12 }}>
+                   <div>
+                     <strong>{entry.name || 'Compensatory holiday'}</strong>
+                     <div style={{ color:'var(--ink-soft)', marginTop:2 }}>{entry.workDate} → {entry.holidayDate} · {entry.month || entry.workDate?.slice(0, 7)}</div>
+                   </div>
+                   {entry.workDate === '2026-08-23' && entry.holidayDate === '2026-08-28' ? (
+                     <span style={{ color:'var(--ink-soft)', fontSize:11 }}>Default</span>
+                   ) : (
+                     <button className="btn btn-outline btn-sm" onClick={() => removeCompensation(entry)}>Remove</button>
+                   )}
+                 </div>
+               ))}
+             </div>
+           </div>
+         </div>
+       </div>
+     )}
     </>
   );
 }

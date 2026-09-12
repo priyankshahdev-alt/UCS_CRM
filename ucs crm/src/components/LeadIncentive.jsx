@@ -461,7 +461,14 @@ function FroRow({ fro, isChampion, slabLabel, onSelect }) {
         {isChampion && <span style={{ marginLeft: 6, fontSize: 12 }}>🏆</span>}
       </td>
       <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>₹{fmt(fro.target)}</td>
-      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{slabLabel}</td>
+      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>
+        {slabLabel}
+        {fro.slab && (
+          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', opacity: 0.75 }}>
+            min ₹{fmt(fro.slab.min_lead_amount)} · ₹{fmt(fro.slab.lead_rate)}/lead
+          </div>
+        )}
+      </td>
       <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--ink)' }}>{fro.total_leads}</td>
       <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{fro.qualified_leads}</td>
       <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>₹{fmt(fro.total_amount)}</td>

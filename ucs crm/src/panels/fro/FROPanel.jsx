@@ -7,6 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
+import { onFroAction, onFroBroadcast, onFroTeamBroadcast } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
@@ -23,6 +24,7 @@ import Donors from './pages/Donors'
 import IncentiveInfo from './pages/IncentiveInfo'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive from '../../components/SpecialIncentive'
+import RangeRulePopup from '../../components/RangeRulePopup'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
@@ -31,9 +33,18 @@ import FroSuspense from './pages/Suspense'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
+import followDueMp3 from '../../assets/audio/follow_due.mp3'
+import callLessMp3 from '../../assets/audio/call_less.mp3'
+import reelMp3 from '../../assets/audio/reel.mp3'
 
 const suspenseAlertAudio = new Audio(teleWav);
 suspenseAlertAudio.preload = 'auto';
+const followDueAudio = new Audio(followDueMp3);
+const callLessAudio = new Audio(callLessMp3);
+const entertainAudio = new Audio(reelMp3);
+followDueAudio.preload = 'auto';
+callLessAudio.preload = 'auto';
+entertainAudio.preload = 'auto';
 const SUSPENSE_RING_WINDOW_MS = 90 * 1000;
 function playSuspenseAlert(title) {
   try {
@@ -43,11 +54,20 @@ function playSuspenseAlert(title) {
   } catch {}
   toast(title || 'Suspense Alert', 'info');
 }
+function playFroAction(type, title) {
+  const audio = type === 'fro_action_follow_up' ? followDueAudio : (type === 'fro_action_less_calls' ? callLessAudio : entertainAudio);
+  try {
+    audio.currentTime = 0;
+    const p = audio.play();
+    if (p && p.then) p.catch(() => {});
+  } catch {}
+  toast(title || 'FRO action', 'info');
+}
 let suspenseAudioUnlocked = false;
 function warmupSuspenseAudio() {
   if (suspenseAudioUnlocked) return;
-  suspenseAudioUnlocked = true;
-  try {
+    suspenseAudioUnlocked = true;
+    try {
     suspenseAlertAudio.volume = 0;
     suspenseAlertAudio.muted = true;
     const p = suspenseAlertAudio.play();
@@ -57,6 +77,17 @@ function warmupSuspenseAudio() {
       suspenseAlertAudio.muted = false;
       suspenseAlertAudio.volume = 1;
     }).catch(() => {});
+    for (const audio of [followDueAudio, callLessAudio, entertainAudio]) {
+      audio.volume = 0;
+      audio.muted = true;
+      const p = audio.play();
+      if (p && p.then) p.then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        audio.volume = 1;
+      }).catch(() => {});
+    }
   } catch {}
 }
 if (typeof window !== 'undefined') {
@@ -445,6 +476,34 @@ export default function FROPanel() {
     const poll = setInterval(loadNotifications, 8000);
     return () => clearInterval(poll);
   }, [user?.id]);
+
+useEffect(() => onFroAction((action) => {
+    if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
+      playFroAction(action.type, action.title);
+    }
+  }), []);
+
+  const [froBroadcast, setFroBroadcast] = useState(null);
+  const [froBroadcastMin, setFroBroadcastMin] = useState(false);
+  const froBroadcastSeen = useRef(new Set());
+  useEffect(() => onFroBroadcast((evt) => {
+    if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
+    froBroadcastSeen.current.add(evt.eventId);
+    setFroBroadcastMin(false);
+    setFroBroadcast(evt);
+  }), []);
+  useEffect(() => onFroTeamBroadcast((evt) => {
+    if (!evt?.eventId || froBroadcastSeen.current.has(evt.eventId)) return;
+    froBroadcastSeen.current.add(evt.eventId);
+    setFroBroadcastMin(false);
+    setFroBroadcast(evt);
+  }), []);
+  useEffect(() => {
+    if (!froBroadcast) return;
+    const minimize = setTimeout(() => setFroBroadcastMin(true), 30000);
+    const dismiss = setTimeout(() => setFroBroadcast(null), 90000);
+    return () => { clearTimeout(minimize); clearTimeout(dismiss); };
+  }, [froBroadcast]);
 
   useRealtime('notification_log', {
     filter: `worker_id=eq.${user?.id}`,
@@ -985,8 +1044,79 @@ export default function FROPanel() {
         onItemClick={handleDrawerItemClick}
       />
       <SpecialIncentive />
+      <RangeRulePopup />
       <LeadChampionCelebration />
       <NoticePopup />
+      {froBroadcast && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
+          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }'}</style>
+          <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
+            <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
+            <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>
+            <div style={{ padding: '24px 24px 0', display: 'flex', alignItems: 'center', flexDirection: 'column', textAlign: 'center' }}>
+              {froBroadcast.kind === 'team' ? (
+                <>
+                  <div style={{ width: 104, height: 104, borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ea580c)', color: '#fff', fontSize: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 28px rgba(245,158,11,.45)' }}>🏆</div>
+                  <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: 999 }}>Team Achievement</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 8 }}>
+                    {(froBroadcast.teams || []).map((t) => (
+                      <span key={t.name} style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', background: '#ffedd5', border: '1px solid #fed7aa', padding: '4px 10px', borderRadius: 999 }}>{t.name}</span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {froBroadcast.photoUrl ? (
+                    <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 150, height: 150, borderRadius: '50%', objectFit: 'cover', border: '5px solid #fff', boxShadow: '0 10px 28px rgba(99,102,241,.4)', display: 'block', background: '#f1f5f9' }} />
+                  ) : (
+                    <div style={{ width: 150, height: 150, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontSize: 52, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <span style={{ marginTop: 12, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#ede9fe', padding: '4px 10px', borderRadius: 999 }}>Announcement</span>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--ink, #0f172a)', marginTop: 6 }}>{froBroadcast.workerName || 'FRO'}</div>
+                </>
+              )}
+            </div>
+            <div style={{ padding: '14px 24px 22px', textAlign: 'center' }}>
+              <div style={{ fontSize: 14.5, color: 'var(--ink-soft, #475569)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{froBroadcast.text || ''}</div>
+              {froBroadcast.kind === 'team' && (froBroadcast.teams || []).some(t => t.members.length) && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+                  {(froBroadcast.teams || []).filter(t => t.members.length).map((t) => (
+                    <div key={t.name} style={{ fontSize: 11.5, color: '#92400e', lineHeight: 1.45 }}>
+                      <span style={{ fontWeight: 800 }}>{t.name}:</span> {t.members.join(', ')}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-soft, #94a3b8)', fontWeight: 600 }}>Minimizes in 30s · moves to top-right</div>
+              <button onClick={() => setFroBroadcast(null)} style={{ marginTop: 12, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--ink, #0f172a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {froBroadcast && froBroadcastMin && (
+        <div onClick={() => setFroBroadcastMin(false)} title="Expand announcement" style={{ position: 'fixed', top: 72, right: 16, zIndex: 99996, maxWidth: 320, width: 'calc(100vw - 32px)', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-bg, #fff)', boxShadow: '0 12px 32px rgba(0,0,0,.28)', border: '1px solid var(--line, #e2e8f0)', cursor: 'pointer', animation: 'fro-bc-slide .3s ease' }}>
+          <style>{'@keyframes fro-bc-slide { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes fro-bc-dismiss { from { width: 100%; } to { width: 0%; } }'}</style>
+          {froBroadcast.kind === 'team' ? (
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ea580c)', color: '#fff', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🏆</div>
+          ) : froBroadcast.photoUrl ? (
+            <img src={froBroadcast.photoUrl} alt={froBroadcast.workerName || 'FRO'} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, background: '#f1f5f9' }} />
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {(froBroadcast.workerName || 'FRO').slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{froBroadcast.kind === 'team' ? 'Team Achievement · ' + (froBroadcast.teams || []).map(t => t.name).join(' + ') : (froBroadcast.workerName || 'FRO')}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{froBroadcast.text || ''}</div>
+            <div style={{ marginTop: 6, height: 3, borderRadius: 99, background: '#eef2f7', overflow: 'hidden' }}>
+              <span style={{ display: 'block', height: '100%', background: '#8b5cf6', animation: 'fro-bc-dismiss 60s linear forwards' }} />
+            </div>
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); setFroBroadcast(null); }} aria-label="Close" style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>✕</button>
+        </div>
+      )}
       <ToastContainer />
     </div>
     </CallProvider>

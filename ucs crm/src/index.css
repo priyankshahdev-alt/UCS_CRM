@@ -1444,6 +1444,12 @@
 .panel-accounts .lead-audit-columns .ec-title { font-size:12px; }
 .panel-accounts .lead-audit-columns .ec-amount { font-size:15px; }
 .panel-accounts .lead-audit-columns .ec-meta { margin-top:9px; padding-top:9px; }
+.panel-accounts .lead-audit-action-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0 18px 14px; }
+.panel-accounts .lead-audit-action-btn { min-height:32px; padding:0 12px; border:1px solid #dce4ee; border-radius:8px; background:#fff; color:#475569; font-family:inherit; font-size:10px; font-weight:800; letter-spacing:.04em; cursor:pointer; transition:all .15s; }
+.panel-accounts .lead-audit-action-btn:hover { border-color:var(--sage); color:var(--sage); background:#f8fafc; }
+.panel-accounts .lead-audit-action-btn:disabled { opacity:.6; cursor:default; }
+.panel-accounts .lead-audit-action-alert { border-color:var(--sage); background:var(--sage); color:#fff; }
+.panel-accounts .lead-audit-action-alert:hover { background:var(--sage); color:#fff; filter:brightness(1.05); }
 /* Lead Verification → Bank Audit wave overlay. Scoped to lead cards only
    ([data-lead-log]); connectors (MatchLines) and Bank Audit cards untouched. */
 .panel-accounts .lead-audit-columns .entry-card[data-lead-log] { overflow:hidden; }

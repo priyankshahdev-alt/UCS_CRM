@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
 import MatchLines from '../components/MatchLines';
@@ -28,6 +29,19 @@ export default function LeadAudit() {
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
+  const [alertBusy, setAlertBusy] = useState(false);
+  const [froActionBusy, setFroActionBusy] = useState('');
+  const [froModalOpen, setFroModalOpen] = useState(false);
+  const [froWorkers, setFroWorkers] = useState([]);
+  const [froWorkersLoading, setFroWorkersLoading] = useState(false);
+  const [froSelectedId, setFroSelectedId] = useState('');
+  const [froText, setFroText] = useState('');
+  const [froSending, setFroSending] = useState(false);
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
+  const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [selectedTeams, setSelectedTeams] = useState([]);
+  const [teamSending, setTeamSending] = useState(false);
   const [collections, setCollections] = useState(null);
   const workspaceRef = useRef(null);
 
@@ -66,6 +80,95 @@ export default function LeadAudit() {
 
   const ready = !!(selectedLead && selectedEntry && !matching);
   const isPanelOpen = !!(detailView || entryDetailView);
+  const handleAlertAll = async () => {
+    if (alertBusy) return;
+    setAlertBusy(true);
+    try {
+      const res = await apiPost('/notifications/suspense-alert', {});
+      toast('Alert sent to ' + (res?.count || 0) + ' FROs', 'success');
+    } catch {
+      toast('Failed to send alert', 'error');
+    } finally {
+      setTimeout(() => setAlertBusy(false), 10000);
+    }
+  };
+  const handleFroAction = async (action) => {
+    if (froActionBusy) return;
+    setFroActionBusy(action);
+    try {
+      const res = await apiPost('/notifications/fro-action', { action });
+      toast(`${({ follow_up: 'Follow-up', less_calls: 'Less calls', entertain: 'Entertain' }[action] || action)} sent to ${res?.count || 0} FROs`, 'success');
+    } catch (err) {
+      toast(err.message || 'Failed to send FRO action', 'error');
+    } finally {
+      setFroActionBusy('');
+    }
+  };
+  const openFroModal = async () => {
+    setFroModalOpen(true);
+    setFroText('');
+    setFroSelectedId('');
+    if (froWorkers.length) return;
+    setFroWorkersLoading(true);
+    try {
+      const workers = await apiGet('/workers?status=active');
+      const fro = (Array.isArray(workers) ? workers : [])
+        .filter(w => String(w.department || '').toLowerCase().trim() === 'fro' && w.is_active !== false)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      setFroWorkers(fro);
+    } catch {
+      toast('Failed to load FROs', 'error');
+    } finally {
+      setFroWorkersLoading(false);
+    }
+  };
+  const selectedFro = froWorkers.find(w => String(w.id) === String(froSelectedId)) || null;
+  const sendFroBroadcast = async () => {
+    if (froSending) return;
+    if (!selectedFro) { toast('Select an FRO', 'error'); return; }
+    if (!froText.trim()) { toast('Enter a message', 'error'); return; }
+    setFroSending(true);
+    try {
+      const res = await apiPost('/notifications/fro-broadcast', { worker_id: selectedFro.id, text: froText });
+      toast(`Announcement sent to ${res?.count || 0} FROs`, 'success');
+      setFroModalOpen(false);
+    } catch (err) {
+      toast(err.message || 'Failed to send announcement', 'error');
+    } finally {
+      setFroSending(false);
+    }
+  };
+  const toggleTeam = (name) => {
+    setSelectedTeams(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name]);
+  };
+  const openTeamModal = async () => {
+    setTeamModalOpen(true);
+    setSelectedTeams([]);
+    if (teams.length) return;
+    setTeamsLoading(true);
+    try {
+      const res = await apiGet('/teams');
+      setTeams(Array.isArray(res?.teams) ? res.teams : []);
+    } catch {
+      toast('Failed to load teams', 'error');
+    } finally {
+      setTeamsLoading(false);
+    }
+  };
+  const sendTeamCongrats = async () => {
+    if (teamSending) return;
+    if (!selectedTeams.length) { toast('Select at least one team', 'error'); return; }
+    setTeamSending(true);
+    try {
+      const res = await apiPost('/notifications/fro-team-broadcast', { teams: selectedTeams });
+      toast(`🎉 Congratulations sent to ${res?.count || 0} FROs for ${selectedTeams.join(', ')}`, 'success');
+      setTeamModalOpen(false);
+    } catch (err) {
+      toast(err.message || 'Failed to send congratulations', 'error');
+    } finally {
+      setTeamSending(false);
+    }
+  };
   const collectionKeys = ['bsct', 'aflf', 'mann'];
   const collectionTotal = field => collections === null ? null : collectionKeys.reduce((sum, key) => sum + Number(collections.find(x => x.project_id === key)?.[field] || 0), 0);
 
@@ -91,7 +194,7 @@ export default function LeadAudit() {
   return (
     <>
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
-        <>
+        <div style={{ width: 'min(360px, 100%)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, padding: 14, border: '1px solid #e7ecf3', borderRadius: 16, background: 'transparent', boxShadow: 'none' }}>
           <SectionTitle>Collections</SectionTitle>
           {collectionKeys.map(key => {
             const c = NGO_COLLECTION[key];
@@ -106,12 +209,23 @@ export default function LeadAudit() {
           })}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2, padding: '10px', borderRadius: 11, background: '#f8fafc', border: '1px solid #eef2f7' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Collection</span>
-            <strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong>
+            <div style={{ display: 'flex', gap: 14, textAlign: 'right' }}>
+              <span><small style={{ display: 'block', color: '#8a93a3', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Today</small><strong style={{ fontSize: 12, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('today_total') || 0)}</strong></span>
+              <span><small style={{ display: 'block', color: '#8a93a3', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>Month</small><strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong></span>
+            </div>
           </div>
-        </>
+        </div>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
+          </div>
+          <div className="lead-audit-action-row">
+            <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'SUSPENSE'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('follow_up')} disabled={!!froActionBusy}>{froActionBusy === 'follow_up' ? 'SENDING' : 'FOLLOW UP'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('less_calls')} disabled={!!froActionBusy}>{froActionBusy === 'less_calls' ? 'SENDING' : 'LESS CALLS'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('entertain')} disabled={!!froActionBusy}>{froActionBusy === 'entertain' ? 'SENDING' : 'ENTERTAIN'}</button>
+            <button className="lead-audit-action-btn" onClick={openFroModal}>FRO</button>
+            <button className="lead-audit-action-btn" onClick={openTeamModal}>TEAM</button>
           </div>
           <div style={{ height: 1, background: '#eef1f6' }} />
           <div style={{ padding: '12px 18px' }}>{filterBar}</div>
@@ -142,6 +256,105 @@ export default function LeadAudit() {
           </div>
         )}
       </div>
+
+      {froModalOpen && (
+        <div className="modal-overlay" onClick={() => { if (!froSending) setFroModalOpen(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, borderRadius: 16, overflow: 'hidden', padding: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>FRO Announcement</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Shows once on every open FRO panel · nothing is stored</div>
+              </div>
+              <button className="btn btn-sm btn-icon" onClick={() => { if (!froSending) setFroModalOpen(false); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: 'var(--ink-soft)' }} aria-label="Close">
+                <X size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>FRO</label>
+              <select value={froSelectedId} onChange={e => setFroSelectedId(e.target.value)} disabled={froWorkersLoading} style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: 'var(--ink)', fontWeight: 600, fontFamily: 'inherit' }}>
+                <option value="">{froWorkersLoading ? 'Loading FROs…' : 'Select an FRO'}</option>
+                {froWorkers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+              {selectedFro && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 12, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                  {selectedFro.photo_url ? (
+                    <img src={selectedFro.photo_url} alt={selectedFro.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', color: '#fff', fontWeight: 700, fontSize: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {(selectedFro.name || '?').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFro.name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>FRO · {selectedFro.employee_id || '—'}</div>
+                  </div>
+                </div>
+              )}
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>Message</label>
+              <textarea rows={4} value={froText} onChange={e => setFroText(e.target.value)} placeholder="e.g. Please complete your follow-up calls before 6 pm." style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: 'var(--ink)', fontFamily: 'inherit', resize: 'vertical' }} />
+              <div style={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                <span>✨</span>
+                <span>Your message is rephrased with correct grammar before it is broadcast to active FRO panels.</span>
+              </div>
+              <button onClick={sendFroBroadcast} disabled={froSending} style={{ marginTop: 2, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--sage, #166534)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: froSending ? 'default' : 'pointer', fontFamily: 'inherit', opacity: froSending ? .7 : 1 }}>
+                {froSending ? 'Sending…' : 'Send to all FROs'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {teamModalOpen && (
+        <div className="modal-overlay" onClick={() => { if (!teamSending) setTeamModalOpen(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, borderRadius: 16, overflow: 'hidden', padding: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>Team Congratulations</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>AI writes a celebratory message for the selected teams &amp; members</div>
+              </div>
+              <button className="btn btn-sm btn-icon" onClick={() => { if (!teamSending) setTeamModalOpen(false); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: 'var(--ink-soft)' }} aria-label="Close">
+                <X size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>Select teams <span style={{ color: '#94a3b8', textTransform: 'none', fontWeight: 600 }}>(multiple)</span></label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {teamsLoading && <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading teams…</span>}
+                {!teamsLoading && teams.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>No teams found</span>}
+                {teams.length > 0 && (
+                  <button
+                    onClick={() => setSelectedTeams(prev => prev.length === teams.length ? [] : teams.slice())}
+                    style={{ fontSize: 11.5, fontWeight: 700, padding: '6px 10px', borderRadius: 999, border: '1px solid #d1d5db', background: selectedTeams.length === teams.length ? 'var(--sage, #166534)' : '#fff', color: selectedTeams.length === teams.length ? '#fff' : 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >All</button>
+                )}
+                {teams.map(t => {
+                  const on = selectedTeams.includes(t);
+                  return (
+                    <button key={t} onClick={() => toggleTeam(t)}
+                      style={{ fontSize: 12.5, fontWeight: 800, padding: '7px 14px', borderRadius: 999, border: on ? 'none' : '1px solid #d1d5db', background: on ? 'var(--sage, #166534)' : '#fff', color: on ? '#fff' : 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', boxShadow: on ? '0 6px 14px rgba(22,101,52,.35)' : 'none' }}>
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedTeams.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, borderRadius: 12, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                  {selectedTeams.map(t => (
+                    <span key={t} onClick={() => toggleTeam(t)} style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage, #166534)', background: '#f0f7ef', border: '1px solid #cfe3cb', padding: '3px 9px', borderRadius: 999, cursor: 'pointer' }}>{t} ✕</span>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                <span>✨</span>
+                <span>AI generates a warm congratulatory message naming the selected teams and every active member, then shows it as a popup on all open FRO panels.</span>
+              </div>
+              <button onClick={sendTeamCongrats} disabled={teamSending} style={{ marginTop: 2, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--sage, #166534)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: teamSending ? 'default' : 'pointer', fontFamily: 'inherit', opacity: teamSending ? .7 : 1 }}>
+                {teamSending ? 'Generating & sending…' : 'Congratulate teams'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
