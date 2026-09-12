@@ -1,3 +1,5 @@
+const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+
 export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
@@ -101,7 +103,7 @@ export default function Template6({ personal, declarationDate, place }) {
         </div>
 
         <p>
-          I, {personal?.fullName || '________________________'}, voluntarily authorize the Organization ("the Organization") 
+          I, {titleCase(personal?.fullName) || '________________________'}, voluntarily authorize the Organization ("the Organization") 
           to capture and use my photographs, videos, audio recordings, name, image, voice, and 
           testimonials for lawful purposes related to the Organization's charitable activities, including 
           awareness campaigns, fundraising, reports, publications, training, social media, website, 
@@ -130,7 +132,7 @@ export default function Template6({ personal, declarationDate, place }) {
 
         <div className="field">
           <span className="label">Volunteer Name:</span>
-          <span className="line">{personal?.fullName || ''}</span>
+          <span className="line">{titleCase(personal?.fullName)}</span>
         </div>
 
         <div className="field">
