@@ -15,6 +15,8 @@ const CELEB_PHOTO_KEY = 'si_celeb_photo_v1';
 
 // One recycled Audio object per file so repeated incentives don't re-download.
 const siAudioCache = {};
+let siAudioUnlocked = false;
+let siPendingAudioSrc = null;
 const getSiAudio = (src) => {
   if (!siAudioCache[src]) {
     try {
@@ -29,20 +31,56 @@ const getSiAudio = (src) => {
 // BSCT -> being, MANN -> mann, ASHRAY -> ashray, everything else / all-NGO -> ngo.
 const ngoAudioFor = (ngoName) => {
   const name = String(ngoName || '').toUpperCase();
-  if (name.includes('BSCT') || name.includes('BS')) return beingMp3;
+  if (name.includes('BSCT') || name.includes('BS') || name.includes('BEING') || name.includes('SEVAK')) return beingMp3;
   if (name.includes('MANN') || name.includes('MAA')) return mannMp3;
-  if (name.includes('ASHRAY')) return ashrayMp3;
+  if (name.includes('ASHRAY') || name.includes('AFL')) return ashrayMp3;
   return ngoMp3;
 };
-const playNgoAudio = (ngoName) => {
+const warmupSiAudio = () => {
+  if (siAudioUnlocked) return;
+  siAudioUnlocked = true;
+  for (const src of [beingMp3, mannMp3, ashrayMp3, ngoMp3]) {
+    const a = getSiAudio(src);
+    if (!a) continue;
+    try {
+      a.muted = true;
+      a.volume = 0;
+      const p = a.play();
+      if (p && p.then) p.then(() => {
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
+        a.volume = 1;
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  if (siPendingAudioSrc) {
+    const pending = siPendingAudioSrc;
+    siPendingAudioSrc = null;
+    setTimeout(() => playSiAudioSrc(pending), 0);
+  }
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', warmupSiAudio, { once: false, passive: true });
+  window.addEventListener('keydown', warmupSiAudio, { once: false });
+  window.addEventListener('touchstart', warmupSiAudio, { once: false, passive: true });
+}
+const playSiAudioSrc = (src) => {
+  if (!siAudioUnlocked) {
+    siPendingAudioSrc = src;
+    return;
+  }
   try {
-    const a = getSiAudio(ngoAudioFor(ngoName));
+    const a = getSiAudio(src);
     if (a) {
       a.currentTime = 0;
       const p = a.play();
       if (p && p.catch) p.catch(() => {});
     }
   } catch { /* ignore */ }
+};
+const playNgoAudio = (ngoName) => {
+  playSiAudioSrc(ngoAudioFor(ngoName));
 };
 
 const fmt = (n) => {
