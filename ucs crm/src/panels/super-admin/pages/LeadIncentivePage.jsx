@@ -84,7 +84,7 @@ export default function LeadIncentivePage() {
         <TabBtn active={tab === 'history'} onClick={() => setTab('history')}>📜 History ({history.length})</TabBtn>
       </div>
 
-      {tab === 'live' ? <LeadIncentive /> : <HistoryList history={history} loading={loading} busyId={busyId} onDelete={removeAnnouncement} onRefresh={loadHistory} />}
+      {tab === 'live' ? <LeadIncentive /> : <HistoryList history={history} loading={loading} busyId={busyId} onDelete={removeAnnouncement} />}
     </div>
   )
 }
@@ -105,15 +105,37 @@ function HistoryList({ history, loading, busyId, onDelete }) {
     )
   }
 
+  const liveId = history[0].id
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <>
+      <style>{pulseStyle}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 14,
+        background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '2px solid #22c55e',
+      }}>
+        <span style={{ fontSize: 16 }}>🔴</span>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: '#166534' }}>
+          <b>LIVE NOW:</b> <span style={{ fontSize: 13.5, fontWeight: 900 }}>🏆 {history[0].fro_name}</span> is the current champion banner shown on every panel for <b>{fmtDay(history[0].announcement_date)}</b>
+        </div>
+      </div>
       {history.map(row => (
-        <div key={row.id} style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)' }}>
+        <div key={row.id} style={{
+          border: liveId === row.id ? '2px solid #22c55e' : '1.5px solid var(--line)',
+          borderRadius: 16, padding: 18, background: liveId === row.id ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--card-bg)',
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 20 }}>🏆</span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{row.fro_name}</span>
+                {liveId === row.id && (
+                  <span style={{
+                    padding: '4px 12px', borderRadius: 999, background: '#22c55e', color: '#fff',
+                    fontSize: 11, fontWeight: 900, letterSpacing: .5, whiteSpace: 'nowrap', animation: 'li-pulse 1.4s ease-in-out infinite',
+                  }}>● LIVE NOW</span>
+                )}
                 <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: '#fef3c7', color: '#b45309' }}>
                   {fmtDay(row.announcement_date)}
                 </span>
@@ -156,11 +178,16 @@ function HistoryList({ history, loading, busyId, onDelete }) {
         </div>
       ))}
       <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>
-        Refreshing live · rows removed here vanish from the FRO champion banner for that date
+        <span style={{ color: '#16a34a', fontWeight: 800 }}>● LIVE NOW</span> = the champion banner currently on every panel (latest announcement). Deleting it removes the banner too.
       </div>
     </div>
+    </>
   )
 }
+
+const pulseStyle = `
+@keyframes li-pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+`
 
 function stat(label, value, color) {
   return (
