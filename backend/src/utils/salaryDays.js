@@ -98,6 +98,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
 
   const afterJoin = joinedThisMonth ? records.filter(r => r.date >= joinDateStr) : records;
   const halfDayCount = afterJoin.filter(r => r.status === 'half-day').length;
+  const presentDays = afterJoin.filter(r => r.status === 'present' || r.status === 'late').length;
 
   const monthDays = [];
   for (let d = 1; d <= daysInMonth; d++) {
@@ -159,7 +160,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
 
   const available = Math.min(daysInMonth, viewDay) - (joinedThisMonth ? (joinDay - 1) : 0);
   const leaveCount = afterJoin.filter(r => r.status === 'leave').length;
-  const paidDays = Math.max(0, available - deducted.size - halfDayCount * 0.5 + sundayStats.attendedCancelledDates.length);
+  const basePaidDays = presentDays + halfDayCount * 0.5;
 
   const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
   let lateDeductionDays = 0;
@@ -195,7 +196,8 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     joinedThisMonth,
     joinDay,
     available,
-    presentRaw: records.filter(r => r.status === 'present').length,
+    presentRaw: presentDays,
+    presentDays,
     halfDayCount,
     leaveCount,
     totalLateMinutes,
@@ -212,7 +214,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     freeSundays: Math.max(0, sundayStats.paidSundays - sundayStats.attendedSundays),
     sundayReasons,
     sundayStats,
-    paidDays,
-    totalDueDays: Math.max(0, paidDays - lateDeductionDays - joiningDeduction),
+    // Absent days are an attendance balance only. They are not subtracted
+    // again because they are already excluded from presentDays.
+    paidDays: basePaidDays,
+    totalDueDays: Math.max(0, basePaidDays - sundayDeductionDays - lateDeductionDays - joiningDeduction),
   };
 }
