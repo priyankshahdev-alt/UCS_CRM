@@ -24,6 +24,7 @@ import Donors from './pages/Donors'
 import IncentiveInfo from './pages/IncentiveInfo'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive from '../../components/SpecialIncentive'
+import RangeRulePopup from '../../components/RangeRulePopup'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
@@ -1037,6 +1038,7 @@ useEffect(() => onFroAction((action) => {
         onItemClick={handleDrawerItemClick}
       />
       <SpecialIncentive />
+      <RangeRulePopup />
       <LeadChampionCelebration />
       <NoticePopup />
       {froBroadcast && (

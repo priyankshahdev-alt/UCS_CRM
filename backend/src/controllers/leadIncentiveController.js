@@ -1,18 +1,22 @@
+import db from '../config/db.js';
 import {
   getSettings,
   updateSettings,
 } from '../models/incentiveSettingsModel.js';
 import {
   getAllSlabs,
+  getSlabById,
   createSlab,
   updateSlab,
   deleteSlab,
+  updateAllSlabs,
 } from '../models/incentiveSlabModel.js';
 import {
   getDailySummary,
   getFroDetail,
   getCurrentChampion,
   announceChampion,
+  notifyRangeRuleChange,
 } from '../services/leadIncentiveService.js';
 
 // ─── Settings ──────────────────────────────────────────────
@@ -49,7 +53,7 @@ export async function listSlabsHandler(req, res) {
 
 export async function createSlabHandler(req, res) {
   try {
-    const { min_amount, max_amount, incentive_amount } = req.body || {};
+    const { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate } = req.body || {};
     if (min_amount === undefined || max_amount === undefined) {
       return res.status(400).json({ message: 'min_amount and max_amount are required' });
     }
@@ -70,11 +74,19 @@ export async function createSlabHandler(req, res) {
       });
     }
 
+    // Fall back to global defaults when per-slab values omitted
+    let defaults = { min_lead_amount: 300, lead_rate: 20 };
+    try { defaults = { ...defaults, ...(await getSettings()) }; } catch { /* keep defaults */ }
+
     const slab = await createSlab({
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
+      min_lead_amount: Number(min_lead_amount) || Number(defaults.min_lead_amount) || 300,
+      lead_rate: Number(lead_rate) || Number(defaults.lead_rate) || 20,
     });
+    // A new range may re-bucket FROs — tell the ones landing in it.
+    try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
     return res.status(201).json(slab);
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -83,7 +95,7 @@ export async function createSlabHandler(req, res) {
 
 export async function updateSlabHandler(req, res) {
   try {
-    const { min_amount, max_amount, incentive_amount } = req.body || {};
+    const { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate } = req.body || {};
     if (min_amount === undefined || max_amount === undefined) {
       return res.status(400).json({ message: 'min_amount and max_amount are required' });
     }
@@ -105,12 +117,28 @@ export async function updateSlabHandler(req, res) {
       });
     }
 
+    const oldSlab = await getSlabById(req.params.id);
+
+    let defaults = { min_lead_amount: 300, lead_rate: 20 };
+    try { defaults = { ...defaults, ...(await getSettings()) }; } catch { /* keep defaults */ }
+
     const slab = await updateSlab(req.params.id, {
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
+      min_lead_amount: Number(min_lead_amount) || Number(defaults.min_lead_amount) || 300,
+      lead_rate: Number(lead_rate) || Number(defaults.lead_rate) || 20,
     });
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
+
+    // Only ping the range's FROs when the qualify amount or per-lead reward changed.
+    if (oldSlab) {
+      const minLeadChanged = Number(oldSlab.min_lead_amount) !== Number(slab.min_lead_amount);
+      const rateChanged = Number(oldSlab.lead_rate) !== Number(slab.lead_rate);
+      if (minLeadChanged || rateChanged) {
+        try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
+      }
+    }
     return res.json(slab);
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -122,6 +150,33 @@ export async function deleteSlabHandler(req, res) {
     const slab = await deleteSlab(req.params.id);
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
     return res.json({ ok: true, id: slab.id });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function applyAllSlabsHandler(req, res) {
+  try {
+    const { min_lead_amount, lead_rate } = req.body || {};
+    if (min_lead_amount === undefined || min_lead_amount === '' || lead_rate === undefined || lead_rate === '') {
+      return res.status(400).json({ message: 'min_lead_amount and lead_rate are required' });
+    }
+    const minLead = Number(min_lead_amount);
+    const rate = Number(lead_rate);
+    if (!(minLead >= 0) || !(rate >= 0)) {
+      return res.status(400).json({ message: 'Minimum Lead Amount and ₹ per Qualified Lead must be 0 or more' });
+    }
+
+    const slabs = await updateAllSlabs({
+      min_lead_amount: minLead,
+      lead_rate: rate,
+    });
+    // Each range's FROs get their own popup with the new common value.
+    for (const s of slabs || []) {
+      try { await notifyRangeRuleChange({ slab: s, slabs }); }
+      catch (e) { console.error('[lead rules notify]', e?.message); }
+    }
+    return res.json({ ok: true, count: slabs.length, slabs });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -155,6 +210,19 @@ export async function currentChampionHandler(req, res) {
   try {
     const date = req.query.date || null;
     const champion = await getCurrentChampion(date);
+    let winner_photo_url = null;
+    if (champion && champion.fro_worker_id) {
+      try {
+        const { data: winners } = await db
+          .from('workers')
+          .select('id, photo_url')
+          .eq('id', champion.fro_worker_id);
+        winner_photo_url = (winners && winners[0]?.photo_url) || null;
+      } catch (e) {
+        console.error('[lead champion] fetch photo:', e?.message);
+      }
+    }
+    if (champion) champion.winner_photo_url = winner_photo_url;
     return res.json({ announcement: champion });
   } catch (e) {
     return res.status(500).json({ message: e.message });

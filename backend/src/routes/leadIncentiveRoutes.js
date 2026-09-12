@@ -7,6 +7,7 @@ import {
   createSlabHandler,
   updateSlabHandler,
   deleteSlabHandler,
+  applyAllSlabsHandler,
   dailySummaryHandler,
   froDetailHandler,
   currentChampionHandler,
@@ -25,6 +26,9 @@ router.put('/settings', sirLevel, updateSettingsHandler);
 // Slab CRUD
 router.get('/slabs', sirLevel, listSlabsHandler);
 router.post('/slabs', sirLevel, createSlabHandler);
+// Bulk set: apply a common Min Lead + ₹/Qualified Lead to every active slab.
+// Must be registered before /slabs/:id so "apply-all" is not matched as an id.
+router.put('/slabs/apply-all', sirLevel, applyAllSlabsHandler);
 router.put('/slabs/:id', sirLevel, updateSlabHandler);
 router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
 
