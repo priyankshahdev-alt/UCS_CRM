@@ -91,7 +91,7 @@ export default function LeadAudit() {
   return (
     <>
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
-        <>
+        <div style={{ width: 'min(360px, 100%)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, padding: 14, border: '1px solid #e7ecf3', borderRadius: 16, background: 'transparent', boxShadow: 'none' }}>
           <SectionTitle>Collections</SectionTitle>
           {collectionKeys.map(key => {
             const c = NGO_COLLECTION[key];
@@ -108,7 +108,7 @@ export default function LeadAudit() {
             <span style={{ fontSize: 10, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Collection</span>
             <strong style={{ fontSize: 15, color: '#111827' }}>{collections === null ? '...' : currency(collectionTotal('month_total') || 0)}</strong>
           </div>
-        </>
+        </div>
         <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 18 }}>
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
