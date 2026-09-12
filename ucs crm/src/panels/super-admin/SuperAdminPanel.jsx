@@ -21,6 +21,7 @@ import Tickets from './pages/Tickets'
 import Events from './pages/Events'
 import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
+import LeadIncentivePage from './pages/LeadIncentivePage'
 import Notices from './pages/Notices'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
   { id: 'special-incentive', path: '/sa/special-incentive', label: 'Sir ka Incentive', eyebrow: 'Finance', icon: Trophy },
+  { id: 'lead-incentive', path: '/sa/lead-incentive', label: 'Lead Incentive', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
 ]
 
@@ -51,7 +53,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'assets', 'special-incentive', 'notices']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'assets', 'special-incentive', 'lead-incentive', 'notices']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -328,6 +330,7 @@ export default function SuperAdminPanel() {
         <Route path="recruiter" element={<PanelFrame src="/recruiter" />} />
         <Route path="assets" element={<AssetOverview />} />
         <Route path="special-incentive" element={<SpecialIncentives />} />
+        <Route path="lead-incentive" element={<LeadIncentivePage />} />
         <Route path="notices" element={<Notices />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>

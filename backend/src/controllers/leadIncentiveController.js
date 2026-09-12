@@ -18,6 +18,10 @@ import {
   announceChampion,
   notifyRangeRuleChange,
 } from '../services/leadIncentiveService.js';
+import {
+  getAnnouncements,
+  deleteAnnouncement,
+} from '../models/leadChampionModel.js';
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -171,11 +175,9 @@ export async function applyAllSlabsHandler(req, res) {
       min_lead_amount: minLead,
       lead_rate: rate,
     });
-    // Each range's FROs get their own popup with the new common value.
-    for (const s of slabs || []) {
-      try { await notifyRangeRuleChange({ slab: s, slabs }); }
-      catch (e) { console.error('[lead rules notify]', e?.message); }
-    }
+    // Every FRO gets one combined popup listing all ranges with the new common value.
+    try { await notifyRangeRuleChange({ slabs }); }
+    catch (e) { console.error('[lead rules notify]', e?.message); }
     return res.json({ ok: true, count: slabs.length, slabs });
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -238,6 +240,28 @@ export async function announceChampionHandler(req, res) {
       return res.status(400).json({ message: result.error });
     }
     return res.status(201).json(result);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Full history of champion announcements (live-updating section source).
+export async function championHistoryHandler(req, res) {
+  try {
+    const history = await getAnnouncements();
+    return res.json(history);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Hard-delete an announcement. Also removes the FRO-facing champion banner
+// for that date (frontend re-fetches after this call).
+export async function deleteChampionHandler(req, res) {
+  try {
+    const row = await deleteAnnouncement(req.params.id);
+    if (!row) return res.status(404).json({ message: 'Announcement not found' });
+    return res.json({ ok: true, id: row.id });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

@@ -327,35 +327,47 @@ export const announceChampion = async ({ date, message, userId }) => {
   return { announcement };
 };
 
-// Notify every FRO whose monthly target falls in this slab's range that their
-// lead rule (min qualify amount + per-lead reward) has changed. Writes
-// notification_log rows of type 'lead_rule_update', which the FRO app surfaces
-// as a side popup. No-op when no FRO currently maps into the range.
+// Broadcast lead rule (min qualify amount + per-lead reward) updates to every
+// active FRO as a notification_log row of type 'lead_rule_update', which the FRO
+// app surfaces as a side popup.
+// - Single range ({ slab }): every FRO gets a popup for that range. The popup is
+//   informational; the incentive calc stays assignment-based (each FRO's slab is
+//   picked from their monthly target via getSlabForTarget).
+// - Apply-all ({ slabs }, no slab): every FRO gets ONE combined popup listing every
+//   active range with the new common value.
 export const notifyRangeRuleChange = async ({ slab, slabs }) => {
-  if (!slab || !slab.id) return 0;
-
-  const activeSlabs = slabs && slabs.length ? slabs : (await getActiveSlabs());
-  const now = new Date();
-  const monthStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-
   const { data: froRows } = await db
     .from('workers')
     .select('id')
     .eq('is_active', true)
     .ilike('department', 'fro');
+  const fros = froRows || [];
+  if (fros.length === 0) return 0;
 
-  const matched = [];
-  for (const w of froRows || []) {
-    const target = await getFroTarget(w.id, monthStr);
-    const s = getSlabForTarget(target, activeSlabs);
-    if (s && s.id === slab.id) matched.push(w.id);
+  const activeSlabs = slabs && slabs.length ? slabs : (await getActiveSlabs());
+
+  // Apply-all: one combined popup per FRO covering every range.
+  if (!slab && activeSlabs.length > 0) {
+    const body = activeSlabs
+      .map(s => `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}: Minimum Lead ₹${fmtMoney(s.min_lead_amount)} · ₹${fmtMoney(s.lead_rate)} per qualified lead`)
+      .join('\n');
+    const rows = fros.map(worker_id => ({
+      worker_id,
+      type: 'lead_rule_update',
+      title: '📢 All Lead Ranges Updated',
+      body,
+      reference_id: 'all-ranges',
+    }));
+    await sendNotificationLogs(rows);
+    return rows.length;
   }
-  if (matched.length === 0) return 0;
 
+  // Single range: tell every FRO, but only assigned FROs compete under it.
+  if (!slab || !slab.id) return 0;
   const rangeLabel = `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}`;
-  const body = `${rangeLabel}: Minimum Lead ₹${fmtMoney(slab.min_lead_amount)} · ₹${fmtMoney(slab.lead_rate)} per qualified lead`;
+  const body = `${rangeLabel}: Minimum Lead ₹${fmtMoney(slab.min_lead_amount)} · ₹${fmtMoney(slab.lead_rate)} per qualified lead\nApplied for FROs assigned to this range (by monthly target).`;
 
-  const rows = matched.map(worker_id => ({
+  const rows = fros.map(worker_id => ({
     worker_id,
     type: 'lead_rule_update',
     title: '📢 Your Lead Range Updated',

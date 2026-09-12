@@ -12,6 +12,8 @@ import {
   froDetailHandler,
   currentChampionHandler,
   announceChampionHandler,
+  championHistoryHandler,
+  deleteChampionHandler,
 } from '../controllers/leadIncentiveController.js';
 
 const router = Router();
@@ -38,6 +40,8 @@ router.get('/lead-summary/fro/:id', sirLevel, froDetailHandler);
 
 // Champion announcement
 router.get('/champion/current', popupLevel, currentChampionHandler);
+router.get('/champion/history', sirLevel, championHistoryHandler);
 router.post('/champion/announce', sirLevel, announceChampionHandler);
+router.delete('/champion/:id', sirLevel, deleteChampionHandler);
 
 export default router;

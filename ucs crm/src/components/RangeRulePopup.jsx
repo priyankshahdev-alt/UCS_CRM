@@ -22,6 +22,18 @@ const fmt = (n) => {
   return (Number.isFinite(v) ? v : 0).toLocaleString('en-IN');
 };
 
+// Parse an apply-all body that lists every range on its own line:
+// "₹1 – ₹20,000: Minimum Lead ₹300 · ₹20 per qualified lead"
+const parseCombined = (body) => {
+  const re = /₹([\d,]+)\s*–\s*₹([\d,]+): Minimum Lead ₹([\d,]+)\s*·\s*₹([\d,]+) per qualified lead/g;
+  const rows = [];
+  let m;
+  while ((m = re.exec(String(body || ''))) !== null) {
+    rows.push({ min: m[1], max: m[2], minLead: m[3], rate: m[4] });
+  }
+  return rows;
+};
+
 const POPUP_CSS = `
 @keyframes rrp-slide-in { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 `;
@@ -86,10 +98,8 @@ export default function RangeRulePopup() {
 
   if (!popup) return null;
 
-  const numeric = (v, fallback) => {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : fallback;
-  };
+  const combined = popup.reference_id === 'all-ranges';
+  const combinedRows = combined ? parseCombined(popup.body) : [];
 
   // Body shape: "₹20,000 – ₹50,000: Minimum Lead ₹400 · ₹30 per qualified lead"
   const rangeMatch = String(popup.body || '').match(/₹([\d,]+)\s*–\s*₹([\d,]+):/);
@@ -99,6 +109,8 @@ export default function RangeRulePopup() {
   const rangeLabel = rangeMatch ? `₹${rangeMatch[1]} – ₹${rangeMatch[2]}` : null;
   const minLead = minMatch ? Number(minMatch[1].replace(/,/g, '')) : null;
   const leadRate = rateMatch ? Number(rateMatch[1].replace(/,/g, '')) : null;
+
+  const title = (popup.title || 'Your Lead Range Updated').replace(/^📢\s*/, '');
 
   return (
     <div style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 99996, width: 'min(360px, calc(100vw - 32px))' }}>
@@ -114,7 +126,7 @@ export default function RangeRulePopup() {
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <span style={{ fontSize: 16 }}>📢</span>
-          <div style={{ flex: 1, fontSize: 13, fontWeight: 800, color: '#fff' }}>Your Lead Range Updated</div>
+          <div style={{ flex: 1, fontSize: 13, fontWeight: 800, color: '#fff' }}>{title}</div>
           <button onClick={dismiss} aria-label="Close" style={{
             width: 26, height: 26, borderRadius: 50, border: 'none', cursor: 'pointer',
             background: 'rgba(255,255,255,.22)', color: '#fff', fontWeight: 800, fontSize: 13, lineHeight: 1,
@@ -123,39 +135,74 @@ export default function RangeRulePopup() {
 
         {/* Body */}
         <div style={{ padding: '14px 16px 16px' }}>
-          {rangeLabel && (
-            <div style={{
-              fontSize: 16, fontWeight: 900, color: 'var(--ink)', marginBottom: 2,
-            }}>{rangeLabel}</div>
+          {combined && combinedRows.length > 0 ? (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 10, letterSpacing: 0.3 }}>
+                NEW COMMON VALUE · {combinedRows.length} RANGE{combinedRows.length > 1 ? 'S' : ''}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {combinedRows.map((r, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                    borderRadius: 10, background: 'var(--bg)', border: '1.5px solid var(--line)',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        ₹{fmt(r.min)} – ₹{fmt(r.max)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Min Lead</div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#b45309' }}>₹{fmt(r.minLead)}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹ / Lead</div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#16a34a' }}>₹{fmt(r.rate)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 12 }}>
+                Your incentive still follows only the range your monthly target is assigned to.
+              </div>
+            </>
+          ) : (
+            <>
+              {rangeLabel && (
+                <div style={{
+                  fontSize: 16, fontWeight: 900, color: 'var(--ink)', marginBottom: 2,
+                }}>{rangeLabel}</div>
+              )}
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 12, letterSpacing: 0.3 }}>
+                YOUR NEW LEAD RULE
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                {minLead != null && (
+                  <div style={{
+                    flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
+                    border: '1.5px solid var(--line)', textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Min Lead (₹)</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#b45309' }}>₹{fmt(minLead)}</div>
+                  </div>
+                )}
+                {leadRate != null && (
+                  <div style={{
+                    flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
+                    border: '1.5px solid var(--line)', textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹ / Qual. Lead</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#16a34a' }}>₹{fmt(leadRate)}</div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 12 }}>
+                A lead only counts as qualified for you if the ₹ collected is ≥ the Minimum Lead Amount.
+              </div>
+            </>
           )}
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 12, letterSpacing: 0.3 }}>
-            YOUR NEW LEAD RULE
-          </div>
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            {minLead != null && (
-              <div style={{
-                flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
-                border: '1.5px solid var(--line)', textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Min Lead (₹)</div>
-                <div style={{ fontSize: 18, fontWeight: 900, color: '#b45309' }}>₹{fmt(minLead)}</div>
-              </div>
-            )}
-            {leadRate != null && (
-              <div style={{
-                flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
-                border: '1.5px solid var(--line)', textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹ / Qual. Lead</div>
-                <div style={{ fontSize: 18, fontWeight: 900, color: '#16a34a' }}>₹{fmt(leadRate)}</div>
-              </div>
-            )}
-          </div>
-
-          <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 12 }}>
-            A lead only counts as qualified for you if the ₹ collected is ≥ the Minimum Lead Amount.
-          </div>
 
           <button onClick={dismiss} style={{
             width: '100%', marginTop: 12, padding: '10px 16px', borderRadius: 10, border: 'none',
