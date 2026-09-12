@@ -487,9 +487,10 @@ export function useSpecialIncentive() {
 export default function SpecialIncentive() {
   const { incentives, popupInc, popupOpen, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
   const you = user?.id || null;
-  // Winner popups (auto hit-target card + Sir's posted photo celebration) show
-  // ONLY in the FRO panel. Other panels keep the LIVE announcement + cards.
+  // Winner popups, LIVE cards and celebrations show ONLY in the FRO panel.
+  // Accounts / HR / Super Admin render nothing from this widget.
   const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
+  if (!isFro) return null;
 
   // Sticky bottom-left cards: one per still-running race not in the popup and
   // not dismissed. Once a race is won/ended/cancelled its card disappears.
