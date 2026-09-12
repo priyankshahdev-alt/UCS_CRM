@@ -734,7 +734,7 @@ export const getPagarExportData = async (month) => {
     const achieved = collectionByWorker[w.id] || 0;
     const perDay = salary / daysInMonth;
     const netPresentDays = attResult.totalDueDays;
-    const grossPresentDays = attResult.presentDays;
+    const grossPresentDays = attResult.paidDays;
     const lateDeductionDays = attResult.lateDeductionDays;
     const sundayDeductionDays = attResult.sundayDeductionDays;
     const trainingDeductionDays = attResult.joiningDeduction;
