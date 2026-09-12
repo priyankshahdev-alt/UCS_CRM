@@ -7,6 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
+import { onFroAction } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
@@ -31,9 +32,15 @@ import FroSuspense from './pages/Suspense'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
+import followDueMp3 from '../../assets/audio/follow_due.mp3'
+import callLessMp3 from '../../assets/audio/call_less.mp3'
 
 const suspenseAlertAudio = new Audio(teleWav);
 suspenseAlertAudio.preload = 'auto';
+const followDueAudio = new Audio(followDueMp3);
+const callLessAudio = new Audio(callLessMp3);
+followDueAudio.preload = 'auto';
+callLessAudio.preload = 'auto';
 const SUSPENSE_RING_WINDOW_MS = 90 * 1000;
 function playSuspenseAlert(title) {
   try {
@@ -43,11 +50,20 @@ function playSuspenseAlert(title) {
   } catch {}
   toast(title || 'Suspense Alert', 'info');
 }
+function playFroAction(type, title) {
+  const audio = type === 'fro_action_follow_up' ? followDueAudio : callLessAudio;
+  try {
+    audio.currentTime = 0;
+    const p = audio.play();
+    if (p && p.then) p.catch(() => {});
+  } catch {}
+  toast(title || 'FRO action', 'info');
+}
 let suspenseAudioUnlocked = false;
 function warmupSuspenseAudio() {
   if (suspenseAudioUnlocked) return;
-  suspenseAudioUnlocked = true;
-  try {
+    suspenseAudioUnlocked = true;
+    try {
     suspenseAlertAudio.volume = 0;
     suspenseAlertAudio.muted = true;
     const p = suspenseAlertAudio.play();
@@ -57,6 +73,17 @@ function warmupSuspenseAudio() {
       suspenseAlertAudio.muted = false;
       suspenseAlertAudio.volume = 1;
     }).catch(() => {});
+    for (const audio of [followDueAudio, callLessAudio]) {
+      audio.volume = 0;
+      audio.muted = true;
+      const p = audio.play();
+      if (p && p.then) p.then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        audio.volume = 1;
+      }).catch(() => {});
+    }
   } catch {}
 }
 if (typeof window !== 'undefined') {
@@ -445,6 +472,12 @@ export default function FROPanel() {
     const poll = setInterval(loadNotifications, 8000);
     return () => clearInterval(poll);
   }, [user?.id]);
+
+  useEffect(() => onFroAction((action) => {
+    if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls') {
+      playFroAction(action.type, action.title);
+    }
+  }), []);
 
   useRealtime('notification_log', {
     filter: `worker_id=eq.${user?.id}`,

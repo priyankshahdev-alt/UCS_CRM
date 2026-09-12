@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { emitRealtime } from '../socket.js';
 import {
   upsertFcmToken,
   getWorkerNotifications,
@@ -153,6 +154,36 @@ export const sendSuspenseAlert = async (req, res) => {
       } catch (e) { console.error('Failed to send suspense alert to worker', wid, ':', e.message); }
     }
     return res.json({ count: inserted, message: `Alert sent to ${inserted} FROs` });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const sendFroAction = async (req, res) => {
+  try {
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    const actions = {
+      follow_up: { title: 'Follow-up Due', body: 'Please work on your follow-up calls.', type: 'fro_action_follow_up' },
+      less_calls: { title: 'Less Calls', body: 'Please reduce your call pace for now.', type: 'fro_action_less_calls' },
+    };
+    const message = actions[action];
+    if (!message) return res.status(400).json({ message: 'action must be follow_up or less_calls' });
+
+    const { rows: froRows, error: froErr } = await db._pool.query(
+      `SELECT id FROM workers
+       WHERE lower(btrim(coalesce(department, ''))) = 'fro'
+         AND COALESCE(is_active, true) = true`
+    );
+    if (froErr) throw froErr;
+
+    const count = (froRows || []).length;
+    emitRealtime('fro:action', {
+      type: message.type,
+      title: message.title,
+      body: message.body,
+      sent_at: new Date().toISOString(),
+    }, 'role:fro');
+    return res.json({ count, message: `${message.title} sent to ${count} FROs` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

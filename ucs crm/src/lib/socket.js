@@ -40,3 +40,9 @@ export function onDbChange({ table, event = '*', filter, onInsert, onUpdate, onD
   s.on('db:change', handler)
   return () => s.off('db:change', handler)
 }
+
+export function onFroAction(handler) {
+  const s = getSocket()
+  s.on('fro:action', handler)
+  return () => s.off('fro:action', handler)
+}
