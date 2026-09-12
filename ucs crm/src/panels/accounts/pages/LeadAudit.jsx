@@ -91,7 +91,7 @@ export default function LeadAudit() {
   return (
     <>
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch', flexWrap: 'wrap' }}>
-        <div style={{ width: 'min(360px, 100%)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, padding: 14, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)' }}>
+        <div style={{ width: 'min(360px, 100%)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, padding: 14, border: '1px solid #e7ecf3', borderRadius: 16, background: 'transparent', boxShadow: 'none' }}>
           <SectionTitle>Collections</SectionTitle>
           {collectionKeys.map(key => {
             const c = NGO_COLLECTION[key];

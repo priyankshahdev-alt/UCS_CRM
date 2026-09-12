@@ -56,9 +56,9 @@ const TARGET_COLUMNS = [
 const MANDATORY = ['Donor Name', 'Amount', 'Receipt No.']
 const PAGE_SIZE = 20
 const RECEIPT_NUMBER_NGOS = {
-  bsct: { label: 'Being Sevak', accent: '#1e40af' },
-  aflf: { label: 'Ashray', accent: '#166534' },
-  mann: { label: 'Mann Care', accent: '#be185d' },
+  bsct: { label: 'Being Sevak', bg: '#d4e4ff', accent: '#1e40af' },
+  aflf: { label: 'Ashray', bg: '#c8ecd4', accent: '#166534' },
+  mann: { label: 'Mann Care', bg: '#ecc9df', accent: '#be185d' },
 }
 
 function ReceiptNumberCards({ receiptNums }) {
@@ -74,7 +74,7 @@ function ReceiptNumberCards({ receiptNums }) {
       )) : Object.entries(RECEIPT_NUMBER_NGOS).map(([key, meta]) => {
         const item = receiptNums.find(n => n.project_id === key)
         return (
-          <div key={key} className="rx-number-row">
+          <div key={key} className="rx-number-row" style={{ background: meta.bg, borderColor: meta.accent + '44' }}>
             <span className="rx-number-ngo" style={{ color: meta.accent }}>{key.toUpperCase()}</span>
             <span className="rx-number-value"><small>Current</small>{item?.last_no || '\u2014'}</span>
             <span className="rx-number-value rx-number-next" style={{ color: meta.accent }}><small>Next</small>{item?.next_no || '\u2014'}</span>
@@ -800,7 +800,7 @@ export default function Receipts() {
 
       <ReceiptNumberCards receiptNums={receiptNums} />
 
-      <div className="rx-card">
+      <div className="rx-card rx-upload-card">
         <button className="rx-upload-toggle" aria-expanded={uploadOpen} onClick={() => setUploadOpen(o => !o)}>
           <span className="rx-upload-ico">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
