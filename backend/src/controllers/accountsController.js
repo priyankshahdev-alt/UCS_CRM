@@ -6004,15 +6004,15 @@ export const getAgentTeamCollections = async (req, res) => {
     };
     const agents = {};
     for (const w of workerList) {
-      agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0, todayTotal: 0, todayCount: 0 };
     }
-    agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0, todayTotal: 0, todayCount: 0 };
     // Synthetic collector rows for receipts whose agent_name is a category label
     // (PG / Library / Suspense) rather than a real FRO worker. Each gets its own
     // row in the agent-wise list instead of being collapsed into "No Agent".
     const catAgents = ['pg', 'library', 'suspense'];
     for (const c of catAgents) {
-      agents['__' + c] = { id: null, category: c, name: c[0].toUpperCase() + c.slice(1), team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      agents['__' + c] = { id: null, category: c, name: c[0].toUpperCase() + c.slice(1), team: null, byNgo: byNgo(ngoIds), total: 0, count: 0, todayTotal: 0, todayCount: 0 };
     }
 
     const seenReceipts = new Set();
@@ -6042,6 +6042,42 @@ export const getAgentTeamCollections = async (req, res) => {
       agent.count += 1;
     }
 
+    // Today's collections (live, IST) for the "Today" column in the report.
+    const istNow = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
+    const todayStr = istNow.toISOString().slice(0, 10);
+    const { data: todayReceipts, error: trErr } = await db
+      .from('receipts')
+      .select('id, project_id, amount, agent_name, receipt_no, donor_id, payment_id, receipt_date')
+      .not('receipt_no', 'is', null)
+      .eq('receipt_date', todayStr);
+    if (trErr) throw trErr;
+
+    const seenToday = new Set();
+    for (const r of todayReceipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (!(amount > 0)) continue;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${String(r.receipt_date || '').slice(0, 10)}|${r.payment_id || ''}`;
+      if (seenToday.has(dedupKey)) continue;
+      seenToday.add(dedupKey);
+
+      const ngo = resolveNgo(r.project_id);
+      if (!ngo) continue;
+
+      let agent = agents.__unassigned;
+      const rawAgent = String(r.agent_name || '').trim();
+      const rawAgentLower = rawAgent.toLowerCase();
+      if (catAgents.includes(rawAgentLower)) {
+        agent = agents['__' + rawAgentLower];
+      } else if (rawAgent) {
+        const canonical = await normalizeAgentName(rawAgent);
+        const found = workerByKey[normKey(canonical)];
+        if (found) agent = agents[found.id];
+      }
+
+      agent.todayTotal = (agent.todayTotal || 0) + amount;
+      agent.todayCount = (agent.todayCount || 0) + 1;
+    }
+
     const agentRows = workerList
       .map((w) => agents[w.id])
       .concat(catAgents.map((c) => agents['__' + c]))
@@ -6054,29 +6090,35 @@ export const getAgentTeamCollections = async (req, res) => {
     for (const a of agentRows) {
       const team = a.team && String(a.team).trim() !== '' ? String(a.team).trim().toUpperCase() : null;
       if (!team) continue;
-      if (!teamMap[team]) teamMap[team] = { team, members: 0, byNgo: byNgo(ngoIds), total: 0, count: 0, memberNames: [] };
+      if (!teamMap[team]) teamMap[team] = { team, members: 0, byNgo: byNgo(ngoIds), total: 0, count: 0, todayTotal: 0, todayCount: 0, memberNames: [] };
       teamMap[team].members += 1;
       teamMap[team].memberNames.push(a.name);
       for (const n of ngoIds) teamMap[team].byNgo[n] += a.byNgo[n] || 0;
       teamMap[team].total += a.total;
       teamMap[team].count += a.count;
+      teamMap[team].todayTotal += a.todayTotal || 0;
+      teamMap[team].todayCount += a.todayCount || 0;
     }
     const unassignedAgents = agentRows.filter((a) => !(a.team && String(a.team).trim() !== '') && a.id != null);
     let teams = Object.values(teamMap)
       .map((t) => ({ ...t, memberNames: undefined }))
       .sort((a, b) => b.total - a.total || String(a.team).localeCompare(String(b.team)));
     if (unassignedAgents.length > 0) {
-      const u = { team: 'No Team', members: unassignedAgents.length, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      const u = { team: 'No Team', members: unassignedAgents.length, byNgo: byNgo(ngoIds), total: 0, count: 0, todayTotal: 0, todayCount: 0 };
       for (const a of unassignedAgents) {
         for (const n of ngoIds) u.byNgo[n] += a.byNgo[n] || 0;
         u.total += a.total;
         u.count += a.count;
+        u.todayTotal += a.todayTotal || 0;
+        u.todayCount += a.todayCount || 0;
       }
       teams = teams.concat(u);
     }
 
     const grandTotal = agentRows.reduce((s, a) => s + a.total, 0);
     const grandCount = agentRows.reduce((s, a) => s + a.count, 0);
+    const grandTodayTotal = agentRows.reduce((s, a) => s + (a.todayTotal || 0), 0);
+    const grandTodayCount = agentRows.reduce((s, a) => s + (a.todayCount || 0), 0);
 
     return res.json({
       month,
@@ -6089,6 +6131,9 @@ export const getAgentTeamCollections = async (req, res) => {
       teams,
       grandTotal,
       grandCount,
+      today: todayStr,
+      grandTodayTotal,
+      grandTodayCount,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

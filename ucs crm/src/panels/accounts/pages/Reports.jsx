@@ -667,6 +667,7 @@ export default function Reports() {
                             <div className="stat-lbl" style={{ fontSize: 12 }}>{t.team}</div>
                             <div className="stat-num" style={{ fontSize: 18 }}>{mask(currency(t.total))}</div>
                             <div className="stat-sub">{mask(t.members)} members · {mask(t.count.toLocaleString('en-IN'))} receipts</div>
+                            <div className="stat-sub" style={{ color: '#1f6f3f', fontWeight: 700 }}>Today: {mask(currency(t.todayTotal || 0))} · {mask((t.todayCount || 0).toLocaleString('en-IN'))} rcts</div>
                           </div>
                         </div>
                       );
@@ -683,6 +684,7 @@ export default function Reports() {
                           {atcTab === 'agent' && <th style={{ padding: '9px 12px' }}>Team</th>}
                           {atcTab === 'team' && <th style={{ padding: '9px 12px' }}>Members</th>}
                           {atcSlugs.map(s => <th key={s} style={{ padding: '9px 12px' }}>{atcLabel[s] || String(s).toUpperCase()}</th>)}
+                          <th style={{ padding: '9px 12px', color: '#1f6f3f' }}>Today</th>
                           <th style={{ padding: '9px 12px' }}>Total</th>
                           <th style={{ padding: '9px 12px' }}>Receipts</th>
                         </tr>
@@ -702,6 +704,7 @@ export default function Reports() {
                                   {a.team ? <span className="pill" style={{ background: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).bg, color: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).fg, fontWeight: 600 }}>{a.team}</span> : <span style={{ color: '#9ca3af' }}>—</span>}
                                 </td>
                                 {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px' }}>{mask(currency(a.byNgo?.[s] || 0))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 600, color: '#1f6f3f' }}>{mask(currency(a.todayTotal || 0))}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(a.total))}</td>
                                 <td style={{ padding: '9px 12px' }}>{mask((a.count || 0).toLocaleString('en-IN'))}</td>
                               </tr>
@@ -712,6 +715,7 @@ export default function Reports() {
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{atcAgents.length} agents</td>
                                 <td style={{ padding: '9px 12px' }}></td>
                                 {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(sumByNgo(atcAgents, s)))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1f6f3f' }}>{mask(currency(atcAgents.reduce((s, a) => s + (a.todayTotal || 0), 0)))}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(atcAgents.reduce((s, a) => s + a.total, 0)))}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(atcAgents.reduce((s, a) => s + (a.count || 0), 0).toLocaleString('en-IN'))}</td>
                               </tr>
@@ -727,6 +731,7 @@ export default function Reports() {
                                   <td style={{ padding: '9px 12px', fontWeight: 600 }}><span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 700 }}>{t.team}</span></td>
                                   <td style={{ padding: '9px 12px' }}>{mask(t.members)}</td>
                                   {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px' }}>{mask(currency(t.byNgo?.[s] || 0))}</td>)}
+                                  <td style={{ padding: '9px 12px', fontWeight: 600, color: '#1f6f3f' }}>{mask(currency(t.todayTotal || 0))}</td>
                                   <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(t.total))}</td>
                                   <td style={{ padding: '9px 12px' }}>{mask((t.count || 0).toLocaleString('en-IN'))}</td>
                                 </tr>
@@ -738,6 +743,7 @@ export default function Reports() {
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{atcTeams.reduce((s, t) => s + t.members, 0)} members</td>
                                 <td style={{ padding: '9px 12px' }}></td>
                                 {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(sumByNgo(atcTeams, s)))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1f6f3f' }}>{mask(currency(atcTeams.reduce((s, t) => s + (t.todayTotal || 0), 0)))}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(atcTeams.reduce((s, t) => s + t.total, 0)))}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(atcTeams.reduce((s, t) => s + (t.count || 0), 0).toLocaleString('en-IN'))}</td>
                               </tr>
