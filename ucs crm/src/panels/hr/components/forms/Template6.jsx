@@ -1,5 +1,4 @@
-export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress, ngoTagline }) {
-  const heading = ngoHeading || 'Being Sevak Charitable Trust';
+export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
       <style>{`
@@ -20,24 +19,9 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
           display: flex;
           flex-direction: column;
         }
-        .t6 h1 {
-          text-align: center;
-          font-size: 26px;
-          font-weight: bold;
-          margin-bottom: 4px;
-        }
-        .t6 .top-line {
-          border-top: 3px solid #7d1e1e;
-          margin: 6px 0 8px;
-        }
-        .t6 .subtitle {
-          text-align: center;
-          font-size: 10px;
-          margin-bottom: 12px;
-        }
         .t6 .form-title {
           text-align: center;
-          font-size: 22px;
+          font-size: 26px;
           font-weight: bold;
           text-decoration: underline;
           margin-bottom: 16px;
@@ -112,22 +96,14 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
       `}</style>
 
       <div className="t6">
-        <div className="header">
-          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
-          <div className="top-line"></div>
-          <div className="subtitle">
-            {ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No. | Income Tax Exempted Under 80G'}
-          </div>
-        </div>
-
         <div className="form-title">
           VOLUNTEER PHOTO, VIDEO &amp; PUBLICITY CONSENT FORM
         </div>
 
         <p>
-          I, {personal?.fullName || '________________________'}, voluntarily authorize {heading} ("the Trust") 
+          I, {personal?.fullName || '________________________'}, voluntarily authorize the Organization ("the Organization") 
           to capture and use my photographs, videos, audio recordings, name, image, voice, and 
-          testimonials for lawful purposes related to the Trust's charitable activities, including 
+          testimonials for lawful purposes related to the Organization's charitable activities, including 
           awareness campaigns, fundraising, reports, publications, training, social media, website, 
           donor communications, and other promotional or educational materials.
         </p>
@@ -136,12 +112,12 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
 
         <div className="two-column">
           <ul>
-            <li>My participation is voluntary, and I have no objection to the Trust using the above materials.</li>
+            <li>My participation is voluntary, and I have no objection to the Organization using the above materials.</li>
             <li>I will not claim any royalty, payment, or compensation for such use.</li>
-            <li>The Trust may edit or modify the materials without misrepresenting my identity or participation.</li>
+            <li>The Organization may edit or modify the materials without misrepresenting my identity or participation.</li>
           </ul>
           <ul>
-            <li>All photographs, videos, and recordings created by or for the Trust shall remain the property of the Trust.</li>
+            <li>All photographs, videos, and recordings created by or for the Organization shall remain the property of the Organization.</li>
             <li>I may withdraw my consent by giving written notice. Such withdrawal will apply only to future use, wherever reasonably practicable, and will not affect materials already published or distributed.</li>
           </ul>
         </div>
@@ -193,17 +169,13 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
           <span className="line">{declarationDate ? new Date(declarationDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</span>
         </div>
 
-        <div className="section">FOR BEING SEVAK CHARITABLE TRUST</div>
+        <div className="section">FOR THE ORGANIZATION</div>
 
         <div style={{flex: 0.5}}></div>
 
         <div className="field">
           <span className="label">Authorized Signatory:</span>
           <span className="line" style={{flex: 'none', width: '200px'}}></span>
-        </div>
-
-        <div className="footer">
-          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, \"A\" Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai – 400092\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

@@ -50,7 +50,7 @@ const statusStyle = (w) => {
   return { bg: 'rgba(55,65,81,0.9)' };
 };
 
-function MiniFormPreview({ worker, ngoHeading, ngoAddress, ngoTagline }) {
+function MiniFormPreview({ worker }) {
   const w = worker;
   const name = w.name || '';
   const dept = w.department || '';
@@ -77,12 +77,9 @@ function MiniFormPreview({ worker, ngoHeading, ngoAddress, ngoTagline }) {
       left: 0,
     }}>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 2 }}>
-        <div style={{ fontSize: 26, fontFamily: 'Georgia, serif', fontWeight: 700, margin: 0 }}>{ngoHeading || 'Being Sevak Charitable Trust'}</div>
-        <div style={{ borderTop: '3px solid #7d1e1e', margin: '3px 0' }} />
-        <div style={{ fontSize: 8 }}>{ngoTagline || NGO_TAGLINE_MAP.BSCT}</div>
+      <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 26, fontFamily: 'Georgia, serif', fontWeight: 700, margin: 0, textDecoration: 'underline' }}>VOLUNTEER JOINING FORM</div>
       </div>
-      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, textDecoration: 'underline', marginBottom: 8 }}>VOLUNTEER JOINING FORM</div>
 
       {/* Personal Details */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
@@ -199,11 +196,6 @@ function MiniFormPreview({ worker, ngoHeading, ngoAddress, ngoTagline }) {
           </tr>
         </tbody>
       </table>
-
-      {/* Footer */}
-      <div style={{ marginTop: 'auto', borderTop: '2px solid #7b2020', paddingTop: 4, textAlign: 'center', fontSize: 7, lineHeight: 1.3 }}>
-        {(ngoAddress || '').split('\n').map((line, i) => <span key={i}>{line}{i < (ngoAddress || '').split('\n').length - 1 && <br />}</span>)}
-      </div>
     </div>
   );
 }
@@ -268,52 +260,9 @@ const SECTIONS = [
   { id: 'bank', label: 'Bank', icon: <IconBank /> },
 ];
 
-const NGO_HEADING_MAP = {
-  BSCT: 'Being Sevak Charitable Trust',
-  MANN: 'MANN CARE FOUNDATION',
-  AFLF: 'Ashray for Life Foundation',
-};
-
-const NGO_ADDRESS_MAP = {
-  BSCT: "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org",
-  MANN: '1708 ONE WORLD, SV ROAD NEAR NL HIGH SCHOOL MALAD WEST MUMBAI, Mumbai, MUMBAI, Maharashtra, INDIA - 400064',
-  AFLF: 'Unit - 218, 2nd Floor, Auris Galleria, New Link Road, Auris Serenity, Malad (West), Mumbai - 400064.',
-};
-
-const NGO_TAGLINE_MAP = {
-  BSCT: 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G',
-  AFLF: 'Public Charitable Trust (Reg.) E-37237 No, Income Tax Exempted Under 80G',
-  MANN: 'Company Section 8 Corporat Identity No (CIN) : U88900MH2026NPL471199',
-};
-
-function getNgoHeading(ngos, ngoId) {
-  if (!ngoId || !ngos.length) return 'Being Sevak Charitable Trust';
-  const ngo = ngos.find(n => n.id === ngoId);
-  if (!ngo) return 'Being Sevak Charitable Trust';
-  const code = (ngo.code || '').toUpperCase().trim();
-  return NGO_HEADING_MAP[code] || 'Being Sevak Charitable Trust';
-}
-
-function getNgoAddress(ngos, ngoId) {
-  if (!ngoId || !ngos.length) return NGO_ADDRESS_MAP.BSCT;
-  const ngo = ngos.find(n => n.id === ngoId);
-  if (!ngo) return NGO_ADDRESS_MAP.BSCT;
-  const code = (ngo.code || '').toUpperCase().trim();
-  return NGO_ADDRESS_MAP[code] || NGO_ADDRESS_MAP.BSCT;
-}
-
-function getNgoTagline(ngos, ngoId) {
-  if (!ngoId || !ngos.length) return NGO_TAGLINE_MAP.BSCT;
-  const ngo = ngos.find(n => n.id === ngoId);
-  if (!ngo) return NGO_TAGLINE_MAP.BSCT;
-  const code = (ngo.code || '').toUpperCase().trim();
-  return NGO_TAGLINE_MAP[code] || NGO_TAGLINE_MAP.BSCT;
-}
-
 export default function HRForms() {
-  const { fetchWorkers, fetchWorkerById, updateWorker, fetchNGOs } = useHR();
+  const { fetchWorkers, fetchWorkerById, updateWorker } = useHR();
   const [workers, setWorkers] = useState([]);
-  const [ngos, setNgos] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -330,7 +279,6 @@ export default function HRForms() {
 
   useEffect(() => {
     fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
-    fetchNGOs().then(setNgos).catch((err) => console.error('API error:', err.message));
   }, []);
 
   const filtered = workers.filter((w) => {
@@ -590,7 +538,7 @@ export default function HRForms() {
                           Application Form
                         </span>
                         <div className="hrf-doc-paper">
-                          <MiniFormPreview worker={w} ngoHeading={getNgoHeading(ngos, w.ngo_id)} ngoAddress={getNgoAddress(ngos, w.ngo_id)} ngoTagline={getNgoTagline(ngos, w.ngo_id)} />
+                          <MiniFormPreview worker={w} />
                         </div>
                         <span className="hrf-status-pill" style={statusStyle(w)}>{statusOf(w)}</span>
                       </div>
@@ -883,9 +831,6 @@ export default function HRForms() {
             place: previewData.declaration_place || 'Mumbai',
             photo_url: previewData.photo_url || '',
             signature_url: previewData.signature_url || '',
-            ngoHeading: getNgoHeading(ngos, previewData.ngo_id),
-            ngoAddress: getNgoAddress(ngos, previewData.ngo_id),
-            ngoTagline: getNgoTagline(ngos, previewData.ngo_id),
           }}
           onClose={() => setShowPrint(false)}
         />

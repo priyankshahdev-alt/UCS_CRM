@@ -14,7 +14,6 @@ import '../utils/responsive.dart';
 
 import 'scanner_page.dart';
 import 'leave_page.dart';
-import 'attendance_list_page.dart';
 import 'advance_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -26,6 +25,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const Duration _minPunchOutDelay = Duration(minutes: 5);
   final ScrollController _scrollController = ScrollController();
   Timer? _clockTimer;
   Timer? _refreshTimer;
@@ -106,6 +106,23 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
     final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
     _workedDisplay = '$h:$m:$s';
+  }
+
+  Duration? get _punchOutCountdown {
+    if (!_isPunchedIn || _isPunchedOut || _punchInTime == null) return null;
+    final remaining = _minPunchOutDelay - DateTime.now().difference(_punchInTime!);
+    return remaining.isNegative ? null : remaining;
+  }
+
+  bool get _canPunchOut => _isPunchedIn && !_isPunchedOut && _punchOutCountdown == null;
+
+  String get _punchOutCountdownText {
+    final remaining = _punchOutCountdown;
+    if (remaining == null) return '';
+    final total = remaining.inSeconds;
+    final m = (total ~/ 60).toString().padLeft(2, '0');
+    final s = (total % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   Future<void> _fetchStatus() async {
@@ -337,6 +354,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<void> _punchOut() async {
+    if (_punchOutCountdown != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Punch out available in $_punchOutCountdownText'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
+      return;
+    }
     if (!await _requestLocationPermission()) return;
 
     final online = await ApiService.checkConnectivity();
@@ -439,37 +467,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  void _openLateBatchSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.90,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            children: [
-              SizedBox(height: Responsive.pad(context, 12)),
-              Container(
-                width: 40, height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              SizedBox(height: Responsive.pad(context, 12)),
-              Expanded(child: AttendanceListPage()),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _openNotificationSheet() {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -521,33 +518,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         },
       ),
     );
-  }
-
-  int get _lateTier {
-    if (_lateUsed <= 180) return 0;
-    if (_lateUsed <= 240) return 1;
-    if (_lateUsed <= 480) return 2;
-    return 3;
-  }
-
-  Color get _lateTierColor {
-    switch (_lateTier) {
-      case 0: return const Color(0xFF2a6a4b);
-      case 1: return const Color(0xFFe67e22);
-      case 2: return const Color(0xFFd35400);
-      case 3: return const Color(0xFFba1a1a);
-      default: return const Color(0xFFc28228);
-    }
-  }
-
-  String get _lateTierLabel {
-    switch (_lateTier) {
-      case 0: return 'Within grace limit';
-      case 1: return 'Half-day deduction';
-      case 2: return 'One-day deduction';
-      case 3: return 'Proportional deduction';
-      default: return '';
-    }
   }
 
   @override
@@ -767,7 +737,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               scale: _isPressing ? 0.92 : 1.0,
                               duration: const Duration(milliseconds: 100),
                               child: GestureDetector(
-                              onTap: _isPunchedIn ? _punchOut : _punchIn,
+                              onTap: _isPunchedIn ? (_canPunchOut ? _punchOut : null) : _punchIn,
                               onTapDown: (_) => setState(() => _isPressing = true),
                               onTapUp: (_) => setState(() => _isPressing = false),
                               onTapCancel: () => setState(() => _isPressing = false),
@@ -797,18 +767,30 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      _isPunchedIn ? LucideIcons.power : LucideIcons.scanLine,
+                                      _isPunchedIn
+                                          ? (_canPunchOut ? LucideIcons.power : LucideIcons.circleCheck)
+                                          : LucideIcons.scanLine,
                                       size: Responsive.sp(context, 48),
                                       color: Colors.white,
                                     ),
                                     SizedBox(height: Responsive.pad(context, 8)),
                                     Text(
-                                      _isPunchedIn ? 'Punch Out' : 'Punch In',
+                                      _isPunchedIn ? (_canPunchOut ? 'Punch Out' : 'Punched In') : 'Punch In',
                                       style: TextStyle(
                                         fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w700, letterSpacing: 1.5,
                                         color: Colors.white,
                                       ),
                                     ),
+                                    if (_punchOutCountdown != null) ...[
+                                      SizedBox(height: Responsive.pad(context, 4)),
+                                      Text(
+                                        'Punch out in $_punchOutCountdownText',
+                                        style: TextStyle(
+                                          fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w500, letterSpacing: 0.3,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -884,155 +866,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       ],
                     ),
                   ],
-                ),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 0)),
-                child: GestureDetector(
-                  onTap: _openLateBatchSheet,
-                  child: Container(
-                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
-                    decoration: BoxDecoration(
-                      color: sc.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: colors.outline),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
-                          decoration: BoxDecoration(
-                            color: _lateTierColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Icon(LucideIcons.clock, size: Responsive.sp(context, 22), color: _lateTierColor),
-                        ),
-                        SizedBox(width: Responsive.pad(context, 16)),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text('Late Batch', style: GoogleFonts.hankenGrotesk(
-                                    fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
-                                  )),
-                                  SizedBox(width: Responsive.pad(context, 8)),
-                                  Container(
-                                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
-                                    decoration: BoxDecoration(
-                                      color: _lateTierColor.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(3),
-                                    ),
-                                    child: Text(
-                                      _lateTierLabel,
-                                      style: TextStyle(
-                                        fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w700,
-                                        color: _lateTierColor,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: Responsive.pad(context, 2)),
-                              Text(
-                                '${_lateUsed ~/ 60}:${(_lateUsed % 60).toString().padLeft(2, '0')}h used',
-                                style: TextStyle(
-                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
-                                  color: sc.onSurfaceVariant,
-                                ),
-                              ),
-                              SizedBox(height: Responsive.pad(context, 8)),
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  const batch1End = 180;
-                                  const batch2End = 240;
-                                  final totalWidth = constraints.maxWidth;
-                                  final pct1 = (_lateUsed / batch1End).clamp(0.0, 1.0);
-                                  final pct2 = _lateUsed > batch1End
-                                      ? ((_lateUsed - batch1End) / (batch2End - batch1End)).clamp(0.0, 1.0)
-                                      : 0.0;
-                                  final batch1Width = totalWidth * 0.6;
-                                  final batch2Width = totalWidth * 0.4;
-
-                                  return Column(
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            flex: _lateUsed > 180 ? 6 : 10,
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                ClipRRect(
-                                                  borderRadius: BorderRadius.circular(3),
-                                                  child: Stack(
-                                                    children: [
-                                                      Container(height: 6, color: colors.outlineVariant),
-                                                      Positioned(
-                                                        left: 0, top: 0, bottom: 0,
-                                                        child: Container(
-                                                          width: batch1Width * pct1,
-                                                          decoration: BoxDecoration(
-                                                            color: const Color(0xFF2a6a4b),
-                                                            borderRadius: BorderRadius.circular(3),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                SizedBox(height: 2),
-                                                Text('0–180m', style: TextStyle(fontSize: 8, color: sc.outline)),
-                                              ],
-                                            ),
-                                          ),
-                                          if (_lateUsed > batch1End) ...[
-                                            SizedBox(width: 6),
-                                            Expanded(
-                                              flex: 4,
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius: BorderRadius.circular(3),
-                                                    child: Stack(
-                                                      children: [
-                                                        Container(height: 6, color: colors.outlineVariant),
-                                                        Positioned(
-                                                          left: 0, top: 0, bottom: 0,
-                                                          child: Container(
-                                                            width: batch2Width * pct2,
-                                                            decoration: BoxDecoration(
-                                                              color: const Color(0xFFe67e22),
-                                                              borderRadius: BorderRadius.circular(3),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  SizedBox(height: 2),
-                                                  Text('181–240m', style: TextStyle(fontSize: 8, color: sc.outline)),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
-                      ],
-                    ),
-                  ),
                 ),
               ),
             ),

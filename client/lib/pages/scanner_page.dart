@@ -1,12 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:camera/camera.dart';
-import '../services/api_service.dart';
 import '../widgets/skeleton_loader.dart';
 
 class ScannerPage extends StatefulWidget {
@@ -26,7 +23,6 @@ class _ScannerPageState extends State<ScannerPage>
   late final Animation<double> _scanLine;
 
   Position? _cachedPosition;
-  bool _isLocating = true;
 
   @override
   void initState() {
@@ -51,7 +47,6 @@ class _ScannerPageState extends State<ScannerPage>
       ).timeout(const Duration(seconds: 8));
       _cachedPosition = pos;
     } catch (_) {}
-    if (mounted) setState(() => _isLocating = false);
   }
 
   void _onControllerUpdate() {
@@ -99,102 +94,6 @@ class _ScannerPageState extends State<ScannerPage>
 
     HapticFeedback.vibrate();
     await _completeWithCode(code);
-  }
-
-  Future<void> _submitWithSelfie() async {
-    if (_detected) return;
-    _detected = true;
-
-    Position? pos = _cachedPosition;
-    if (pos == null) {
-      try {
-        pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-          ),
-        ).timeout(const Duration(seconds: 8));
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    if (pos == null) {
-      _detected = false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not get location. Make sure GPS is enabled.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    final cameras = await availableCameras();
-    if (cameras.isEmpty || !mounted) {
-      _detected = false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No front camera available')),
-      );
-      return;
-    }
-
-    final frontCamera = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
-
-    final xController = CameraController(frontCamera, ResolutionPreset.medium, enableAudio: false);
-    await xController.initialize();
-    if (!mounted) { await xController.dispose(); return; }
-
-    final selfieFile = await Navigator.push<File>(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => _SelfieCapturePage(controller: xController),
-      ),
-    );
-    await xController.dispose();
-    if (!mounted) return;
-
-    if (selfieFile == null) {
-      _detected = false;
-      return;
-    }
-
-    final bytes = await selfieFile.readAsBytes();
-    final base64Selfie = base64Encode(bytes);
-
-    try {
-      final isPunchIn = await _shouldPunchIn();
-      final result = await ApiService.selfiePunch(
-        type: isPunchIn ? 'punch_in' : 'punch_out',
-        selfieBase64: base64Selfie,
-        mimeType: 'image/jpeg',
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['message'] ?? 'Submitted for approval')),
-        );
-        Navigator.pop(context, {'selfie': true, ...result});
-      }
-    } catch (e) {
-      _detected = false;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
-      }
-    }
-  }
-
-  Future<bool> _shouldPunchIn() async {
-    try {
-      final today = await ApiService.getTodayStatus();
-      return today['punch_in_time'] == null;
-    } catch (_) {
-      return true;
-    }
   }
 
   Future<void> _completeWithCode(String code) async {
@@ -250,58 +149,21 @@ class _ScannerPageState extends State<ScannerPage>
                   ],
                 ),
               ),
-              errorBuilder: (context, error, child) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && !_detected) {
-                    _submitWithSelfie();
-                  }
-                });
-                return const SizedBox();
-              },
-            ),
-            Positioned.fill(child: _ScanOverlay(scanLine: _scanLine)),
-            Positioned(
-              bottom: 40,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: _isLocating
-                      ? null
-                      : () {
-                          if (_isLocating) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Getting your location, please wait...'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                            return;
-                          }
-                          _submitWithSelfie();
-                        },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.camera_alt, color: Colors.white70, size: 20),
-                        SizedBox(width: 10),
-                        Text(
-                          'Use Selfie to Punch',
-                          style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
+              errorBuilder: (context, error, child) => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.white70, size: 48),
+                      SizedBox(height: 16),
+                      Text('Camera unavailable', style: TextStyle(color: Colors.white70)),
+                    ],
                   ),
                 ),
               ),
             ),
+            Positioned.fill(child: _ScanOverlay(scanLine: _scanLine)),
             Positioned(
               top: 48,
               left: 16,
@@ -370,98 +232,6 @@ class _ScanOverlay extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _SelfieCapturePage extends StatefulWidget {
-  final CameraController controller;
-  const _SelfieCapturePage({required this.controller});
-
-  @override
-  State<_SelfieCapturePage> createState() => _SelfieCapturePageState();
-}
-
-class _SelfieCapturePageState extends State<_SelfieCapturePage> {
-  bool _taking = false;
-
-  Future<void> _take() async {
-    if (_taking) return;
-    setState(() => _taking = true);
-    try {
-      final file = await widget.controller.takePicture();
-      if (mounted) Navigator.pop(context, File(file.path));
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to capture selfie')),
-        );
-        Navigator.pop(context);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(child: CameraPreview(widget.controller)),
-          Positioned(
-            top: 48,
-            left: 16,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 48,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: _take,
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 4),
-                  ),
-                  child: _taking
-                      ? const Padding(
-                          padding: EdgeInsets.all(18),
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
-                        )
-                      : const Icon(Icons.camera_alt, color: Colors.white, size: 32),
-                ),
-              ),
-            ),
-          ),
-          const Positioned(
-            bottom: 130,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Text(
-                'Take a selfie',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -45,7 +45,6 @@ class _LeavePageState extends State<LeavePage> {
     'half_day': 'Half Day',
     'vacational': 'Vacational',
     'emergency': 'Emergency',
-    'holiday': 'Holiday',
   };
 
   @override
@@ -83,7 +82,6 @@ class _LeavePageState extends State<LeavePage> {
 
   String? _validateForm() {
     if (_selectedType == null) return 'Please select a leave type';
-    final now = DateTime.now();
 
     if (_selectedType == 'full_day') {
       if (_leaveDateCtrl.text.isEmpty) return 'Please select a leave date';
@@ -104,19 +102,11 @@ class _LeavePageState extends State<LeavePage> {
       final ed = DateTime.tryParse(_endDateCtrl.text);
       if (sd == null || ed == null) return 'Invalid dates';
       if (ed.isBefore(sd)) return 'End date must be on or after start date';
-      if (_daysFromNow(sd) < 30) return 'Vacational leave must be applied at least 1 month prior';
+      if (_daysFromNow(sd) < 0) return 'Start date cannot be in the past';
     } else if (_selectedType == 'emergency') {
       if (_leaveDateCtrl.text.isEmpty) return 'Please select a leave date';
       final date = DateTime.tryParse(_leaveDateCtrl.text);
       if (date == null) return 'Invalid date';
-    } else if (_selectedType == 'holiday') {
-      if (_startDateCtrl.text.isEmpty) return 'Please select start date';
-      if (_endDateCtrl.text.isEmpty) return 'Please select end date';
-      final sd = DateTime.tryParse(_startDateCtrl.text);
-      final ed = DateTime.tryParse(_endDateCtrl.text);
-      if (sd == null || ed == null) return 'Invalid dates';
-      if (ed.isBefore(sd)) return 'End date must be on or after start date';
-      if (_daysFromNow(sd) < 5) return 'Holiday leave must be applied at least 5 days prior';
     }
     if (_reasonCtrl.text.trim().isEmpty) return 'Please provide a reason';
     return null;
@@ -145,9 +135,6 @@ class _LeavePageState extends State<LeavePage> {
         data['end_date'] = _endDateCtrl.text;
       } else if (_selectedType == 'emergency') {
         data['leave_date'] = _leaveDateCtrl.text;
-      } else if (_selectedType == 'holiday') {
-        data['start_date'] = _startDateCtrl.text;
-        data['end_date'] = _endDateCtrl.text;
       }
 
       if (_proofBase64 != null) {
@@ -188,8 +175,6 @@ class _LeavePageState extends State<LeavePage> {
     final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
     if (_selectedType == 'full_day') return today.add(const Duration(days: 2));
     if (_selectedType == 'half_day') return today.add(const Duration(days: 1));
-    if (_selectedType == 'vacational') return today.add(const Duration(days: 30));
-    if (_selectedType == 'holiday') return today.add(const Duration(days: 5));
     return today;
   }
 
@@ -264,7 +249,7 @@ class _LeavePageState extends State<LeavePage> {
 
   String _leaveDates(dynamic l) {
     final type = l['type'] ?? '';
-    if (type == 'vacational') return '${_formatDate(l['start_date'])} – ${_formatDate(l['end_date'])}';
+    if (type == 'vacational') return 'From ${_formatDate(l['start_date'])} → To ${_formatDate(l['end_date'])}';
     if (type == 'holiday') return '${_formatDate(l['start_date'])} – ${_formatDate(l['end_date'])}';
     if (type == 'emergency') return '🔴 ${_formatDate(l['leave_date'])}';
     if (type == 'half_day') {
@@ -375,7 +360,7 @@ class _LeavePageState extends State<LeavePage> {
             ),
             suffixIcon: Icon(LucideIcons.chevronDown, color: scheme.onSurfaceVariant),
           ),
-          items: ['full_day', 'half_day', 'vacational', 'emergency', 'holiday'].map((t) => DropdownMenuItem(
+          items: ['full_day', 'half_day', 'vacational', 'emergency'].map((t) => DropdownMenuItem(
             value: t,
             child: Text(_typeLabels[t]!, style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface)),
           )).toList(),
@@ -421,7 +406,7 @@ class _LeavePageState extends State<LeavePage> {
               ? DateTime.tryParse(_startDateCtrl.text) : null),
           Padding(
             padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
-            child: Text('Must be applied at least 1 month prior',
+            child: Text('Can be applied anytime — from today onward',
               style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
           ),
         ],
@@ -432,18 +417,6 @@ class _LeavePageState extends State<LeavePage> {
             padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
             child: Text('Immediate emergency leave — no prior notice required',
               style: TextStyle(fontSize: Responsive.sp(context, 11), color: const Color(0xFFC0392B))),
-          ),
-        ],
-        if (_selectedType == 'holiday') ...[
-          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'From date', colors), SizedBox(height: Responsive.pad(context, 8)),
-          _dateField(_startDateCtrl, colors, scheme),
-          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'To date', colors), SizedBox(height: Responsive.pad(context, 8)),
-          _dateField(_endDateCtrl, colors, scheme, minDate: _startDateCtrl.text.isNotEmpty
-              ? DateTime.tryParse(_startDateCtrl.text) : null),
-          Padding(
-            padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
-            child: Text('Must be applied at least 5 days prior',
-              style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
           ),
         ],
         if (_selectedType != null && _selectedType != 'half_day') ...[

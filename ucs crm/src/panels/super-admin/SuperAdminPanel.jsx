@@ -23,7 +23,8 @@ import Events from './pages/Events'
 import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
 import Notices from './pages/Notices'
-import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone } from '@phosphor-icons/react'
+import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
+import AdminAttendance from './pages/AdminAttendance'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', eyebrow: 'Super Admin', icon: GridFour },
@@ -36,6 +37,7 @@ const NAV = [
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
   { id: 'event-head', path: '/sa/event-head', label: 'Event Head', eyebrow: 'Events', icon: CalendarBlank },
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
+  { id: 'admin-attendance', path: '/sa/admin-attendance', label: 'Attendance', eyebrow: 'People', icon: Clock },
   { id: 'recruiter', path: '/sa/recruiter', label: 'Recruiter', eyebrow: 'Recruitment', icon: MagnifyingGlass },
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
@@ -50,7 +52,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'recruiter', 'fro', 'assets', 'special-incentive', 'notices']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'assets', 'special-incentive', 'notices']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -323,6 +325,7 @@ export default function SuperAdminPanel() {
         <Route path="fro" element={<PanelFrame src="/fro" />} />
         <Route path="ngo-admin" element={<PanelFrame src="/ngo-admin" />} />
         <Route path="hr" element={<PanelFrame src="/hr" />} />
+        <Route path="admin-attendance" element={<AdminAttendance />} />
         <Route path="event-head" element={<PanelFrame src="/event-head" />} />
         <Route path="recruiter" element={<PanelFrame src="/recruiter" />} />
         <Route path="assets" element={<AssetOverview />} />

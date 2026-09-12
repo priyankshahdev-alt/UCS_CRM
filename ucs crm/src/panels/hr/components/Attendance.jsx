@@ -547,7 +547,8 @@ export default function Attendance() {
         const attendedCancelled = sundays.filter(ds => absentSetFinal.has(ds) && covered.has(ds)).length;
         const attendedAll = attended.length + attendedCancelled;
         const eligibleNotWorked = eligible.length - attended.length;
-        const freeCount = Math.max(0, Math.min(sundays.length - 1, eligibleNotWorked));
+        const cleanMonth = regularAbsences === 0 && !(joinedThisMonth && joinDay > 10);
+        const freeCount = Math.max(0, Math.min(cleanMonth ? sundays.length : sundays.length - 1, eligibleNotWorked));
         const paid = attendedAll + freeCount;
         sundayCount = Math.max(0, paid - attendedAll);
       }

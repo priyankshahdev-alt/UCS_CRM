@@ -151,6 +151,15 @@ export const selfiePunch = async (req, res) => {
         return res.status(400).json({ message: 'Already punched out today' });
       }
 
+      const MIN_PUNCHOUT_MINUTES = 5;
+      const elapsedMin = (now.getTime() - new Date(existing.punch_in_time).getTime()) / 60000;
+      if (elapsedMin < MIN_PUNCHOUT_MINUTES) {
+        const remainingSec = Math.ceil(MIN_PUNCHOUT_MINUTES * 60 - elapsedMin * 60);
+        return res.status(400).json({
+          message: `Punch out is available after ${MIN_PUNCHOUT_MINUTES} minutes (${remainingSec}s remaining)`,
+        });
+      }
+
       const updates = {
         punch_out_time: now.toISOString(),
         punch_out_lat: latitude,
