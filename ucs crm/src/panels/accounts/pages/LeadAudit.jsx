@@ -234,6 +234,26 @@ return (
               </div>
             </div>
           </div>
+          <div className="top-summary-space">
+            <div className="top-summary-kpi">
+              <div className="top-summary-kpi-label">Suspense</div>
+              <div className="top-summary-kpi-value">
+                {summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 42, height: 30, borderRadius: 7 }} /> : (audit.combo?.all?.count || 0)}
+              </div>
+              <div className="top-summary-kpi-sub">
+                {summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 132, height: 12, borderRadius: 5 }} /> : `${audit.combo?.all?.count || 0} leads \u00B7 ${currency(audit.combo?.all?.amount || 0)}`}
+              </div>
+            </div>
+            <div className="top-summary-kpi">
+              <div className="top-summary-kpi-label">Total Collection</div>
+              <div className="top-summary-kpi-value">
+                {collections === null ? <span className="sk" style={{ display: 'inline-block', width: 118, height: 30, borderRadius: 7 }} /> : currency(colTotal('month_total') || 0)}
+              </div>
+              <div className="top-summary-kpi-sub">
+                {collections === null ? <span className="sk" style={{ display: 'inline-block', width: 112, height: 12, borderRadius: 5 }} /> : `Today ${currency(colTotal('today_total') || 0)}`}
+              </div>
+            </div>
+          </div>
           <div className="dash-actions">
             <div className="dash-actions-filters">{filterBar}</div>
             <button className="dash-action-btn" onClick={() => {}} title="Work">WORK</button>
