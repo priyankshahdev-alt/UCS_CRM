@@ -11,6 +11,7 @@ function SectionTitle({ children }) {
 }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
+const formatTeamName = name => String(name || '').replace(/^UFS\s*(\d+)$/i, 'UFS $1');
 
 const NGO_COLLECTION = {
   bsct: { label: 'BSCT', bg: '#d4e4ff', accent: '#1e40af' },
@@ -37,6 +38,12 @@ export default function LeadAudit() {
   const [froSelectedId, setFroSelectedId] = useState('');
   const [froText, setFroText] = useState('');
   const [froSending, setFroSending] = useState(false);
+  const [entertainModalOpen, setEntertainModalOpen] = useState(false);
+  const [entertainAudios, setEntertainAudios] = useState([]);
+  const [entertainAudioId, setEntertainAudioId] = useState('');
+  const [entertainLoading, setEntertainLoading] = useState(false);
+  const [entertainUploading, setEntertainUploading] = useState(false);
+  const [entertainSending, setEntertainSending] = useState(false);
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [teams, setTeams] = useState([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
@@ -90,6 +97,62 @@ export default function LeadAudit() {
       toast('Failed to send alert', 'error');
     } finally {
       setTimeout(() => setAlertBusy(false), 10000);
+    }
+  };
+  const openEntertainModal = async () => {
+    setEntertainModalOpen(true);
+    setEntertainAudioId('');
+    setEntertainLoading(true);
+    try {
+      const res = await apiGet('/notifications/entertain-audios');
+      const list = Array.isArray(res?.audios) ? res.audios : [];
+      setEntertainAudios(list);
+      if (list[0]) setEntertainAudioId(list[0].id);
+    } catch (err) {
+      toast(err.message || 'Failed to load entertainment audios', 'error');
+    } finally {
+      setEntertainLoading(false);
+    }
+  };
+  const uploadEntertainAudio = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) { toast('Select an audio file', 'error'); return; }
+    if (file.size > 7 * 1024 * 1024) { toast('Audio must be smaller than 7 MB', 'error'); return; }
+    setEntertainUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await apiPost('/notifications/entertain-audios', { name: file.name, mime_type: file.type, file_base64: base64 });
+      const audio = res?.audio;
+      if (audio) {
+        setEntertainAudios(prev => [...prev, audio]);
+        setEntertainAudioId(audio.id);
+      }
+      toast('Audio uploaded', 'success');
+    } catch (err) {
+      toast(err.message || 'Failed to upload audio', 'error');
+    } finally {
+      setEntertainUploading(false);
+    }
+  };
+  const sendEntertainment = async () => {
+    if (entertainSending) return;
+    if (!entertainAudioId) { toast('Upload or select an audio first', 'error'); return; }
+    setEntertainSending(true);
+    try {
+      const res = await apiPost('/notifications/fro-action', { action: 'entertain', audio_id: entertainAudioId });
+      toast(`Entertain audio sent to ${res?.count || 0} FROs`, 'success');
+      setEntertainModalOpen(false);
+    } catch (err) {
+      toast(err.message || 'Failed to send entertainment audio', 'error');
+    } finally {
+      setEntertainSending(false);
     }
   };
   const handleFroAction = async (action) => {
@@ -161,7 +224,7 @@ export default function LeadAudit() {
     setTeamSending(true);
     try {
       const res = await apiPost('/notifications/fro-team-broadcast', { teams: selectedTeams });
-      toast(`🎉 Congratulations sent to ${res?.count || 0} FROs for ${selectedTeams.join(', ')}`, 'success');
+      toast(`🎉 Congratulations sent to ${res?.count || 0} FROs for ${selectedTeams.map(formatTeamName).join(', ')}`, 'success');
       setTeamModalOpen(false);
     } catch (err) {
       toast(err.message || 'Failed to send congratulations', 'error');
@@ -223,7 +286,7 @@ export default function LeadAudit() {
             <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'SUSPENSE'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('follow_up')} disabled={!!froActionBusy}>{froActionBusy === 'follow_up' ? 'SENDING' : 'FOLLOW UP'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('less_calls')} disabled={!!froActionBusy}>{froActionBusy === 'less_calls' ? 'SENDING' : 'LESS CALLS'}</button>
-            <button className="lead-audit-action-btn" onClick={() => handleFroAction('entertain')} disabled={!!froActionBusy}>{froActionBusy === 'entertain' ? 'SENDING' : 'ENTERTAIN'}</button>
+            <button className="lead-audit-action-btn" onClick={openEntertainModal} disabled={!!froActionBusy}>ENTERTAIN</button>
             <button className="lead-audit-action-btn" onClick={openFroModal}>FRO</button>
             <button className="lead-audit-action-btn" onClick={openTeamModal}>TEAM</button>
           </div>
@@ -256,6 +319,49 @@ export default function LeadAudit() {
           </div>
         )}
       </div>
+
+      {entertainModalOpen && (
+        <div className="modal-overlay" onClick={() => { if (!entertainUploading && !entertainSending) setEntertainModalOpen(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500, borderRadius: 16, overflow: 'hidden', padding: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>Entertainment Audio</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Upload an audio or select one to send to every active FRO panel</div>
+              </div>
+              <button className="btn btn-sm btn-icon" onClick={() => { if (!entertainUploading && !entertainSending) setEntertainModalOpen(false); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: 'var(--ink-soft)' }} aria-label="Close">
+                <X size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 10, border: '1.5px dashed #9ca3af', background: '#f8fafc', color: 'var(--ink)', fontSize: 12.5, fontWeight: 700, cursor: entertainUploading ? 'wait' : 'pointer' }}>
+                {entertainUploading ? 'Uploading…' : '＋ Upload new audio'}
+                <input type="file" accept="audio/*" onChange={uploadEntertainAudio} disabled={entertainUploading} style={{ display: 'none' }} />
+              </label>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>Uploaded audios</div>
+              {entertainLoading ? (
+                <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: 18 }}>Loading audios…</div>
+              ) : entertainAudios.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: 18, border: '1px dashed #d1d5db', borderRadius: 10 }}>No audios uploaded yet</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
+                  {entertainAudios.map(audio => (
+                    <label key={audio.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, border: `1px solid ${entertainAudioId === audio.id ? '#86efac' : '#e5e7eb'}`, background: entertainAudioId === audio.id ? '#f0fdf4' : '#fff', cursor: 'pointer' }}>
+                      <input type="radio" name="entertain-audio" checked={entertainAudioId === audio.id} onChange={() => setEntertainAudioId(audio.id)} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{audio.name}</div>
+                        <audio controls preload="none" src={audio.url} style={{ width: '100%', height: 30, marginTop: 4 }} />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <button onClick={sendEntertainment} disabled={entertainSending || entertainLoading || !entertainAudioId} style={{ marginTop: 2, width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: 'var(--sage, #166534)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: entertainSending ? 'default' : 'pointer', fontFamily: 'inherit', opacity: entertainSending || !entertainAudioId ? .6 : 1 }}>
+                {entertainSending ? 'Sending…' : 'Send selected audio to all FROs'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {froModalOpen && (
         <div className="modal-overlay" onClick={() => { if (!froSending) setFroModalOpen(false); }}>
@@ -325,23 +431,23 @@ export default function LeadAudit() {
                   <button
                     onClick={() => setSelectedTeams(prev => prev.length === teams.length ? [] : teams.slice())}
                     style={{ fontSize: 11.5, fontWeight: 700, padding: '6px 10px', borderRadius: 999, border: '1px solid #d1d5db', background: selectedTeams.length === teams.length ? 'var(--sage, #166534)' : '#fff', color: selectedTeams.length === teams.length ? '#fff' : 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}
-                  >All</button>
-                )}
+                   >All</button>
+                 )}
                 {teams.map(t => {
                   const on = selectedTeams.includes(t);
                   return (
                     <button key={t} onClick={() => toggleTeam(t)}
                       style={{ fontSize: 12.5, fontWeight: 800, padding: '7px 14px', borderRadius: 999, border: on ? 'none' : '1px solid #d1d5db', background: on ? 'var(--sage, #166534)' : '#fff', color: on ? '#fff' : 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', boxShadow: on ? '0 6px 14px rgba(22,101,52,.35)' : 'none' }}>
-                      {t}
+                      {formatTeamName(t)}
                     </button>
                   );
                 })}
               </div>
               {selectedTeams.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, borderRadius: 12, background: '#f8fafc', border: '1px solid #eef2f7' }}>
-                  {selectedTeams.map(t => (
-                    <span key={t} onClick={() => toggleTeam(t)} style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage, #166534)', background: '#f0f7ef', border: '1px solid #cfe3cb', padding: '3px 9px', borderRadius: 999, cursor: 'pointer' }}>{t} ✕</span>
-                  ))}
+                   {selectedTeams.map(t => (
+                     <span key={t} onClick={() => toggleTeam(t)} style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage, #166534)', background: '#f0f7ef', border: '1px solid #cfe3cb', padding: '3px 9px', borderRadius: 999, cursor: 'pointer' }}>{formatTeamName(t)} ✕</span>
+                   ))}
                 </div>
               )}
               <div style={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', gap: 5, alignItems: 'flex-start' }}>

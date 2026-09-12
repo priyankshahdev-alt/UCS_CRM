@@ -44,6 +44,7 @@ const followDueAudio = new Audio(followDueMp3);
 const callLessAudio = new Audio(callLessMp3);
 const entertainAudio = new Audio(reelMp3);
 const congratsAudio = new Audio(congratsMp3);
+const customEntertainAudioCache = new Map();
 followDueAudio.preload = 'auto';
 callLessAudio.preload = 'auto';
 entertainAudio.preload = 'auto';
@@ -57,8 +58,16 @@ function playSuspenseAlert(title) {
   } catch {}
   toast(title || 'Suspense Alert', 'info');
 }
-function playFroAction(type, title) {
-  const audio = type === 'fro_action_follow_up' ? followDueAudio : (type === 'fro_action_less_calls' ? callLessAudio : entertainAudio);
+function playFroAction(type, title, audioUrl) {
+  let audio = type === 'fro_action_follow_up' ? followDueAudio : (type === 'fro_action_less_calls' ? callLessAudio : entertainAudio);
+  if (type === 'fro_action_entertain' && audioUrl) {
+    if (!customEntertainAudioCache.has(audioUrl)) {
+      const custom = new Audio(audioUrl);
+      custom.preload = 'auto';
+      customEntertainAudioCache.set(audioUrl, custom);
+    }
+    audio = customEntertainAudioCache.get(audioUrl);
+  }
   try {
     audio.currentTime = 0;
     const p = audio.play();
@@ -497,7 +506,7 @@ export default function FROPanel() {
 
 useEffect(() => onFroAction((action) => {
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
-      playFroAction(action.type, action.title);
+      playFroAction(action.type, action.title, action.audioUrl);
     }
   }), []);
 

@@ -1,6 +1,8 @@
 import db from '../config/db.js';
 import groq from '../config/groq.js';
 import { emitRealtime } from '../socket.js';
+import { randomUUID } from 'crypto';
+import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import {
   upsertFcmToken,
   getWorkerNotifications,
@@ -27,6 +29,53 @@ export const getNotifications = async (req, res) => {
     const worker_id = req.params.worker_id;
     const notifications = await getWorkerNotifications(worker_id);
     return res.json(notifications);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const ENTERTAINMENT_AUDIO_KEY = 'fro_entertainment_audios';
+const ALLOWED_AUDIO_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac']);
+
+const getEntertainmentAudioList = async () => {
+  const raw = await getSetting(ENTERTAINMENT_AUDIO_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((a) => a && a.id && a.url && a.name) : [];
+  } catch { return []; }
+};
+
+export const listEntertainmentAudios = async (req, res) => {
+  try {
+    return res.json({ audios: await getEntertainmentAudioList() });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const uploadEntertainmentAudio = async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const mimeType = String(req.body?.mime_type || '').toLowerCase().trim();
+    const encoded = String(req.body?.file_base64 || '').trim();
+    if (!name || !encoded) return res.status(400).json({ message: 'Audio name and file are required' });
+    if (!ALLOWED_AUDIO_TYPES.has(mimeType)) return res.status(400).json({ message: 'Use an MP3, WAV, OGG, WEBM, MP4 or AAC audio file' });
+    const buffer = Buffer.from(encoded, 'base64');
+    if (!buffer.length || buffer.length > 7 * 1024 * 1024) return res.status(400).json({ message: 'Audio must be smaller than 7 MB' });
+
+    const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^\.+/, '') || 'entertainment-audio';
+    const id = randomUUID();
+    const path = `entertainment/${id}_${safeName}`;
+    const bucket = 'fro-audio';
+    const uploaded = await db.storage.from(bucket).upload(path, buffer, { contentType: mimeType, upsert: false });
+    if (uploaded.error) return res.status(500).json({ message: uploaded.error.message });
+    const { data: publicData } = db.storage.from(bucket).getPublicUrl(path);
+    const audio = { id, name, url: publicData?.publicUrl || '', mime_type: mimeType, created_at: new Date().toISOString() };
+    if (!audio.url) return res.status(500).json({ message: 'Unable to create audio URL' });
+    const list = await getEntertainmentAudioList();
+    await upsertSetting(ENTERTAINMENT_AUDIO_KEY, JSON.stringify([...list, audio]));
+    return res.status(201).json({ audio });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -170,6 +219,12 @@ export const sendFroAction = async (req, res) => {
     };
     const message = actions[action];
     if (!message) return res.status(400).json({ message: 'action must be follow_up, less_calls or entertain' });
+    let selectedAudio = null;
+    if (action === 'entertain' && req.body?.audio_id) {
+      const audios = await getEntertainmentAudioList();
+      selectedAudio = audios.find((a) => String(a.id) === String(req.body.audio_id)) || null;
+      if (!selectedAudio) return res.status(404).json({ message: 'Selected audio was not found' });
+    }
 
     const { rows: froRows, error: froErr } = await db._pool.query(
       `SELECT id FROM workers
@@ -183,6 +238,8 @@ export const sendFroAction = async (req, res) => {
       type: message.type,
       title: message.title,
       body: message.body,
+      audioUrl: selectedAudio?.url || null,
+      audioName: selectedAudio?.name || null,
       sent_at: new Date().toISOString(),
     }, 'role:fro');
     return res.json({ count, message: `${message.title} sent to ${count} FROs` });
