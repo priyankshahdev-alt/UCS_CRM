@@ -157,32 +157,39 @@ export default function LeadAudit() {
     );
   }) : [];
 
-  const suspenseMiniCards = collectionKeys.map(key => {
+  const suspenseRows = collectionKeys.map(key => {
     const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
-    const d = collections?.find(x => x.project_id === key);
     const active = suspenseCardNgo === key;
     const count = audit.combo?.[key]?.count;
     return (
       <button key={key} onClick={() => setSuspenseCardNgo(active ? '' : key)} title={'Filter suspense to ' + key.toUpperCase()}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minWidth: 0, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid #eef2f7', borderRadius: 12, background: c.bg, padding: '9px 12px', boxShadow: active ? '0 3px 12px ' + c.accent + '2a' : 'none' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-          <span style={{ width: 30, height: 30, borderRadius: 9, background: '#fff', color: c.accent, fontSize: 10.5, fontWeight: 800, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{key.toUpperCase()}</span>
-          <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3', whiteSpace: 'nowrap' }}>Suspense{count > 0 ? ` \u00B7 ${count}` : ''}</span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.[key]?.amount || 0)}</span>
-          </span>
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
-          <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3' }}>Today</span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 44, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</span>
-          </span>
-          <span style={{ minWidth: 0, textAlign: 'right' }}>
-            <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3' }}>Month</span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, color: c.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 60, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</span>
-          </span>
+        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minWidth: 0, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid ' + c.accent + '44', borderRadius: 11, background: c.bg, padding: '9px 12px', boxShadow: active ? '0 3px 12px ' + c.accent + '2a' : 'none' }}>
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: '#fff', color: c.accent, fontSize: 10.5, fontWeight: 800, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{key.toUpperCase()}</span>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3', whiteSpace: 'nowrap' }}>Suspense{count > 0 ? ` \u00B7 ${count}` : ''}</span>
+          <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.[key]?.amount || 0)}</span>
         </span>
       </button>
+    );
+  });
+
+  const collectionRows = collectionKeys.map(key => {
+    const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
+    const d = collections?.find(x => x.project_id === key);
+    return (
+      <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid ' + c.accent + '44', borderRadius: 11, background: c.bg, padding: '9px 12px', minHeight: 46, gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 800, color: c.accent, whiteSpace: 'nowrap' }}>{key.toUpperCase()}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <div style={{ textAlign: 'center', minWidth: 58 }}>
+            <div style={{ color: c.accent, opacity: .65, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
+            <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 42, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
+          </div>
+          <div style={{ textAlign: 'center', minWidth: 78 }}>
+            <div style={{ color: c.accent, opacity: .65, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
+            <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 58, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
+          </div>
+        </div>
+      </div>
     );
   });
 
@@ -198,7 +205,17 @@ return (
         <div className="top-summary-card">
           <SectionTitle><Sigma size={15} strokeWidth={2.4} /> Suspense</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseMiniCards}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseRows}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151' }}>TOTAL</span>
+              <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.all?.amount || 0)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="top-summary-card">
+          <SectionTitle>Collections</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {collectionRows}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
               <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151', flex: 1, whiteSpace: 'nowrap' }}>TOTAL</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>

@@ -1396,7 +1396,7 @@
 .panel-accounts .lead-audit-section-title::before { content:''; width:4px; height:16px; border-radius:4px; background:var(--sage); }
 .panel-accounts .lead-audit-section-title span { flex:0 0 auto; }
 .panel-accounts .lead-audit-section-title::after { content:''; height:1px; flex:1; background:linear-gradient(90deg,var(--line),transparent); }
-.panel-accounts .top-summary-grid { display:grid; grid-template-columns:340px 1fr; gap:14px; align-items:stretch; margin-bottom:18px; }
+.panel-accounts .top-summary-grid { display:grid; grid-template-columns:300px 1fr 1fr; gap:14px; align-items:stretch; margin-bottom:18px; }
 .panel-accounts .top-summary-card { border:1px solid #e7ecf3; border-radius:16px; background:#fff; box-shadow:0 6px 24px rgba(30,41,59,.06); padding:14px 16px; min-width:0; }
 .panel-accounts .dash-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
 .panel-accounts .dash-actions-filters { flex:1 1 auto; min-width:280px; border:1px solid #e7ecf3; border-radius:14px; background:#fff; box-shadow:0 6px 24px rgba(30,41,59,.06); padding:10px 16px; }
