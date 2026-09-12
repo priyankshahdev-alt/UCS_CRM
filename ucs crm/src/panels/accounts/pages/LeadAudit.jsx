@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link2, Loader2, Sigma, X } from 'lucide-react';
+import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
-import { toast } from '../../../components/Toast';
 import Dashboard from './Dashboard';
-import BankAudit from './BankAudit';
+import BankAudit, { AuditStatCards } from './BankAudit';
 import MatchLines from '../components/MatchLines';
 
 function SectionTitle({ children }) {
@@ -31,26 +30,13 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
-  const [collections, setCollections] = useState(null);
-  const [alertBusy, setAlertBusy] = useState(false);
   const workspaceRef = useRef(null);
 
-  // Last issued + next upcoming receipt number per NGO. Read-only; refetched
-  // whenever the bank-audit data changes (e.g. after a new receipt is created).
   useEffect(() => {
     let cancelled = false;
     apiGet('/accounts/receipts/numbers')
       .then(d => { if (!cancelled) setReceiptNums(d || []); })
       .catch(() => { if (!cancelled) setReceiptNums([]); });
-    return () => { cancelled = true; };
-  }, [audit]);
-
-  // Today + month collection totals per NGO (right-hand "NGO Collections" cards).
-  useEffect(() => {
-    let cancelled = false;
-    apiGet('/accounts/collections')
-      .then(d => { if (!cancelled) setCollections(d || []); })
-      .catch(() => { if (!cancelled) setCollections([]); });
     return () => { cancelled = true; };
   }, [audit]);
 
@@ -80,7 +66,6 @@ export default function LeadAudit() {
   );
 
   const ready = !!(selectedLead && selectedEntry && !matching);
-
   const isPanelOpen = !!(detailView || entryDetailView);
 
   const filterBar = (
@@ -102,153 +87,42 @@ export default function LeadAudit() {
     </div>
   );
 
-  const handleAlertAll = async () => {
-    if (alertBusy) return;
-    setAlertBusy(true);
-    try {
-      const res = await apiPost('/notifications/suspense-alert', {});
-      toast('Alert sent to ' + (res?.count || 0) + ' FROs', 'success');
-    } catch { toast('Failed to send alert', 'error'); }
-    setTimeout(() => setAlertBusy(false), 10000);
-  };
-
-  const collectionKeys = ['bsct', 'aflf', 'mann'];
-
-  const colTotal = (field) => collections === null
-    ? null
-    : collectionKeys.reduce((s, k) => s + Number(collections.find(x => x.project_id === k)?.[field] || 0), 0);
-
-  const summaryLoading = audit.loading || !audit.combo;
-
-  const receiptSkeleton = [0, 1, 2].map(i => (
-    <div key={i} style={{ border: '1px solid #eef2f7', borderRadius: 11, background: '#fff', padding: '9px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span className="sk" style={{ width: 46, height: 11, borderRadius: 6 }} />
-        <span className="sk" style={{ width: 10, height: 10, borderRadius: '50%' }} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, letterSpacing: '.5px', textTransform: 'uppercase', color: '#8a93a3' }}>
-        <span className="sk" style={{ width: 40, height: 9, borderRadius: 4 }} />
-        <span className="sk" style={{ width: 40, height: 9, borderRadius: 4 }} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
-        <span className="sk" style={{ width: 44, height: 13, borderRadius: 5 }} />
-        <span className="sk" style={{ width: 44, height: 13, borderRadius: 5 }} />
-      </div>
-    </div>
-  ));
-
-  const receiptRows = receiptNums && receiptNums.length > 0 ? receiptNums.map(n => {
-    const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
-    return (
-      <div key={n.project_id} style={{ border: '1px solid #eef2f7', borderRadius: 11, background: '#fff', padding: '9px 12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: c.accent, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.accent, opacity: .75, flexShrink: 0 }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, fontWeight: 700, letterSpacing: '.6px', textTransform: 'uppercase', color: '#8a93a3' }}>
-          <span>Current</span>
-          <span>Next</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#111827' }}>{n.last_no || '\u2014'}</span>
-          <span style={{ fontSize: 13.5, fontWeight: 800, color: c.accent }}>{n.next_no || '\u2014'}</span>
-        </div>
-      </div>
-    );
-  }) : [];
-
-  const suspenseRows = collectionKeys.map(key => {
-    const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
-    const active = suspenseCardNgo === key;
-    const count = audit.combo?.[key]?.count;
-    return (
-      <button key={key} onClick={() => setSuspenseCardNgo(active ? '' : key)} title={'Filter suspense to ' + key.toUpperCase()}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minWidth: 0, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', border: active ? '2px solid ' + c.accent : '1px solid ' + c.accent + '44', borderRadius: 11, background: c.bg, padding: '9px 12px', boxShadow: active ? '0 3px 12px ' + c.accent + '2a' : 'none' }}>
-        <span style={{ width: 30, height: 30, borderRadius: 9, background: '#fff', color: c.accent, fontSize: 10.5, fontWeight: 800, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{key.toUpperCase()}</span>
-        <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8a93a3', whiteSpace: 'nowrap' }}>Suspense{count > 0 ? ` \u00B7 ${count}` : ''}</span>
-          <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.[key]?.amount || 0)}</span>
-        </span>
-      </button>
-    );
-  });
-
-  const collectionRows = collectionKeys.map(key => {
-    const c = NGO_RECEIPT[key] || { bg: '#f1f5f9', accent: '#475569' };
-    const d = collections?.find(x => x.project_id === key);
-    return (
-      <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid ' + c.accent + '44', borderRadius: 11, background: c.bg, padding: '9px 12px', minHeight: 46, gap: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 800, color: c.accent, whiteSpace: 'nowrap' }}>{key.toUpperCase()}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-          <div style={{ textAlign: 'center', minWidth: 58 }}>
-            <div style={{ color: c.accent, opacity: .65, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
-            <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 42, height: 11, borderRadius: 6 }} /> : currency(d?.today_total || 0)}</div>
-          </div>
-          <div style={{ textAlign: 'center', minWidth: 78 }}>
-            <div style={{ color: c.accent, opacity: .65, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
-            <div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 58, height: 11, borderRadius: 6 }} /> : currency(d?.month_total || 0)}</div>
-          </div>
-        </div>
-      </div>
-    );
-  });
-
-return (
+  return (
     <>
-      <div className="top-summary-grid">
-        <div className="top-summary-card">
-          <SectionTitle>Receipt Numbers</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {receiptNums === null ? receiptSkeleton : (receiptRows.length ? receiptRows : null)}
-          </div>
-        </div>
-        <div className="top-summary-card">
-          <SectionTitle><Sigma size={15} strokeWidth={2.4} /> Suspense</SectionTitle>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '7px 10px', borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7' }}>
-            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#8a93a3' }}>Total Suspense</span>
-            <span style={{ textAlign: 'right' }}>
-              <strong style={{ display: 'block', color: '#111827', fontSize: 18, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 30, height: 18, borderRadius: 5 }} /> : audit.combo?.all?.count || 0}</strong>
-              <small style={{ color: '#64748b', fontSize: 9.5, fontWeight: 600 }}>{summaryLoading ? 'Loading...' : `${audit.combo?.all?.count || 0} leads \u00B7 ${currency(audit.combo?.all?.amount || 0)}`}</small>
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{suspenseRows}</div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8, marginTop: 10 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151' }}>TOTAL</span>
-            <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{summaryLoading ? <span className="sk" style={{ display: 'inline-block', width: 64, height: 11, borderRadius: 6 }} /> : currency(audit.combo?.all?.amount || 0)}</span>
-          </div>
-        </div>
-        <div className="top-summary-card">
-          <SectionTitle>Collections</SectionTitle>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '7px 10px', borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7' }}>
-            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#8a93a3' }}>Total Collection</span>
-            <span style={{ textAlign: 'right' }}>
-              <strong style={{ display: 'block', color: '#111827', fontSize: 16, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{collections === null ? <span className="sk" style={{ display: 'inline-block', width: 92, height: 16, borderRadius: 5 }} /> : currency(colTotal('month_total') || 0)}</strong>
-              <small style={{ color: '#64748b', fontSize: 9.5, fontWeight: 600 }}>{collections === null ? 'Loading...' : `Today ${currency(colTotal('today_total') || 0)}`}</small>
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {collectionRows}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #eef2f7', borderRadius: 11, background: '#f8fafc', padding: '8px 14px', gap: 8 }}>
-              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#374151', flex: 1, whiteSpace: 'nowrap' }}>TOTAL</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                <div style={{ textAlign: 'center', minWidth: 64 }}>
-                  <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Today</div>
-                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, whiteSpace: 'nowrap' }}>{colTotal('today_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 40, height: 11, borderRadius: 6 }} /> : currency(colTotal('today_total') || 0)}</div>
-                </div>
-                <div style={{ textAlign: 'center', minWidth: 80 }}>
-                  <div style={{ color: '#8a93a3', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Month</div>
-                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>{colTotal('month_total') === null ? <span className="sk" style={{ display: 'inline-block', width: 56, height: 11, borderRadius: 6 }} /> : currency(colTotal('month_total') || 0)}</div>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch' }}>
+        <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+          {receiptNums === null ? (
+            [0, 1, 2].map(i => (
+              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
                 </div>
               </div>
-            </div>
-          </div>
+            ))
+          ) : receiptNums && receiptNums.length > 0 ? (
+            receiptNums.map(n => {
+              const c = NGO_RECEIPT[n.project_id] || { bg: '#f1f5f9', accent: '#475569' };
+              return (
+                <div key={n.project_id} style={{ border: '1px solid ' + c.accent + '44', borderRadius: 14, background: c.bg, boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.accent, flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                    <div style={{ textAlign: 'center' }}><div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div><div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div></div>
+                    <div style={{ textAlign: 'center' }}><div style={{ color: c.accent, opacity: .6, fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div><div style={{ color: c.accent, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div></div>
+                  </div>
+                </div>
+              );
+            })
+          ) : null}
         </div>
-      </div>
-
-      <div className="dash-actions">
-        <div className="dash-actions-filters">{filterBar}</div>
-        <button className="dash-action-btn" onClick={() => {}} title="Work">WORK</button>
-        <button className="dash-action-btn dash-action-alert" onClick={handleAlertAll} disabled={alertBusy} title="Alert all FROs">{alertBusy ? 'SENT ✓' : '🔔 ALERT'}</button>
+        <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 18 }}>
+            <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
+          </div>
+          <div style={{ height: 1, background: '#eef1f6' }} />
+          <div style={{ padding: '12px 18px' }}>{filterBar}</div>
+        </div>
       </div>
 
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
@@ -263,19 +137,14 @@ return (
           </div>
         </div>
 
-        <MatchLines containerRef={workspaceRef}
-          previewLogId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedLead.log_id) : ''}
-          previewEntryId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedEntry.id) : ''}
-        />
+        <MatchLines containerRef={workspaceRef} previewLogId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedLead.log_id) : ''} previewEntryId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedEntry.id) : ''} />
 
         {(selectedLead || selectedEntry) && (
           <div className="match-bar">
             {chip(selectedLead, () => { setSelectedLead(null); setSelectedEntry(null); }, selectedLead?.donor_name || 'Lead', currency(selectedLead?.amount), 'Double-click a lead to select · single-click to clear')}
             <span style={{ color: '#d1d5db', fontSize: 16, flexShrink: 0 }}>+</span>
             {chip(selectedEntry, () => setSelectedEntry(null), selectedEntry?.payment_id || selectedEntry?.check_id || 'No ref', currency(selectedEntry?.amount), 'Double-click a bank entry to select · single-click to open')}
-            <button onClick={handleMatch} disabled={!ready}
-              title={!selectedLead ? 'Select a lead first' : !selectedEntry ? 'Select a bank audit entry first' : 'Link entry to lead as manual match'}
-              style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, borderRadius: 10, border: 'none', cursor: ready ? 'pointer' : 'not-allowed', background: ready ? 'var(--sage)' : '#d1d5db', color: ready ? '#fff' : '#9ca3af', opacity: matching ? .7 : 1, flexShrink: 0 }}>
+            <button onClick={handleMatch} disabled={!ready} title={!selectedLead ? 'Select a lead first' : !selectedEntry ? 'Select a bank audit entry first' : 'Link entry to lead as manual match'} style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, borderRadius: 10, border: 'none', cursor: ready ? 'pointer' : 'not-allowed', background: ready ? 'var(--sage)' : '#d1d5db', color: ready ? '#fff' : '#9ca3af', opacity: matching ? .7 : 1, flexShrink: 0 }}>
               {matching ? <Loader2 size={17} style={{ animation: 'fb-spin 1s linear infinite' }} /> : <Link2 size={17} strokeWidth={2.5} />}
             </button>
           </div>
