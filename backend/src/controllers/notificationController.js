@@ -291,18 +291,18 @@ const generateTeamCongratulation = async (teamList) => {
         '',
         teamLines,
         '',
-        'Write a warm, professional congratulatory message of 2 to 4 sentences.',
-        'Mention the team names and appreciate the members.',
-        'Use plain English. Do not invent amounts, dates or specific accomplishments.',
+        'Write ONE short congratulatory message of at most 2 lines (about 12-15 words).',
+        'Mention the team names. Keep it punchy and warm.',
+        'Do not list members. Do not invent amounts, dates or specific accomplishments.',
         'Do not use markdown or headings.',
       ].join('\n');
       const completion = await groq.chat.completions.create({
         messages: [
-          { role: 'system', content: 'You return only the congratulatory message as plain text. No markdown, no quotes, no commentary.' },
+          { role: 'system', content: 'You return only the congratulatory message as plain text, at most 2 short lines. No markdown, no quotes, no commentary.' },
           { role: 'user', content: prompt },
         ],
         model: FRO_BROADCAST_MODEL,
-        max_tokens: 300,
+        max_tokens: 80,
         temperature: 0.7,
       });
       const out = String(completion.choices?.[0]?.message?.content || '')
@@ -313,9 +313,8 @@ const generateTeamCongratulation = async (teamList) => {
       console.error('Team congratulation generation failed:', e.message);
     }
   }
-  const allNames = teamList.flatMap((t) => t.members).filter(Boolean).join(', ');
   const names = teamList.map((t) => t.name).join(', ');
-  return `🎉 Congratulations to ${names}!${allNames ? ` Amazing work by all the members (${allNames})` : ''} — keep up the great momentum and keep inspiring everyone!`;
+  return `🎉 Congratulations ${names}! Outstanding teamwork — keep shining!`;
 };
 
 export const sendFroTeamBroadcast = async (req, res) => {
