@@ -34,13 +34,16 @@ import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
+import reelMp3 from '../../assets/audio/reel.mp3'
 
 const suspenseAlertAudio = new Audio(teleWav);
 suspenseAlertAudio.preload = 'auto';
 const followDueAudio = new Audio(followDueMp3);
 const callLessAudio = new Audio(callLessMp3);
+const entertainAudio = new Audio(reelMp3);
 followDueAudio.preload = 'auto';
 callLessAudio.preload = 'auto';
+entertainAudio.preload = 'auto';
 const SUSPENSE_RING_WINDOW_MS = 90 * 1000;
 function playSuspenseAlert(title) {
   try {
@@ -51,7 +54,7 @@ function playSuspenseAlert(title) {
   toast(title || 'Suspense Alert', 'info');
 }
 function playFroAction(type, title) {
-  const audio = type === 'fro_action_follow_up' ? followDueAudio : callLessAudio;
+  const audio = type === 'fro_action_follow_up' ? followDueAudio : (type === 'fro_action_less_calls' ? callLessAudio : entertainAudio);
   try {
     audio.currentTime = 0;
     const p = audio.play();
@@ -73,7 +76,7 @@ function warmupSuspenseAudio() {
       suspenseAlertAudio.muted = false;
       suspenseAlertAudio.volume = 1;
     }).catch(() => {});
-    for (const audio of [followDueAudio, callLessAudio]) {
+    for (const audio of [followDueAudio, callLessAudio, entertainAudio]) {
       audio.volume = 0;
       audio.muted = true;
       const p = audio.play();
@@ -474,7 +477,7 @@ export default function FROPanel() {
   }, [user?.id]);
 
 useEffect(() => onFroAction((action) => {
-    if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls') {
+    if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
       playFroAction(action.type, action.title);
     }
   }), []);

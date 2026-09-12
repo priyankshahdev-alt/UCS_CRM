@@ -166,9 +166,10 @@ export const sendFroAction = async (req, res) => {
     const actions = {
       follow_up: { title: 'Follow-up Due', body: 'Please work on your follow-up calls.', type: 'fro_action_follow_up' },
       less_calls: { title: 'Less Calls', body: 'Please reduce your call pace for now.', type: 'fro_action_less_calls' },
+      entertain: { title: 'Entertain', body: 'Take a quick entertainment break!', type: 'fro_action_entertain' },
     };
     const message = actions[action];
-    if (!message) return res.status(400).json({ message: 'action must be follow_up or less_calls' });
+    if (!message) return res.status(400).json({ message: 'action must be follow_up, less_calls or entertain' });
 
     const { rows: froRows, error: froErr } = await db._pool.query(
       `SELECT id FROM workers

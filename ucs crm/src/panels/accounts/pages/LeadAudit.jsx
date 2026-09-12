@@ -92,7 +92,7 @@ export default function LeadAudit() {
     setFroActionBusy(action);
     try {
       const res = await apiPost('/notifications/fro-action', { action });
-      toast(`${action === 'follow_up' ? 'Follow-up' : 'Less calls'} sent to ${res?.count || 0} FROs`, 'success');
+      toast(`${({ follow_up: 'Follow-up', less_calls: 'Less calls', entertain: 'Entertain' }[action] || action)} sent to ${res?.count || 0} FROs`, 'success');
     } catch (err) {
       toast(err.message || 'Failed to send FRO action', 'error');
     } finally {
@@ -187,6 +187,7 @@ export default function LeadAudit() {
             <button className="lead-audit-action-btn lead-audit-action-alert" onClick={handleAlertAll} disabled={alertBusy}>{alertBusy ? 'SENT' : 'SUSPENSE'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('follow_up')} disabled={!!froActionBusy}>{froActionBusy === 'follow_up' ? 'SENDING' : 'FOLLOW UP'}</button>
             <button className="lead-audit-action-btn" onClick={() => handleFroAction('less_calls')} disabled={!!froActionBusy}>{froActionBusy === 'less_calls' ? 'SENDING' : 'LESS CALLS'}</button>
+            <button className="lead-audit-action-btn" onClick={() => handleFroAction('entertain')} disabled={!!froActionBusy}>{froActionBusy === 'entertain' ? 'SENDING' : 'ENTERTAIN'}</button>
             <button className="lead-audit-action-btn" onClick={openFroModal}>FRO</button>
             <button className="lead-audit-action-btn" onClick={() => {}}>TEAM</button>
           </div>
