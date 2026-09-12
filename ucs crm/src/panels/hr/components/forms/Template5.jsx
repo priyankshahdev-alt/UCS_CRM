@@ -1,14 +1,10 @@
-export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress, ngoTagline }) {
-  const heading = ngoHeading || 'Being Sevak Charitable Trust';
+export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
       <style>{`
         .t6 *{box-sizing:border-box}
         .t6{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;position:relative;padding:10px 18px 12px 18px;overflow:hidden;font-family:"Times New Roman",serif;display:flex;flex-direction:column}
         .t6 .inner{border:1px solid #222;padding:6px 16px 10px 16px;flex:1;display:flex;flex-direction:column}
-.t6 h1{margin:0;text-align:center;font-size:34px;font-weight:700}
-.t6 .sub{text-align:center;font-size:15px;margin-top:4px}
-.t6 .red{height:3px;background:#7f2d2d;margin:5px 8px 4px}
 .t6 p{margin:2px 0;font-size:16px;line-height:1.3;text-align:justify}
 .t6 .b{font-weight:bold}
 .t6 .blue{font-size:26px;color:#29446f;text-align:center;font-weight:bold;margin:10px 0 6px}
@@ -21,26 +17,22 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
         .t6 .sig{width:45%}
         .t6 .sig .l{border-bottom:1px solid #000;height:22px}
 .t6 .sig div:last-child{text-align:left;font-size:13px;margin-top:3px}
-.t6 .footer{margin-top:auto;border-top:2px solid #8b3434;padding-top:4px;text-align:center;font-size:14px;color:#333}
       `}</style>
       <div className="t6">
         <div className="inner">
-          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
-          <div className="red"></div>
-          <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
-          <div className="blue" style={{marginTop: 20}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
+          <div className="blue" style={{marginTop: 0}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
-          <p>This agreement is made between {heading} and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
+          <p>This agreement is made between the Organization and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Organization. The Volunteer agrees as follows:</p>
 
-          <p><span className="b">A.</span> Confidential Information and Proprietary Data are the Trust's exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Trust.</p>
+          <p><span className="b">A.</span> Confidential Information and Proprietary Data are the Organization's exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Organization.</p>
 
-          <p><span className="b">B.</span> Notes, notebooks, computer disks, pen drives, documents, equipment, and devices containing such information are the property of the Trust and must not be removed from Trust premises. They shall be returned immediately upon conclusion of the volunteer association.</p>
+          <p><span className="b">B.</span> Notes, notebooks, computer disks, pen drives, documents, equipment, and devices containing such information are the property of the Organization and must not be removed from Organization premises. They shall be returned immediately upon conclusion of the volunteer association.</p>
 
-          <p><span className="b">C.</span> The Volunteer shall not reproduce or commercially use Confidential Information for any purpose other than carrying out duties for the Trust.</p>
+          <p><span className="b">C.</span> The Volunteer shall not reproduce or commercially use Confidential Information for any purpose other than carrying out duties for the Organization.</p>
 
-          <p><span className="b">D.</span> The Trust may take appropriate action, including conclusion of the volunteer association, and pursue civil or criminal remedies for violations. This agreement is governed by the laws of Maharashtra (Mumbai).</p>
+          <p><span className="b">D.</span> The Organization may take appropriate action, including conclusion of the volunteer association, and pursue civil or criminal remedies for violations. This agreement is governed by the laws of Maharashtra (Mumbai).</p>
 
-          <p><span className="b">E.</span> On withdrawal, the Volunteer shall surrender all Trust assets, official WhatsApp, email ID, contact number, and other Trust-related items. Failure to comply may result in appropriate action.</p>
+          <p><span className="b">E.</span> On withdrawal, the Volunteer shall surrender all Organization assets, official WhatsApp, email ID, contact number, and other Organization-related items. Failure to comply may result in appropriate action.</p>
 
           <p><span className="b">F.</span> All provisions apply only to the extent they do not violate applicable law. The Volunteer warrants that no conflicting obligation exists.</p>
 
@@ -63,13 +55,9 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
 
             <div className="sig">
               <div className="l"></div>
-              <div>For {heading} (Authorized Signatory)</div>
+              <div>For Organization (Authorized Signatory)</div>
             </div>
           </div>
-        </div>
-
-        <div className="footer">
-          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact Sevak: 8879035035 / 8879034034 | E-Mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

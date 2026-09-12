@@ -88,14 +88,36 @@ const NAV_GROUPS = [
   },
 ]
 
+const BENEFICIARY_NAV = [
+  { id: 'bnf-overview', path: '/accounts/beneficiaries', label: 'Overview',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg> },
+  { id: 'bnf-all', path: '/accounts/beneficiaries/all', label: 'All Beneficiaries',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="17" cy="9" r="2.5"/><path d="M18 14a4 4 0 0 1 3 4v2"/></svg> },
+  { id: 'bnf-new', path: '/accounts/beneficiaries/new', label: 'New Registration',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg> },
+  { id: 'bnf-programs', path: '/accounts/beneficiaries/programs', label: 'Programs',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+  { id: 'bnf-benefits', path: '/accounts/beneficiaries/benefits', label: 'Benefits',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> },
+  { id: 'bnf-distribution', path: '/accounts/beneficiaries/distribution', label: 'Distribution',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 8l-9 5-9-5 9-5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/></svg> },
+  { id: 'bnf-volunteers', path: '/accounts/beneficiaries/volunteers', label: 'Volunteers',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { id: 'bnf-cards', path: '/accounts/beneficiaries/cards', label: 'Cards & ID',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="9" x2="10" y2="9"/><line x1="6" y1="13" x2="8" y2="13"/></svg> },
+  { id: 'bnf-biometric', path: '/accounts/beneficiaries/biometric', label: 'Biometric',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M4 12a8 8 0 0 1 16 0"/></svg> },
+  { id: 'bnf-imports', path: '/accounts/beneficiaries/imports', label: 'Imports',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
+  { id: 'bnf-reports', path: '/accounts/beneficiaries/reports', label: 'Reports',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+]
+
 const NAV_BOTTOM = [
   { id: 'reports', path: '/accounts/reports', label: 'Reports',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
   { id: 'tickets', path: '/accounts/tickets', label: 'Tickets',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 5H3v14h12"/><path d="M21 12l-6-6v4H9v4h6v4l6-6z"/></svg> },
-  { id: 'beneficiaries', path: '/accounts/beneficiaries', label: 'Beneficiaries',
-    icon: <Users size={18} />,
-    match: (p) => p.startsWith('/accounts/beneficiaries') },
 ]
 
 const NAV_DATA_GROUP = {
@@ -128,6 +150,7 @@ const SIM_NAV = [
 const ALL_NAV = [
   ...NAV_TOP,
   ...NAV_GROUPS.flatMap(g => g.items),
+  ...BENEFICIARY_NAV,
   ...NAV_BOTTOM,
   ...NAV_DATA_GROUP.items,
   ...SIM_NAV,
@@ -250,6 +273,24 @@ function Sidebar({ open, onClose }) {
           {renderGroup({ ...NAV_GROUPS[1], title: 'DONOR MANAGEMENT' }, 'donor_management')}
           {renderGroup({ ...NAV_GROUPS[2], title: 'ASSET & FINANCE' }, 'asset_finance')}
           {renderGroup({ ...NAV_DATA_GROUP, title: 'DATA' }, 'data')}
+          <NavGroup
+            key="beneficiaries"
+            title="BENEFICIARIES"
+            icon={<Users size={18} />}
+            storageKey="beneficiaries"
+            active={location.pathname.startsWith('/accounts/beneficiaries')}
+          >
+            {BENEFICIARY_NAV.map(n => (
+              <NavLink key={n.id} to={n.path} onClick={onClose}
+                data-nav-id={n.id}
+                className={`snav-item snav-sub${navIsActive(n, location.pathname) ? ' active' : ''}`}>
+                <span className="ico">{n.icon}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>{n.label}</span>
+                </span>
+              </NavLink>
+            ))}
+          </NavGroup>
           {renderGroup({ title: 'SIM MANAGEMENT', icon: SIM_GROUP_ICON, items: SIM_NAV }, 'sim')}
           {NAV_BOTTOM.map(n => (
             <NavLink key={n.id} to={n.path} onClick={onClose}

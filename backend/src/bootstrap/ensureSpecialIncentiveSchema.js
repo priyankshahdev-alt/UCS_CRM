@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS special_incentives (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   message TEXT,
+  ngo_id UUID REFERENCES ngos(id) ON DELETE SET NULL,
   target_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   incentive_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   start_at TIMESTAMPTZ NOT NULL,
@@ -34,6 +35,10 @@ CREATE INDEX IF NOT EXISTS idx_special_incentives_status ON special_incentives(s
 CREATE INDEX IF NOT EXISTS idx_special_incentive_progress_inc ON special_incentive_progress(special_incentive_id);
 
 ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS winner_name TEXT;
+-- NGO-scoped incentives: pick one NGO (BSCT/AFLF/MANN) and only that NGO's
+-- station FROs see & compete. NULL = org-wide race (all FROs).
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS ngo_id UUID REFERENCES ngos(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_special_incentives_ngo_id ON special_incentives(ngo_id);
 
 -- Winner photo celebration ("Photo" tab): Super Admin posts the winner's photo
 -- with an (optional AI-generated) congratulation, which pops up on every panel.

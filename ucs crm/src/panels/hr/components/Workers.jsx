@@ -495,7 +495,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       // final regardless of Excel formula recalculation.
       const buildTotalRow = (label, sum) => {
         const balance = sum.target > 0 ? sum.target - sum.achieved : null;
-        const netPres = sum.gross_present_days - sum.late_deduction_days - sum.sunday_deduction_days - sum.training_deduction_days;
+        const netPres = sum.gross_present_days + sum.half_days - sum.late_deduction_days - sum.sunday_deduction_days - sum.training_deduction_days;
         const gross = sum.month_salary + sum.monthly_incentive + sum.aki_payout;
         const row = [label];
         for (let c = 1; c < TOTAL_COLS; c++) {
@@ -555,8 +555,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         }
         // Achieved % = Total Achieved / Target * 100
         wsData[i][COL.ACH_PCT] = { f: `IF(${colLetter(COL.TARGET)}${row}>0,${colLetter(COL.TOTAL_ACH)}${row}/${colLetter(COL.TARGET)}${row}*100,0)` };
-        // Net Present Days = Present Days - Late Ded - Sun Ded - Training Ded
-        wsData[i][COL.NET_PRES] = { f: `${colLetter(COL.PRES_DAYS)}${row}-${colLetter(COL.LATE_DED)}${row}-${colLetter(COL.SUN_DED)}${row}-${colLetter(COL.TRAIN_DED)}${row}` };
+        // Net Present Days = Present + half-day credit - deductions.
+        // Absent Days is displayed separately and is not deducted twice.
+        wsData[i][COL.NET_PRES] = { f: `${colLetter(COL.PRES_DAYS)}${row}+${colLetter(COL.HALF_DAYS)}${row}-${colLetter(COL.LATE_DED)}${row}-${colLetter(COL.SUN_DED)}${row}-${colLetter(COL.TRAIN_DED)}${row}` };
         // Month Salary = Salary / DaysInMonth * Net Present Days
         wsData[i][COL.MONTH_SAL] = { f: `${colLetter(COL.SALARY)}${row}/${daysInMonth}*${colLetter(COL.NET_PRES)}${row}` };
         // Gross = Month Salary + 10% Incentive + AKI

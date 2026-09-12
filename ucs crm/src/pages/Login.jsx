@@ -3,12 +3,11 @@ import { useUcs } from '../store'
 
 
 export default function Login({ onLogin }) {
-  const { login, loginAsDemo } = useUcs()
+  const { login } = useUcs()
   const [email, setEmail] = useState('')
   const [pass, setPass] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -22,11 +21,6 @@ export default function Login({ onLogin }) {
     } finally {
       setBusy(false)
     }
-  }
-
-  const handleDemo = () => {
-    loginAsDemo('accounts')
-    onLogin?.('accounts', '/accounts/beneficiaries')
   }
 
   return (
@@ -49,12 +43,6 @@ export default function Login({ onLogin }) {
             {busy ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-        <div className="login-demo">
-          <button type="button" className="btn btn-demo" onClick={handleDemo}>
-            Demo Login — Beneficiaries
-          </button>
-          <p>One-click demo, no backend needed</p>
-        </div>
       </div>
     </div>
   )

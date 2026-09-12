@@ -1,15 +1,12 @@
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
-const BSCT_TAGLINE = 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G';
 
-export default function Template1({ personal, education, family, organizations, photo_url, ngoHeading, ngoAddress, ngoTagline }) {
+export default function Template1({ personal, education, family, organizations, photo_url }) {
   return (
     <div className="print-page">
       <style>{`
         .t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
         .t1{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column}
-        .t1 h1{text-align:center;font-size:34px;font-family:Georgia,serif;margin-bottom:0}
-        .t1 .subtitle{text-align:center;font-size:10px;margin-bottom:2px}
-        .t1 .top-line{border-top:3px solid #7d1e1e;margin:3px 0}
+        .t1 h1{text-align:center;font-size:34px;font-family:Georgia,serif;margin-bottom:10px;text-decoration:underline}
         .t1 .form-title{text-align:center;font-size:24px;font-weight:bold;text-decoration:underline;margin-bottom:12px}
         .t1 table{width:100%;border-collapse:collapse}
         .t1 td,.t1 th{border:1px solid #666;padding:12px 8px;vertical-align:top}
@@ -24,12 +21,7 @@ export default function Template1({ personal, education, family, organizations, 
         .t1 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:8pt;line-height:1.3}
       `}</style>
       <div className="t1">
-        <div className="header">
-          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
-          <div className="top-line"></div>
-          <div className="subtitle">{ngoTagline || BSCT_TAGLINE}</div>
-        </div>
-        <div className="form-title">VOLUNTEER JOINING FORM</div>
+        <h1>VOLUNTEER JOINING FORM</h1>
         <table>
           <tbody>
           <tr><td colSpan="3" className="section">PERSONAL DETAILS</td></tr>
@@ -98,7 +90,7 @@ export default function Template1({ personal, education, family, organizations, 
           <tr><td colSpan="5" className="section">VOLUNTEER DETAILS (PREVIOUS ORGANISATIONS / AFFILIATIONS)</td></tr>
           <tr>
             <th width="8%">Sr.No</th>
-            <th>Organisation / Trust</th>
+            <th>Organization</th>
             <th>Role / Designation</th>
             <th width="14%">From</th>
             <th width="14%">To</th>
@@ -132,9 +124,6 @@ export default function Template1({ personal, education, family, organizations, 
           })}
           </tbody>
         </table>
-        <div className="footer">
-          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
-        </div>
       </div>
     </div>
   );

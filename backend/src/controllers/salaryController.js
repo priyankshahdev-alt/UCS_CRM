@@ -449,11 +449,11 @@ export const getMySalaryBreakdown = async (req, res) => {
     } catch (err) { console.error('Holiday fetch error:', err.message); }
 
     const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates });
-    const { paidDays, lateDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
+    const { paidDays, totalDueDays, lateDeductionDays, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
-    const totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
+    const totalDue = perDay * totalDueDays;
     const normalTotalDue = perDay * paidDays;
 
     // FRO target + incentives
@@ -533,7 +533,7 @@ export const getMySalaryBreakdown = async (req, res) => {
       allocations = rows.map(r => {
         const portion = parseFloat(r.salary_portion);
         const allocPerDay = portion / daysInMonth;
-        const allocTotalDue = allocPerDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
+        const allocTotalDue = allocPerDay * totalDueDays;
         return {
           id: r.id,
           ngo_id: r.ngo_id,
@@ -552,9 +552,11 @@ export const getMySalaryBreakdown = async (req, res) => {
       daysInMonth,
       availableDays: joinedThisMonth ? (daysInMonth - joinDay + 1) : daysInMonth,
       paidDays,
+      finalPaidDays: totalDueDays,
       halfDayCount,
       totalLateMinutes,
       lateDeductionDays,
+      sundayDeductionDays,
       joiningDeduction,
       totalDue: Math.round(totalDue),
       normalTotalDue: Math.round(normalTotalDue),

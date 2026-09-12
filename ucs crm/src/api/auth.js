@@ -46,7 +46,7 @@ export async function api(path, options = {}) {
     const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
-      if (token && !String(token).startsWith('demo:')) {
+      if (token) {
         clearSession(options._prefix || 'ucs')
       }
       throw new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))

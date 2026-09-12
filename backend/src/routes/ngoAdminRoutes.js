@@ -88,6 +88,8 @@ import {
   getFroHourlyPerformance,
   ensureStandardNgos,
   getAllNgosForTabs,
+  getNonConnectedFresh,
+  deleteNonConnectedFresh,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -110,6 +112,10 @@ router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), ge
 router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);
 router.post('/new-data/cleanup', authenticateRole('admin', 'super_admin', 'accounts'), cleanupNewData);
 router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'accounts'), resetFreshData);
+
+// Non-connected fresh-data pull (NGO admin only)
+router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
+router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
 
 router.use(authenticateRole('admin', 'super_admin'));
 
