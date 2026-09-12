@@ -10,6 +10,8 @@ import {
   getPresentDaysByMonth,
   getWorkerAttendanceByName,
   getPagarExportData,
+  getSalaryCompensations,
+  saveSalaryCompensations,
 } from '../models/salaryModel.js';
 import db from '../config/db.js';
 import { getMonthlyAttendance, upsertAttendanceStatus } from '../models/attendanceModel.js';
@@ -375,6 +377,23 @@ export const getPagarExport = async (req, res) => {
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAccountsSalaryCompensations = async (req, res) => {
+  try {
+    return res.json({ compensations: await getSalaryCompensations() });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const saveAccountsSalaryCompensations = async (req, res) => {
+  try {
+    const compensations = await saveSalaryCompensations(req.body?.compensations);
+    return res.json({ message: 'Salary compensations saved', compensations });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
   }
 };
 

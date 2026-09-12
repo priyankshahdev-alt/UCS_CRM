@@ -37,6 +37,12 @@ export function emitDbChange(payload) {
   io.emit('db:change', payload);
 }
 
+export function emitRealtime(event, payload, room) {
+  if (!io) return;
+  const target = room ? io.to(room) : io;
+  target.emit(event, payload);
+}
+
 export function isRealtimeInitialized() {
   return !!io;
 }

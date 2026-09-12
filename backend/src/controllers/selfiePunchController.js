@@ -8,6 +8,7 @@ import { getFirstQRCode } from '../models/attendanceModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { getSetting } from '../models/settingsModel.js';
+import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const BUCKET_NAME = 'worker-documents';
@@ -113,8 +114,8 @@ export const selfiePunch = async (req, res) => {
         return res.status(400).json({ message: 'Already punched in today' });
       }
 
-      const lateMinutes = await calculateLateMinutes(now, workerId);
-      let status = lateMinutes > 0 ? 'late' : 'present';
+       const lateMinutes = await calculateLateMinutes(now, workerId);
+       const status = await calculateAttendanceStatus({ workerId, punchInTime: now });
 
       if (existing) {
         const updated = await updateAttendance(existing.id, {
@@ -160,13 +161,20 @@ export const selfiePunch = async (req, res) => {
         });
       }
 
-      const updates = {
+       const updates = {
         punch_out_time: now.toISOString(),
         punch_out_lat: latitude,
         punch_out_lng: longitude,
         punch_out_selfie_url: selfieUrl,
-        selfie_status: 'pending',
-      };
+         selfie_status: 'pending',
+       };
+       if (existing.status !== 'leave' && existing.status !== 'absent') {
+         updates.status = await calculateAttendanceStatus({
+           workerId,
+           punchInTime: existing.punch_in_time,
+           punchOutTime: now,
+         });
+       }
       const updated = await updateAttendance(existing.id, updates);
       return res.json({ message: 'Selfie punch-out submitted for approval', attendance: updated });
     }
