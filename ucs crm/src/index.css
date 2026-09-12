@@ -2700,6 +2700,13 @@
 .panel-accounts .rx-header-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
 .panel-accounts .rx-card { width:100%; box-sizing:border-box; background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); margin:0 0 16px; overflow:hidden; }
+.panel-accounts .rx-number-card { display:flex; align-items:center; gap:14px; width:100%; box-sizing:border-box; margin:0 0 16px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--card-bg); box-shadow:var(--shadow); }
+.panel-accounts .rx-number-card-title { flex:0 0 auto; min-width:112px; color:var(--ink); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; }
+.panel-accounts .rx-number-row { display:grid; grid-template-columns:minmax(90px,1fr) 66px 66px; align-items:center; gap:10px; flex:1; min-width:0; padding:8px 10px; border:1px solid #eef2f7; border-radius:10px; background:#fff; }
+.panel-accounts .rx-number-ngo { font-size:11px; font-weight:800; letter-spacing:.05em; }
+.panel-accounts .rx-number-value { display:flex; flex-direction:column; gap:2px; color:#111827; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+.panel-accounts .rx-number-value small { color:#8a93a3; font-size:8px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.panel-accounts .rx-number-next { font-weight:800; }
 .panel-accounts .rx-card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
 .panel-accounts .rx-card-head h3 { margin:0; font-size:14px; font-weight:700; color:var(--ink); }
 .panel-accounts .rx-card-sub { font-size:10.5px; color:var(--ink-soft); margin-top:2px; }
@@ -2838,6 +2845,9 @@
   .panel-accounts .rx-drawer { width:100% !important; min-width:0; top:auto; bottom:0; height:88vh; border-radius:14px 14px 0 0; }
 }
 @media (max-width:620px) {
+  .panel-accounts .rx-number-card { align-items:stretch; flex-direction:column; gap:8px; }
+  .panel-accounts .rx-number-card-title { min-width:0; }
+  .panel-accounts .rx-number-row { flex:0 0 auto; }
   .panel-accounts .rx-page { padding-bottom:12px; }
   .panel-accounts .rx-header { align-items:stretch; }
   .panel-accounts .rx-title { font-size:18px; }
