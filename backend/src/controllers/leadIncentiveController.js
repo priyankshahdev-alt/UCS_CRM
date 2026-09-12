@@ -171,11 +171,9 @@ export async function applyAllSlabsHandler(req, res) {
       min_lead_amount: minLead,
       lead_rate: rate,
     });
-    // Each range's FROs get their own popup with the new common value.
-    for (const s of slabs || []) {
-      try { await notifyRangeRuleChange({ slab: s, slabs }); }
-      catch (e) { console.error('[lead rules notify]', e?.message); }
-    }
+    // Every FRO gets one combined popup listing all ranges with the new common value.
+    try { await notifyRangeRuleChange({ slabs }); }
+    catch (e) { console.error('[lead rules notify]', e?.message); }
     return res.json({ ok: true, count: slabs.length, slabs });
   } catch (e) {
     return res.status(500).json({ message: e.message });
