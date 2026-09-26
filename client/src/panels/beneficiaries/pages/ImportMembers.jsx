@@ -21,11 +21,19 @@ const COLUMNS = [
 
 const normHeader = (h) => String(h).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
+// How many columns this header row names outright. Used to tell a real header
+// row from a banner above it: "NGO member list 2026" loosely matches the word
+// "member", but only a true header matches several columns exactly.
+const exactMatchCount = (headers) => {
+  const normalized = headers.map(normHeader)
+  return COLUMNS.reduce((n, col) => n + (col.aliases.some((a) => normalized.includes(a)) ? 1 : 0), 0)
+}
+
 // Longest alias wins, so "needed type ngo" is claimed before "ngo" and
-// "alternate number" before a bare "number".
+// "alternate number" before a bare "number". Returns a column index per key.
 const matchColumns = (headers) => {
   const map = {}
-  const normalized = headers.map((h) => ({ raw: h, n: normHeader(h) }))
+  const normalized = headers.map((h, i) => ({ i, n: normHeader(h) }))
   const taken = new Set()
   for (const col of COLUMNS) {
     const aliases = [...col.aliases].sort((a, b) => b.length - a.length)
@@ -36,12 +44,118 @@ const matchColumns = (headers) => {
         if (hit) break
       }
     }
-    if (hit && !taken.has(hit.raw)) {
-      taken.add(hit.raw)
-      map[col.key] = hit.raw
+    if (hit && !taken.has(hit.i)) {
+      taken.add(hit.i)
+      map[col.key] = hit.i
     }
   }
   return map
+}
+
+// Real sheets are messy: a cell can hold two numbers ("8268111557/ 9967777103")
+// or a placeholder ("NA", "-", "0"). Pull the first genuine 10-digit number out
+// of each cell and drop the placeholders, so one bad row no longer produces a
+// mangled number that can collide with a different member.
+const PLACEHOLDERS = new Set(['na', 'n/a', 'nil', 'none', 'null', 'undefined', '-', '--', '---', '0'])
+const numbersIn = (v) => {
+  const s = String(v ?? '').trim().replace(/\.0+$/, '') // "8928460119.0"
+  if (!s || PLACEHOLDERS.has(s.toLowerCase())) return []
+  const found = []
+  for (const token of s.split(/[/,;|&\n\t]+|\s{2,}/)) {
+    const digits = token.replace(/\D/g, '')
+    if (digits.length >= 10) found.push(digits.slice(-10))
+  }
+  // Numbers written with single spaces ("98765 43210") or run together.
+  if (found.length === 0) {
+    const digits = s.replace(/\D/g, '')
+    if (digits.length >= 10) found.push(digits.slice(0, 10))
+  }
+  return found
+}
+
+// Walks the worksheet cell by cell instead of using sheet_to_json, which
+// counts blank rows as data (a 442-row file reported 484 members) and loses
+// the real Excel row number. Empty rows are skipped and every surviving row
+// keeps the sheet row it came from, so the report points at the right line.
+const readSheet = (workbook) => {
+  const ws = workbook.Sheets[workbook.SheetNames[0]]
+  if (!ws || !ws['!ref']) return { headers: [], records: [] }
+  const range = XLSX.utils.decode_range(ws['!ref'])
+
+  const readCell = (r, c, type) => {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })]
+    if (!cell || cell.v == null) return ''
+    if (type === 'date') {
+      if (cell.t === 'd' && cell.v instanceof Date) return cell.v.toISOString().slice(0, 10)
+      if (cell.t === 'n' && Number.isFinite(cell.v) && cell.v > 20000 && cell.v < 60000) {
+        const d = XLSX.SSF.parse_date_code(cell.v)
+        if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+      }
+    }
+    // Raw value for numbers keeps long phone numbers free of display
+    // formatting; display text otherwise.
+    return String(cell.t === 'n' ? cell.v : (cell.w ?? cell.v)).trim()
+  }
+
+  const rowValues = (r) => {
+    const out = []
+    for (let c = range.s.c; c <= range.e.c; c++) out.push(readCell(r, c))
+    return out
+  }
+
+  // Header = the row that names the most columns outright, so a title/banner
+  // row above the real header does not shadow it. Falls back to the first row
+  // with any content, which is what the error message reports.
+  let headerRow = -1
+  let headers = []
+  let colMap = {}
+  let bestScore = -1
+  const scanTo = Math.min(range.e.r, range.s.r + 20)
+  for (let r = range.s.r; r <= scanTo; r++) {
+    const values = rowValues(r)
+    if (!values.some(Boolean)) continue
+    const map = matchColumns(values)
+    if (map.full_name === undefined) continue
+    const score = exactMatchCount(values)
+    if (score > bestScore) {
+      bestScore = score
+      headerRow = r
+      headers = values
+      colMap = map
+    }
+  }
+  if (headerRow < 0) {
+    for (let r = range.s.r; r <= scanTo; r++) {
+      const values = rowValues(r)
+      if (values.some(Boolean)) { headerRow = r; headers = values; colMap = matchColumns(values); break }
+    }
+    if (headerRow < 0) return { headers: [], records: [] }
+  }
+
+  const records = []
+  for (let r = headerRow + 1; r <= range.e.r; r++) {
+    const values = rowValues(r)
+    if (!values.some(Boolean)) continue
+
+    const row = { _rowNumber: r + 1 }
+    for (const col of COLUMNS) {
+      row[col.key] = colMap[col.key] === undefined ? '' : values[colMap[col.key]]
+    }
+    // A row that is empty across every mapped column is sheet padding, not a
+    // member - dropping it keeps the count equal to the file's row count.
+    if (!COLUMNS.some((c) => row[c.key] !== '')) continue
+
+    if (row.alternate_mobile === '' && row.mobile !== '') {
+      const both = numbersIn(row.mobile)
+      row.mobile = both[0] ?? ''
+      row.alternate_mobile = both[1] ?? ''
+    }
+    row.mobile = numbersIn(row.mobile)[0] ?? ''
+    row.alternate_mobile = numbersIn(row.alternate_mobile)[0] ?? ''
+    row._valid = !!row.full_name
+    records.push(row)
+  }
+  return { headers, records, colMap }
 }
 
 const STATUS_LABELS = {
@@ -111,27 +225,17 @@ export default function ImportMembers() {
       try {
         const data = new Uint8Array(e.target.result)
         const workbook = XLSX.read(data, { type: 'array' })
-        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' })
-        if (!json || json.length === 0) { setError('File is empty'); setParsing(false); return }
-        const headers = Object.keys(json[0])
-        const cm = matchColumns(headers)
-        if (!cm.full_name) {
-          setError(`Could not find a "Member Name" column. Detected headers: ${headers.join(', ')}`)
+        const { headers, records, colMap } = readSheet(workbook)
+        if (headers.length === 0) { setError('File is empty'); setParsing(false); return }
+        if (!records.length) { setError('No data rows found below the header'); setParsing(false); return }
+        if (colMap.full_name === undefined) {
+          setError(`Could not find a "Member Name" column. Detected headers: ${headers.filter(Boolean).join(', ')}`)
           setParsing(false); return
         }
-        const parsed = json.map((r, i) => {
-          const row = { _rowNumber: i + 2 }
-          for (const col of COLUMNS) {
-            const raw = cm[col.key] ? r[cm[col.key]] : ''
-            row[col.key] = raw instanceof Date
-              ? raw.toISOString().slice(0, 10)
-              : (raw == null ? '' : String(raw).trim())
-          }
-          row._valid = !!row.full_name
-          return row
-        })
-        setRows(parsed)
-        setColMap(cm)
+        setRows(records)
+        setColMap(Object.fromEntries(
+          Object.entries(colMap).map(([k, i]) => [k, headers[i] || `column ${i + 1}`])
+        ))
         setFileName(file.name)
       } catch { setError('Failed to parse file') }
       setParsing(false)

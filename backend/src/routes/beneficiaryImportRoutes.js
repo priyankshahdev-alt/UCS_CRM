@@ -14,15 +14,26 @@ const router = Router();
 
 const text = (v) => (v == null ? '' : String(v).trim());
 
-// Indian mobiles are frequently written with the country/STD prefix, leading
-// zeros or separators ("+91 98765-43210", "098765 43210"). Reduce any of those
-// to the bare 10-digit number; anything shorter is not a usable number.
-const phone = (v) => {
-  const digits = text(v).replace(/\D/g, '');
-  if (!digits) return null;
-  const local = digits.length > 10 ? digits.slice(-10) : digits.replace(/^0+/, '');
-  return local.length >= 10 ? local : null;
+// Sheet cells are messy: one cell can hold two numbers ("8268111557/ 9967777103")
+// or a placeholder ("NA", "-", "0"). Pull the genuine 10-digit numbers out of
+// the cell and ignore placeholders — concatenating everything and keeping the
+// last 10 digits would silently turn a member's number into their alternate.
+const PHONE_PLACEHOLDERS = new Set(['na', 'n/a', 'nil', 'none', 'null', 'undefined', '-', '--', '---', '0']);
+const phoneList = (v) => {
+  const s = text(v).replace(/\.0+$/, ''); // "8928460119.0"
+  if (!s || PHONE_PLACEHOLDERS.has(s.toLowerCase())) return [];
+  const found = [];
+  for (const token of s.split(/[/,;|&\n\t]+|\s{2,}/)) {
+    const digits = token.replace(/\D/g, '');
+    if (digits.length >= 10) found.push(digits.slice(-10));
+  }
+  if (found.length === 0) {
+    const digits = s.replace(/\D/g, '');
+    if (digits.length >= 10) found.push(digits.slice(0, 10));
+  }
+  return found;
 };
+const phone = (v) => phoneList(v)[0] || null;
 
 const pct = (v) => {
   const n = Number.parseFloat(String(v ?? '').replace(/[^\d.]/g, ''));
@@ -174,8 +185,11 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
     const row = rows[i] || {};
     const rowNumber = Number(row._rowNumber) || i + 2;
     const name = text(row.full_name || row.name);
-    const mobile = phone(row.mobile);
-    const alternateMobile = phone(row.alternate_mobile);
+    // A single cell may carry both numbers ("8268111557/ 9967777103"); the
+    // second one becomes the alternate when that column is empty.
+    const primaryNumbers = phoneList(row.mobile);
+    const mobile = primaryNumbers[0] || null;
+    const alternateMobile = phoneList(row.alternate_mobile)[0] || primaryNumbers[1] || null;
     const warnings = [];
 
     if (!name) {
