@@ -3,10 +3,10 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { createImportBatch, getImportBatch, updateImportBatch, addImportRows, getImportRows, updateImportRow, listImportBatches } from '../models/importBatchModel.js';
-import { generateBeneficiaryCode, createBeneficiary, updateBeneficiary } from '../models/beneficiaryModel.js';
-import { addSourceRecord, findByOriginalData } from '../models/beneficiarySourceModel.js';
-import { addDisability, getDisabilities } from '../models/beneficiaryDisabilityModel.js';
-import { logAuditEvent } from '../models/auditLogModel.js';
+import { generateBeneficiaryCode, createBeneficiary, reserveBeneficiaryCodes, createBeneficiaries, updateBeneficiary, findByNumbers, runPooled } from '../models/beneficiaryModel.js';
+import { addSourceRecord, addSourceRecords, findByOriginalData } from '../models/beneficiarySourceModel.js';
+import { addDisability, addDisabilities, beneficiaryIdsWithDisabilities } from '../models/beneficiaryDisabilityModel.js';
+import { logAuditEvent, logAuditEvents } from '../models/auditLogModel.js';
 import db from '../config/db.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -140,18 +140,6 @@ const resolveNgo = (lookup, v) => {
   return null;
 };
 
-// Find a member already registered under the same number (either slot) so a
-// re-import fills the gaps instead of creating a duplicate.
-const findByNumber = async (mobile) => {
-  const { data, error } = await db
-    .from('beneficiaries')
-    .select('*')
-    .or(`mobile.eq.${mobile},alternate_mobile.eq.${mobile}`)
-    .limit(1);
-  if (error) throw error;
-  return data?.[0] || null;
-};
-
 // Upload and parse Excel
 router.post('/upload', authenticate, upload.single('file'), async (req, res) => {
   try {
@@ -245,6 +233,8 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
   const summary = { created: 0, updated: 0, no_change: 0, skipped: 0, errors: 0 };
   const imported = [];
 
+  // ── 1. Normalise every row (no I/O) ────────────────────────────────────────
+  const parsed = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
     const rowNumber = Number(row._rowNumber) || i + 2;
@@ -263,144 +253,312 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       continue;
     }
 
-    try {
-      const dob = toDob(row.date_of_birth) || ageToDob(row.age);
-      if (!toDob(row.date_of_birth) && row.age && !dob) {
-        warnings.push('Age could not be read, DOB left empty');
-      }
-      const location = text(row.location);
-      const state = text(row.state);
-      // "Needed Type" (what the member needs) is a plain text field of its own;
-      // "NGO" (who serves them) resolves to ngo_id. They are separate columns.
-      const needed = text(row.needed);
-      const disabilityType = text(row.disability_type);
-      const disabilityPercentage = pct(row.disability_percentage);
-      const g = gender(row.gender);
+    const dob = toDob(row.date_of_birth) || ageToDob(row.age);
+    if (!toDob(row.date_of_birth) && row.age && !dob) {
+      warnings.push('Age could not be read, DOB left empty');
+    }
+    const location = text(row.location);
+    const state = text(row.state);
+    // "Needed Type" (what the member needs) is a plain text field of its own;
+    // "NGO" (who serves them) resolves to ngo_id. They are separate columns.
+    const needed = text(row.needed);
+    const disabilityType = text(row.disability_type);
+    const disabilityPercentage = pct(row.disability_percentage);
+    const g = gender(row.gender);
 
-      // The NGO comes from the picker at the top of the page, not the sheet.
-      const ngoId = importNgoId;
-      // The panel sends the label it showed; prefer the master's name, but fall
-      // back to it so a nameless NGO row still reads sensibly in the report.
-      const ngoName = (ngoId ? ngoLookup.names.get(ngoId) : null) || text(req.body?.ngo_name) || null;
-      if (!ngoId) {
-        warnings.push('No NGO was selected for this import, so the member was saved without one');
-      }
-      if (disabilityPercentage != null && !disabilityType) {
-        warnings.push('Disability % present without a Type — recorded as "General"');
-      }
+    // The NGO comes from the picker at the top of the page, not the sheet.
+    const ngoId = importNgoId;
+    // The panel sends the label it showed; prefer the master's name, but fall
+    // back to it so a nameless NGO row still reads sensibly in the report.
+    const ngoName = (ngoId ? ngoLookup.names.get(ngoId) : null) || text(req.body?.ngo_name) || null;
+    if (!ngoId) {
+      warnings.push('No NGO was selected for this import, so the member was saved without one');
+    }
+    if (disabilityPercentage != null && !disabilityType) {
+      warnings.push('Disability % present without a Type — recorded as "General"');
+    }
 
-      const existing = mobile ? await findByNumber(mobile) : null;
+    parsed.push({
+      row, rowNumber, name, mobile, alternateMobile, warnings,
+      dob, location, state, needed, ngoId, ngoName,
+      disabilityType, disabilityPercentage, gender: g,
+    });
+  }
 
-      if (existing) {
-        // Merge: only fill the blanks so nothing already on file is overwritten.
-        const patch = {};
-        const fill = (column, value) => {
-          if (value != null && value !== '' && !text(existing[column])) patch[column] = value;
-        };
-        fill('full_name', name);
-        fill('mobile', mobile);
-        fill('alternate_mobile', alternateMobile);
-        fill('date_of_birth', dob);
-        fill('gender', g);
-        fill('address_line_1', location);
-        fill('state', state);
-        fill('needed', needed);
-        fill('ngo_id', ngoId);
+  // ── 2. Look up every existing member in one query ─────────────────────────
+  let existingByNumber = new Map();
+  try {
+    existingByNumber = await findByNumbers(parsed.map((p) => p.mobile));
+  } catch (e) {
+    console.error('[beneficiary import] existing member lookup failed:', e.message);
+  }
 
-        if (Object.keys(patch).length > 0) {
-          await updateBeneficiary(existing.id, { ...patch, updated_by: created_by });
-        }
+  // Which of the matched members already have a disability on file, so a
+  // re-import doesn't add a second one.
+  const matchedIds = [...new Set([...existingByNumber.values()].map((b) => b.id))];
+  let idsWithDisability = new Set();
+  try {
+    idsWithDisability = await beneficiaryIdsWithDisabilities(matchedIds);
+  } catch (e) {
+    console.error('[beneficiary import] disability lookup failed:', e.message);
+  }
 
-        // Add the disability only when the member has none recorded yet.
-        let disabilityAdded = false;
-        if ((disabilityType || disabilityPercentage != null) && (await getDisabilities(existing.id)).length === 0) {
-          await addDisability(existing.id, {
-            disability_type: disabilityType || 'General',
-            disability_percentage: disabilityPercentage,
-            certificate_available: false,
-          });
-          disabilityAdded = true;
-        }
+  // ── 3. Merge the already-on-file members ─────────────────────────────────
+  const toCreate = [];
+  const mergePatches = [];
+  for (const p of parsed) {
+    const existing = p.mobile ? existingByNumber.get(p.mobile) : null;
 
-        const changed = Object.keys(patch).length > 0 || disabilityAdded;
-        if (changed) summary.updated++; else summary.no_change++;
-        results.push({
-          row: rowNumber, status: changed ? 'updated' : 'no_change', name,
-          mobile, beneficiary_id: existing.id, beneficiary_code: existing.beneficiary_code,
-          needed, ngo_name: ngoName,
-          message: changed ? 'Existing member updated with the missing details' : 'Already up to date',
-          warnings,
-        });
-        staging.push({
-          batch_id: batch?.id ?? null, row_number: rowNumber, raw_data: row, mapped_data: row,
-          status: changed ? 'UPDATED' : 'NO_CHANGE', beneficiary_id: existing.id,
-          validation_errors: warnings.length ? { warnings } : null,
-        });
-        continue;
-      }
+    if (existing) {
+      // Merge: only fill the blanks so nothing already on file is overwritten.
+      const patch = {};
+      const fill = (column, value) => {
+        if (value != null && value !== '' && !text(existing[column])) patch[column] = value;
+      };
+      fill('full_name', p.name);
+      fill('mobile', p.mobile);
+      fill('alternate_mobile', p.alternateMobile);
+      fill('date_of_birth', p.dob);
+      fill('gender', p.gender);
+      fill('address_line_1', p.location);
+      fill('state', p.state);
+      fill('needed', p.needed);
+      fill('ngo_id', p.ngoId);
 
-      const beneficiary_code = await generateBeneficiaryCode();
-      const created = await createBeneficiary({
-        beneficiary_code,
-        full_name: name,
-        date_of_birth: dob,
-        gender: g,
-        mobile,
-        alternate_mobile: alternateMobile,
-        address_line_1: location || null,
-        state: state || null,
-        needed: needed || null,
-        ngo_id: ngoId,
-        status: 'ACTIVE',
-        fingerprint_status: 'NOT_REGISTERED',
-        created_by,
-        updated_by: created_by,
-      });
-
-      if (disabilityType || disabilityPercentage != null) {
-        await addDisability(created.id, {
-          disability_type: disabilityType || 'General',
-          disability_percentage: disabilityPercentage,
-          certificate_available: false,
-        });
+      if (Object.keys(patch).length > 0) {
+        mergePatches.push({ id: existing.id, values: { ...patch, updated_by: created_by }, rowNumber: p.rowNumber });
       }
 
-      await addSourceRecord(created.id, {
-        source_type: 'IMPORT',
-        source_file: batch?.file_name || text(fileName) || null,
-        original_name: name,
-        original_data: row,
-        import_batch_id: batch?.id ?? null,
-      });
+      // Add the disability only when the member has none recorded yet.
+      const disabilityAdded = (p.disabilityType || p.disabilityPercentage != null)
+        && !idsWithDisability.has(existing.id);
 
-      await logAuditEvent({
-        entity_type: 'beneficiary', entity_id: created.id, beneficiary_id: created.id,
-        action: 'IMPORTED', details: { batch_id: batch?.id ?? null, beneficiary_code },
-        performed_by: performed_by,
-      });
-
-      summary.created++;
-      imported.push(created);
+      const changed = Object.keys(patch).length > 0 || disabilityAdded;
+      if (changed) summary.updated++; else summary.no_change++;
       results.push({
-        row: rowNumber, status: 'created', name, mobile,
-          needed, ngo_name: ngoName,
-          beneficiary_id: created.id, beneficiary_code, message: 'Member added', warnings,
+        row: p.rowNumber, status: changed ? 'updated' : 'no_change', name: p.name,
+        mobile: p.mobile, beneficiary_id: existing.id, beneficiary_code: existing.beneficiary_code,
+        needed: p.needed, ngo_name: p.ngoName,
+        message: changed ? 'Existing member updated with the missing details' : 'Already up to date',
+        warnings: p.warnings,
       });
       staging.push({
-        batch_id: batch?.id ?? null, row_number: rowNumber, raw_data: row, mapped_data: row,
-        status: 'VALID', beneficiary_id: created.id,
-        validation_errors: warnings.length ? { warnings } : null,
+        batch_id: batch?.id ?? null, row_number: p.rowNumber, raw_data: p.row, mapped_data: p.row,
+        status: changed ? 'UPDATED' : 'NO_CHANGE', beneficiary_id: existing.id,
+        validation_errors: p.warnings.length ? { warnings: p.warnings } : null,
       });
-    } catch (err) {
-      console.error(`[beneficiary import] row ${rowNumber} failed:`, err.message);
-      summary.errors++;
-      results.push({ row: rowNumber, status: 'error', name, mobile, message: err.message, warnings });
-      staging.push({
-        batch_id: batch?.id ?? null, row_number: rowNumber, raw_data: row,
-        status: 'ERROR', validation_errors: { error: err.message },
-      });
+      continue;
+    }
+
+    toCreate.push(p);
+  }
+
+  // Apply the merges concurrently — each row sets a different column set, so
+  // they can't share one statement, but they don't need to queue up either.
+  if (mergePatches.length > 0) {
+    await runPooled(mergePatches, 8, async (m) => {
+      try {
+        await updateBeneficiary(m.id, m.values);
+      } catch (e) {
+        console.error(`[beneficiary import] row ${m.rowNumber} update failed:`, e.message);
+      }
+    });
+  }
+
+  // ── 4. Create the new members in one batch ───────────────────────────────
+  // Codes are reserved up front so the whole file costs one read+write on the
+  // sequence instead of two round-trips per member.
+  let codes = [];
+  if (toCreate.length > 0) {
+    try {
+      codes = await reserveBeneficiaryCodes(toCreate.length);
+    } catch (e) {
+      console.error('[beneficiary import] code reservation failed:', e.message);
     }
   }
+
+  const newDisabilityRows = [];
+  const newSourceRows = [];
+  const newAuditRows = [];
+
+  const insertRows = toCreate.map((p, i) => {
+    const beneficiary_code = codes[i] || null;
+    p.beneficiary_code = beneficiary_code;
+    if (!beneficiary_code) {
+      p.warnings.push('Could not allocate a beneficiary code; the member was saved without one');
+    }
+    newDisabilityRows.push({
+      _row: p,
+      disability_type: p.disabilityType || 'General',
+      disability_percentage: p.disabilityPercentage,
+      certificate_available: false,
+    });
+    newSourceRows.push({
+      _row: p,
+      source_type: 'IMPORT',
+      source_file: batch?.file_name || text(fileName) || null,
+      original_name: p.name,
+      original_data: p.row,
+      import_batch_id: batch?.id ?? null,
+    });
+    newAuditRows.push({
+      _row: p,
+      entity_type: 'beneficiary',
+      action: 'IMPORTED',
+      performed_by: performedBy,
+    });
+    return {
+      beneficiary_code,
+      full_name: p.name,
+      date_of_birth: p.dob,
+      gender: p.gender,
+      mobile: p.mobile,
+      alternate_mobile: p.alternateMobile,
+      address_line_1: p.location || null,
+      state: p.state || null,
+      needed: p.needed || null,
+      ngo_id: p.ngoId,
+      status: 'ACTIVE',
+      fingerprint_status: 'NOT_REGISTERED',
+      created_by,
+      updated_by: created_by,
+    };
+  }).filter((r) => r.beneficiary_code);
+
+  // A bulk insert is all-or-nothing, so fall back to row-by-row if the batch is
+  // rejected — one malformed row must not cost the other 441 members.
+  const insertChunk = async (rows) => {
+    if (rows.length === 0) return [];
+    try {
+      return await createBeneficiaries(rows);
+    } catch (e) {
+      console.error('[beneficiary import] bulk insert failed, retrying row by row:', e.message);
+      const saved = [];
+      for (const r of rows) {
+        try {
+          saved.push(...await createBeneficiaries([r]));
+        } catch (rowErr) {
+          const p = toCreate.find((c) => c.beneficiary_code === r.beneficiary_code);
+          console.error(`[beneficiary import] row ${p?.rowNumber} failed:`, rowErr.message);
+          if (p) {
+            summary.errors++;
+            results.push({ row: p.rowNumber, status: 'error', name: p.name, mobile: p.mobile, message: rowErr.message, warnings: p.warnings });
+            staging.push({ batch_id: batch?.id ?? null, row_number: p.rowNumber, raw_data: p.row, status: 'ERROR', validation_errors: { error: rowErr.message } });
+          }
+        }
+      }
+      return saved;
+    }
+  };
+
+  const CHUNK = 100;
+  const createdAll = [];
+  for (let i = 0; i < insertRows.length; i += CHUNK) {
+    createdAll.push(...await insertChunk(insertRows.slice(i, i + CHUNK)));
+  }
+  // PostgREST rejects very large statement bodies; 100 keeps each insert well
+  // inside its limits.
+  // PostgREST returns inserted rows in insert order, but the code we assigned is
+  // a safer key than position.
+  const createdByCode = new Map(createdAll.map((b) => [b.beneficiary_code, b]));
+
+  // ── 5. Side tables in bulk ───────────────────────────────────────────────
+  const createdIds = createdAll.map((b) => b.id);
+  const disabilitiesForCreated = newDisabilityRows
+    .filter((d) => createdByCode.has(d._row.beneficiary_code))
+    .map((d) => ({
+      beneficiary_id: createdByCode.get(d._row.beneficiary_code).id,
+      disability_type: d.disability_type,
+      disability_percentage: d.disability_percentage,
+      certificate_available: d.certificate_available,
+    }));
+  for (let i = 0; i < disabilitiesForCreated.length; i += CHUNK) {
+    try {
+      await addDisabilities(disabilitiesForCreated.slice(i, i + CHUNK));
+    } catch (e) {
+      console.error('[beneficiary import] disability insert failed:', e.message);
+    }
+  }
+
+  const sourceRows = newSourceRows
+    .filter((s) => createdByCode.has(s._row.beneficiary_code))
+    .map(({ _row, ...rest }) => ({
+      ...rest,
+      beneficiary_id: createdByCode.get(_row.beneficiary_code).id,
+    }));
+  for (let i = 0; i < sourceRows.length; i += CHUNK) {
+    try {
+      await addSourceRecords(sourceRows.slice(i, i + CHUNK));
+    } catch (e) {
+      console.error('[beneficiary import] source record insert failed:', e.message);
+    }
+  }
+
+  const auditRows = newAuditRows
+    .filter((a) => createdByCode.has(a._row.beneficiary_code))
+    .map(({ _row, ...rest }) => ({
+      ...rest,
+      entity_id: createdByCode.get(_row.beneficiary_code).id,
+      beneficiary_id: createdByCode.get(_row.beneficiary_code).id,
+      details: { batch_id: batch?.id ?? null, beneficiary_code: _row.beneficiary_code },
+    }));
+  for (let i = 0; i < auditRows.length; i += CHUNK) {
+    try {
+      await logAuditEvents(auditRows.slice(i, i + CHUNK));
+    } catch (e) {
+      console.error('[beneficiary import] audit log insert failed:', e.message);
+    }
+  }
+
+  // Disability rows for merges that had none, now that we know the ids.
+  const mergeDisabilities = [];
+  for (const r of results) {
+    if (r.status !== 'updated' || !r.beneficiary_id) continue;
+    const p = parsed.find((x) => x.rowNumber === r.row && x.name === r.name);
+    if (!p || !(p.disabilityType || p.disabilityPercentage != null)) continue;
+    if (idsWithDisability.has(r.beneficiary_id)) continue;
+    mergeDisabilities.push({
+      beneficiary_id: r.beneficiary_id,
+      disability_type: p.disabilityType || 'General',
+      disability_percentage: p.disabilityPercentage,
+      certificate_available: false,
+    });
+  }
+  for (let i = 0; i < mergeDisabilities.length; i += CHUNK) {
+    try {
+      await addDisabilities(mergeDisabilities.slice(i, i + CHUNK));
+    } catch (e) {
+      console.error('[beneficiary import] merged-member disability insert failed:', e.message);
+    }
+  }
+
+  // ── 6. Report ────────────────────────────────────────────────────────────
+  for (const p of toCreate) {
+    const b = createdByCode.get(p.beneficiary_code);
+    if (!b) {
+      if (results.some((r) => r.row === p.rowNumber && r.status === 'error')) continue;
+      summary.errors++;
+      results.push({ row: p.rowNumber, status: 'error', name: p.name, mobile: p.mobile, message: 'Member could not be saved', warnings: p.warnings });
+      staging.push({ batch_id: batch?.id ?? null, row_number: p.rowNumber, raw_data: p.row, status: 'ERROR', validation_errors: { error: 'Member could not be saved' } });
+      continue;
+    }
+    summary.created++;
+    imported.push(b);
+    results.push({
+      row: p.rowNumber, status: 'created', name: p.name, mobile: p.mobile,
+      needed: p.needed, ngo_name: p.ngoName,
+      beneficiary_id: b.id, beneficiary_code: b.beneficiary_code, message: 'Member added', warnings: p.warnings,
+    });
+    staging.push({
+      batch_id: batch?.id ?? null, row_number: p.rowNumber, raw_data: p.row, mapped_data: p.row,
+      status: 'VALID', beneficiary_id: b.id,
+      validation_errors: p.warnings.length ? { warnings: p.warnings } : null,
+    });
+  }
+
+  results.sort((a, b) => a.row - b.row);
+  staging.sort((a, b) => a.row_number - b.row_number);
+
 
   if (batch) {
     await updateImportBatch(batch.id, {
@@ -412,8 +570,9 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       imported_at: new Date().toISOString(),
     }).catch((e) => console.error('[beneficiary import] batch update failed:', e.message));
   }
-  if (staging.length > 0) {
-    await addImportRows(staging).catch((e) => console.error('[beneficiary import] row staging failed:', e.message));
+  for (let i = 0; i < staging.length; i += CHUNK) {
+    await addImportRows(staging.slice(i, i + CHUNK))
+      .catch((e) => console.error('[beneficiary import] row staging failed:', e.message));
   }
 
   return res.json({ summary, results, batch_id: batch?.id ?? null, imported });

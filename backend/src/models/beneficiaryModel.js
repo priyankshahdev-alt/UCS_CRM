@@ -33,6 +33,94 @@ export async function generateBeneficiaryCode() {
   return `BS-${String(next).padStart(6, '0')}`;
 }
 
+// Reserve a whole block of codes in one read+write. Calling
+// generateBeneficiaryCode() per row costs two round-trips each, which is what
+// made a 400-row spreadsheet import appear to hang. Codes are handed out from
+// the same counter, so a reserved block is simply unused if the import aborts.
+export async function reserveBeneficiaryCodes(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n === 0) return [];
+
+  const { data: seq, error: seqErr } = await db
+    .from('beneficiary_sequences')
+    .select('id, current_value')
+    .single();
+
+  let current = null;
+  if (seqErr && seqErr.code === 'PGRST116') {
+    const { data: created, error: createErr } = await db
+      .from('beneficiary_sequences')
+      .insert({ current_value: 0 })
+      .select('id, current_value')
+      .single();
+    if (createErr) throw createErr;
+    current = created;
+  } else if (seqErr) {
+    throw seqErr;
+  } else {
+    current = seq;
+  }
+
+  const start = (current.current_value || 0) + 1;
+  const { error: updErr } = await db
+    .from('beneficiary_sequences')
+    .update({ current_value: start + n - 1, updated_at: new Date().toISOString() })
+    .eq('id', current.id);
+  if (updErr) throw updErr;
+
+  return Array.from({ length: n }, (_, i) => `BS-${String(start + i).padStart(6, '0')}`);
+}
+
+// Every member already on file whose number matches one of the sheet's numbers
+// (either slot), keyed by the number that matched. One query instead of one per
+// row. A member registered under both slots is returned once per number, which
+// is what the per-row lookup did too.
+export async function findByNumbers(mobiles) {
+  const wanted = [...new Set((mobiles || []).filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  const found = new Map();
+  const CHUNK = 100; // keep the .in() filter inside a safe URL length
+  for (let i = 0; i < wanted.length; i += CHUNK) {
+    const slice = wanted.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from('beneficiaries')
+      .select('*')
+      .or(`mobile.in.(${slice.join(',')}),alternate_mobile.in.(${slice.join(',')})`);
+    if (error) throw error;
+    for (const b of data || []) {
+      for (const num of slice) {
+        if (b.mobile === num || b.alternate_mobile === num) {
+          if (!found.has(num)) found.set(num, b);
+        }
+      }
+    }
+  }
+  return found;
+}
+
+export const createBeneficiaries = async (rows) => {
+  if (!rows?.length) return [];
+  const { data, error } = await db.from('beneficiaries').insert(rows).select('*');
+  if (error) throw error;
+  return data || [];
+};
+
+// Run tasks with a small cap on how many are in flight at once. The importer
+// only has per-row work on the merge path (a handful of re-imports), and firing
+// those concurrently keeps a re-import from serialising hundreds of updates.
+export const runPooled = async (items, limit, task) => {
+  const size = Math.max(1, Math.min(limit, items.length));
+  let cursor = 0;
+  const workers = Array.from({ length: size }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      await task(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+};
+
 export const createBeneficiary = async (data) => {
   const { data: result, error } = await db
     .from('beneficiaries')

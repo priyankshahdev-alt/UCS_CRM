@@ -514,7 +514,7 @@ export default function ImportMembers() {
                     <td style={styles.td}>{r.needed || '—'}</td>
                     <td style={styles.td}>{r.beneficiary_code ? <code style={{ fontSize: 11, background: 'var(--bg)', padding: '2px 6px', borderRadius: 4 }}>{r.beneficiary_code}</code> : '\u2014'}</td>
                     <td style={styles.td}>
-                      <span style={styles.pill(...(STATUS_STYLES[r.status] || ['var(--bg)', 'var(--ink-soft)']))}>
+                      <span style={styles.pill(...Object.values(STATUS_STYLES[r.status] || { background: 'var(--bg)', color: 'var(--ink-soft)' }))}>
                         {STATUS_LABELS[r.status] || r.status}
                       </span>
                     </td>
