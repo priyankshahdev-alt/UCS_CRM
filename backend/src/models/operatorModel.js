@@ -186,7 +186,10 @@ export const listEventMarkedBeneficiaries = async (eventId) => {
 // name, and the most recent kit handouts. Drives the Beneficiaries app's Kits
 // screen.
 export const getKitsDashboard = async ({ operatorId, date } = {}) => {
-  const { data: ngoRows } = await db._pool
+  // db._pool is raw node-postgres: results come back on `rows`, not `data`.
+  // Reading `data` here left ngoRows undefined, so every NGO fell through to
+  // the zero fallback and the Kits screen showed 0 regardless of real data.
+  const { rows: ngoRows } = await db._pool
     .query(
       `SELECT n.id, n.name,
               COUNT(b.id) FILTER (WHERE b.ngo_id = n.id)                                        AS registered,
@@ -197,7 +200,10 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
         GROUP BY n.id, n.name
         ORDER BY n.name`
     )
-    .catch(() => ({ data: [] }));
+    .catch((e) => {
+      console.error('getKitsDashboard NGO count query failed:', e);
+      return { rows: [] };
+    });
 
   const byName = {};
   for (const r of ngoRows || []) {

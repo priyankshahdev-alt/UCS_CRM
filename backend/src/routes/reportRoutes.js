@@ -17,7 +17,7 @@ const beneficiaryReport = async (req, res) => {
     }
 
     // Category breakdown
-    const { data: categoryData } = await db._pool.query(`
+    const { rows: categoryData } = await db._pool.query(`
       SELECT bc.name, COUNT(bca.beneficiary_id) as count
       FROM beneficiary_categories bc
       LEFT JOIN beneficiary_category_assignments bca ON bc.id = bca.category_id
@@ -26,7 +26,7 @@ const beneficiaryReport = async (req, res) => {
     `);
 
     // State breakdown
-    const { data: stateData } = await db._pool.query(`
+    const { rows: stateData } = await db._pool.query(`
       SELECT COALESCE(state, 'Unknown') as state, COUNT(*) as count
       FROM beneficiaries
       GROUP BY state
@@ -34,7 +34,7 @@ const beneficiaryReport = async (req, res) => {
     `);
 
     // Registrations over time (last 12 months)
-    const { data: registrations } = await db._pool.query(`
+    const { rows: registrations } = await db._pool.query(`
       SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as count
       FROM beneficiaries
       WHERE created_at >= NOW() - INTERVAL '12 months'
@@ -106,7 +106,7 @@ const distributionReport = async (req, res) => {
     const { data, count } = await query;
 
     // Per-benefit breakdown
-    const { data: benefitBreakdown } = await db._pool.query(`
+    const { rows: benefitBreakdown } = await db._pool.query(`
       SELECT b.name as benefit_name, b.category, COUNT(bdi.id) as total_distributions, SUM(bdi.quantity) as total_quantity
       FROM benefit_distribution_items bdi
       JOIN benefits b ON bdi.benefit_id = b.id
@@ -135,7 +135,7 @@ const volunteerReport = async (req, res) => {
     const { count: totalVolunteers } = await db.from('bnf_volunteers').select('id', { count: 'exact', head: true });
     const { count: activeVolunteers } = await db.from('bnf_volunteers').select('id', { count: 'exact', head: true }).eq('status', 'ACTIVE');
 
-    const { data: programParticipation } = await db._pool.query(`
+    const { rows: programParticipation } = await db._pool.query(`
       SELECT bv.full_name, COUNT(pv.program_id) as programs_assigned,
              SUM(CASE WHEN pv.attendance_status = 'PRESENT' THEN 1 ELSE 0 END) as programs_attended
       FROM bnf_volunteers bv
