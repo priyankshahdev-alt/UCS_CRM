@@ -152,7 +152,7 @@ const cacheSet = (key, v) => {
 // FRO Status pill straight back to "Paused" right after a successful resume —
 // which reads as "resume is broken". Rare, admin-only actions: busting all tl:
 // keys is cheap and also covers other tabs/admins watching the same FRO.
-const bustTlCache = () => {
+export const bustTlCache = () => {
   tlCacheGeneration += 1;
   for (const k of _rCache.keys()) {
     if (k.startsWith('tl:')) _rCache.delete(k);
@@ -6001,6 +6001,45 @@ export const notifyFroHandler = async (req, res) => {
   }
 };
 
+// Pause/resume must work for an FRO who has never opened the CRM panel, i.e.
+// who has no fro_live_status row yet. A bare upsert INSERTs a partial row for
+// those people, which can fail outright on a NOT NULL column — and when it
+// didn't fail it left a half-built row behind. That is the "pause sometimes
+// works" report: it only ever worked for FROs who already had a live row.
+// Update the existing row; create one only when genuinely missing, and then
+// with every presence column given a safe default so the insert is always
+// valid. status 'offline' keeps a row we invented out of the "online" counts.
+const setFroPaused = async (workerId, paused, by = null) => {
+  const nowIso = new Date().toISOString();
+  const patch = {
+    is_paused: !!paused,
+    paused_at: paused ? nowIso : null,
+    paused_by: paused ? by : null,
+    idle_since: null,
+    updated_at: nowIso,
+  };
+
+  const { data, error } = await db
+    .from('fro_live_status')
+    .update(patch)
+    .eq('worker_id', workerId)
+    .select('worker_id');
+  if (error) throw error;
+  if (data && data.length > 0) return;
+
+  const { error: insErr } = await db.from('fro_live_status').insert({
+    worker_id: workerId,
+    status: 'offline',
+    today_calls: 0,
+    today_talk_seconds: 0,
+    today_skipped: 0,
+    today_idle_seconds: 0,
+    today_break_seconds: 0,
+    ...patch,
+  });
+  if (insErr) throw insErr;
+};
+
 /** POST /ngo-admin/fro/:id/pause
  *  Freeze an FRO's panel like meeting mode: all their timers stop and a
  *  blocking popup appears that only an admin resume can lift. Scoped to the
@@ -6027,11 +6066,7 @@ export const pauseFro = async (req, res) => {
 
     const by = req.user.name || req.user.email || 'Admin';
     const nowIso = new Date().toISOString();
-    const { error } = await db.from('fro_live_status').upsert(
-      { worker_id: froId, is_paused: true, paused_at: nowIso, paused_by: by, idle_since: null, updated_at: nowIso },
-      { onConflict: 'worker_id' }
-    );
-    if (error) throw error;
+    await setFroPaused(froId, true, by);
     bustTlCache();
     emitRealtime('fro:pause', { at: nowIso, by }, `worker:${froId}`);
     return res.json({ message: 'FRO paused', paused: true });
@@ -6059,11 +6094,7 @@ export const resumeFro = async (req, res) => {
     }
 
     const nowIso = new Date().toISOString();
-    const { error } = await db.from('fro_live_status').upsert(
-      { worker_id: froId, is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso },
-      { onConflict: 'worker_id' }
-    );
-    if (error) throw error;
+    await setFroPaused(froId, false);
     bustTlCache();
     emitRealtime('fro:resume', { at: nowIso }, `worker:${froId}`);
     return res.json({ message: 'FRO resumed', paused: false });

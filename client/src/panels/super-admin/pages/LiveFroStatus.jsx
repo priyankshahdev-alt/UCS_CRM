@@ -111,6 +111,10 @@ export default function LiveFroStatus() {
   // Ticks on the SERVER's clock. Using the device clock made these durations
   // wrong on any machine whose clock is off (clamped to 00:00 or inflated).
   const [now, setNow] = useState(() => serverNow())
+  // Attendance-punched roster for today. Separate from `statuses` on purpose:
+  // that list is built from fro_live_status, so anyone who punched in at the
+  // attendance app but never opened the CRM panel is missing from it entirely.
+  const [present, setPresent] = useState({ loading: true, error: null, data: null, open: true })
   const aliveRef = useRef(true)
 
   useEffect(() => {
@@ -134,6 +138,24 @@ export default function LiveFroStatus() {
   }
 
   useEffect(() => { loadStatuses(false) }, [])
+
+  // Attendance roster: loaded once on mount and re-read only on an explicit
+  // refresh. Punch-ins change on a human timescale, so there is no reason to
+  // re-poll it on every FRO heartbeat.
+  const loadPresent = async () => {
+    if (!aliveRef.current) return
+    setPresent(p => ({ ...p, loading: true, error: null }))
+    try {
+      const data = await api('/fro/status/present', { _prefix: 'ucs' })
+      if (!aliveRef.current) return
+      setPresent({ loading: false, error: null, data: data || null, open: true })
+    } catch (e) {
+      if (!aliveRef.current) return
+      setPresent(p => ({ ...p, loading: false, error: e?.message || 'Failed to load attendance' }))
+    }
+  }
+
+  useEffect(() => { loadPresent() }, [])
 
   // db:change fires on every FRO heartbeat (each open panel pushes ~every
   // 30s), so reloads are coalesced to at most one per 10s. The list stays
@@ -186,7 +208,7 @@ export default function LiveFroStatus() {
     return () => { alive = false }
   }, [])
 
-  const refresh = () => { loadStatuses(true) }
+  const refresh = () => { loadStatuses(true); loadPresent() }
 
   // Per-FRO admin pause ("play/pause"): freezes all their timers and shows a
   // blocking popup on their panel until resumed here.
@@ -415,6 +437,112 @@ export default function LiveFroStatus() {
           })}
         </div>
       )}
+
+      {/* Present today (attendance app). Deliberately separate from the live
+          FRO grid above: this roster comes from the attendance app, so it
+          includes people who punched in but never opened the CRM panel. */}
+      <section style={{ marginTop: 26 }} aria-label="Present today from attendance">
+        <button
+          type="button"
+          onClick={() => setPresent(p => ({ ...p, open: !p.open }))}
+          aria-expanded={present.open}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+            background: '#fff', border: '1px solid #DCE7F5', borderRadius: 10,
+            padding: '12px 14px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#287FE8' }}>how_to_reg</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#10213D' }}>Present today</span>
+          <span style={{ fontSize: 12, color: '#6D7E95' }}>punched in via the attendance app</span>
+          {!present.loading && present.data && (
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#F0FDF4', color: '#16A34A' }}>
+                {present.data.total} in
+              </span>
+              {present.data.late > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#FFFBEB', color: '#B45309' }}>
+                  {present.data.late} late
+                </span>
+              )}
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#F2F6FC', color: '#475569' }}>
+                {present.data.in_crm} in CRM
+              </span>
+            </span>
+          )}
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#6D7E95' }}>{present.open ? 'expand_less' : 'expand_more'}</span>
+        </button>
+
+        {present.open && (
+          <div style={{ marginTop: 10, background: '#fff', border: '1px solid #DCE7F5', borderRadius: 10, overflow: 'hidden' }}>
+            {present.loading ? (
+              <div style={{ padding: 18, fontSize: 13, color: '#6D7E95' }}>Loading attendance…</div>
+            ) : present.error ? (
+              <div style={{ padding: 18, fontSize: 13, color: '#B42318' }}>
+                Could not load attendance: {present.error}
+                <button type="button" className="lfs-btn" style={{ marginLeft: 10 }} onClick={loadPresent}>Retry</button>
+              </div>
+            ) : !present.data || present.data.members.length === 0 ? (
+              <div style={{ padding: 18, fontSize: 13, color: '#6D7E95' }}>
+                Nobody has punched in for {present.data?.date || 'today'} yet.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', color: '#6D7E95', textAlign: 'left' }}>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>Member</th>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>Department</th>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>NGO</th>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>Punched in</th>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>Status</th>
+                    <th style={{ padding: '9px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>CRM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {present.data.members.map((m) => {
+                    const late = m.attendance_status === 'late'
+                    const half = m.attendance_status === 'half-day'
+                    const attColor = half ? '#6D7E95' : late ? '#B45309' : '#16A34A'
+                    const attBg = half ? '#F2F6FC' : late ? '#FFFBEB' : '#F0FDF4'
+                    const attLabel = half ? 'Half-day' : (late ? `Late${m.late_minutes ? ` ${m.late_minutes}m` : ''}` : 'Present')
+                    return (
+                      <tr key={m.worker_id} style={{ borderTop: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '9px 12px', fontWeight: 600, color: '#10213D' }}>
+                          {m.name}
+                          {!!m.login_id && <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400 }}>{m.login_id}</div>}
+                        </td>
+                        <td style={{ padding: '9px 12px', color: '#475569' }}>{m.department || '—'}</td>
+                        <td style={{ padding: '9px 12px', color: '#475569' }}>{m.ngo_name || '—'}</td>
+                        <td style={{ padding: '9px 12px', color: '#10213D', fontVariantNumeric: 'tabular-nums' }}>
+                          {m.punch_in_label || '—'}
+                          {!!m.punch_out_label && <div style={{ fontSize: 11, color: '#94A3B8' }}>out {m.punch_out_label}</div>}
+                        </td>
+                        <td style={{ padding: '9px 12px' }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                            background: attBg, color: attColor,
+                          }}>
+                            {attLabel}
+                          </span>
+                        </td>
+                        <td style={{ padding: '9px 12px' }}>
+                          {m.in_crm ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#EFF6FF', color: '#287FE8' }}>
+                              {m.is_paused ? 'Paused' : (PILL[m.crm_status]?.label || m.crm_status || 'In CRM')}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#94A3B8' }}>Not in CRM</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </section>
 
     </div>
   )
