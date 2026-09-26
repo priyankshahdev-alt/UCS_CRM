@@ -286,27 +286,9 @@
   padding: 24px 16px;
 }
 .panel-accounts .sim-scope .modal.sim-edit-modal {
-  margin: auto; width: 100%; max-width: 660px;
-  max-height: 68vh;
-  display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--sim-line);
-  box-shadow: 0 14px 40px rgba(15, 23, 42, .18);
+  max-width: 660px;
 }
-.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head {
-  flex: 0 0 auto; padding: 14px 20px;
-  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
-  border-bottom: 1px solid var(--sim-line);
-}
-.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head h3 {
-  font-size: 15px; font-weight: 700;
-  display: flex; align-items: center; gap: 8px;
-  color: var(--sim-blue-dark);
-}
-.panel-accounts .sim-scope .modal.sim-edit-modal .modal-head h3::before {
-  content: ''; width: 4px; height: 18px; border-radius: 3px;
-  background: linear-gradient(180deg, var(--sim-blue), #60a5fa);
-}
-.panel-accounts .sim-scope .modal.sim-edit-modal .modal-x:hover { color: var(--sim-blue); }
+.panel-accounts .sim-scope .modal.sim-edit-modal .modal-x:hover { color: var(--sim-red); }
 .panel-accounts .sim-scope .modal.sim-edit-modal .modal-body {
   flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto;
   padding: 16px 20px;
@@ -337,6 +319,286 @@
   content: ''; width: 3px; height: 14px; border-radius: 3px; background: var(--sim-blue);
 }
 
+/* ---------- Edit / Add SIM Card + Change History ---------- */
+.panel-accounts .sim-scope .modal-overlay:has(> .sim-edit-modal),
+.panel-accounts .sim-scope .modal-overlay:has(> .sim-hist-modal) {
+  align-items: center; padding: 24px 16px;
+}
+/* calc() (not vh) so the panel always fits between the overlay's own padding. */
+.panel-accounts .sim-scope .modal.sim-edit-modal,
+.panel-accounts .sim-scope .modal.sim-hist-modal {
+  max-width: 720px;
+  max-height: calc(100vh - 48px);
+  margin: auto; width: 100%; height: auto;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--sim-line);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, .18);
+}
+.panel-accounts .sim-scope .modal.sim-hist-modal { max-width: 860px; }
+
+/* Edit SIM Card header safety — scoped with :has(> .sim-edit-modal) because the
+   standalone Change History modal reuses `.sim-edit-overlay` and must not change.
+   A flex overlay that centres an over-tall panel pushes it past BOTH edges, so the
+   header is clipped and can never be scrolled back into view. Pinning the
+   cross-axis to the start lets the panel's own `margin:auto` centre it while there
+   is room, and `max-height:100%` resolves against the overlay's content box so the
+   panel can never grow past the padding. Header size, colours and layout untouched. */
+.panel-accounts .sim-scope .modal-overlay:has(> .sim-edit-modal) {
+  align-items: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.panel-accounts .sim-scope .modal-overlay:has(> .sim-edit-modal) > .sim-edit-modal {
+  max-height: 100%;
+}
+
+.panel-accounts .sim-scope .se-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px 14px 18px;
+  background: #ffffff;
+  border-bottom: 2px solid var(--sim-blue);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+}
+.panel-accounts .sim-scope .se-head-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; }
+.panel-accounts .sim-scope .se-avatar {
+  flex: 0 0 auto;
+  width: 38px; height: 38px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue); color: #ffffff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, .3);
+}
+.panel-accounts .sim-scope .se-head-txt { flex: 1 1 auto; min-width: 0; }
+.panel-accounts .sim-scope .se-head-txt h3 {
+  margin: 0; font-size: 17px; font-weight: 800; color: #0f172a;
+  letter-spacing: -.02em; line-height: 1.25;
+  overflow-wrap: break-word;
+}
+/* The SIM ID / device model must stay fully readable: wrap onto a second line
+   instead of being clipped by an ellipsis. Font metrics are unchanged. */
+.panel-accounts .sim-scope .se-head-sub {
+  margin-top: 3px; font-size: 12.5px; font-weight: 500; color: #475569;
+  display: flex; align-items: center; gap: 7px; row-gap: 2px;
+  flex-wrap: wrap; min-width: 0; overflow-wrap: break-word;
+}
+.panel-accounts .sim-scope .se-head-id { font-weight: 700; color: var(--sim-blue-dark); min-width: 0; overflow-wrap: break-word; }
+.panel-accounts .sim-scope .se-head-model { min-width: 0; overflow-wrap: break-word; }
+.panel-accounts .sim-scope .se-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; flex: 0 0 auto; }
+.panel-accounts .sim-scope .sim-edit-modal .modal-x,
+.panel-accounts .sim-scope .sim-hist-modal .modal-x {
+  width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0; color: var(--sim-ink-soft);
+  border: 1px solid transparent; background: transparent;
+  transition: all .12s ease;
+}
+.panel-accounts .sim-scope .sim-edit-modal .modal-x:hover,
+.panel-accounts .sim-scope .sim-hist-modal .modal-x:hover {
+  background: #fee2e2; border-color: #fecaca; color: var(--sim-red);
+}
+
+.panel-accounts .sim-scope .se-body {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto;
+  padding: 16px 18px 20px;
+  background: var(--sim-bg);
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* Sections must keep their natural height; without this they shrink inside the
+   column flexbox and .se-sec{overflow:hidden} silently clips the content. */
+.panel-accounts .sim-scope .se-body > .se-sec { flex: 0 0 auto; }
+
+.panel-accounts .sim-scope .se-sec {
+  background: #fff; border: 1px solid var(--sim-line);
+  border-radius: var(--sim-radius); box-shadow: var(--sim-shadow);
+  overflow: hidden;
+}
+.panel-accounts .sim-scope .se-sec-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--sim-line);
+  background: #fbfdff;
+}
+.panel-accounts .sim-scope .se-sec-ic {
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue-soft); color: var(--sim-blue);
+  border: 1px solid #dbeafe;
+}
+.panel-accounts .sim-scope .se-sec-txt { min-width: 0; }
+.panel-accounts .sim-scope .se-sec-head h4 {
+  margin: 0; font-size: 13px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .04em; color: #0f172a;
+}
+.panel-accounts .sim-scope .se-sec-head p {
+  margin: 1px 0 0; font-size: 11.5px; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .se-sec-count {
+  margin-left: auto; flex: 0 0 auto;
+  font-size: 11px; font-weight: 700; color: var(--sim-blue-dark);
+  background: var(--sim-blue-soft); border: 1px solid #dbeafe;
+  padding: 2px 10px; border-radius: 99px; white-space: nowrap;
+}
+.panel-accounts .sim-scope .se-sec-body { padding: 14px; }
+
+.panel-accounts .sim-scope .se-sec-body .form-grid { gap: 12px 14px; }
+.panel-accounts .sim-scope .se-sec-body > .form-grid,
+.panel-accounts .sim-scope .se-form-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px;
+}
+.panel-accounts .sim-scope .form-row .req { color: var(--sim-red); margin-left: 3px; font-weight: 700; }
+.panel-accounts .sim-scope .form-row label .auto-tag {
+  margin-left: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--sim-blue-dark);
+  background: var(--sim-blue-soft); border: 1px solid #dbeafe;
+  padding: 1px 6px; border-radius: 99px; vertical-align: middle;
+}
+.panel-accounts .sim-scope .form-row.locked input {
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  border-color: #bfdbfe; font-weight: 700; cursor: not-allowed;
+}
+
+/* SIM slot rows */
+.panel-accounts .sim-scope .se-slots { display: flex; flex-direction: column; gap: 8px; }
+.panel-accounts .sim-scope .se-slot { display: flex; align-items: center; gap: 8px; }
+.panel-accounts .sim-scope .se-slot-idx {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: var(--sim-blue-dark);
+  background: var(--sim-blue-soft); border: 1px solid #dbeafe;
+}
+.panel-accounts .sim-scope .se-slot input {
+  flex: 1 1 auto; min-width: 0;
+  height: 36px; padding: 0 11px;
+  border: 1px solid var(--sim-line); border-radius: 8px;
+  font-size: 13px; color: var(--sim-ink); background: #fff; outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.panel-accounts .sim-scope .se-slot input:focus {
+  border-color: var(--sim-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+.panel-accounts .sim-scope .se-slot-x {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  border: 1px solid #fecaca; background: var(--sim-red-soft); color: var(--sim-red);
+  transition: all .12s ease;
+}
+.panel-accounts .sim-scope .se-slot-x:hover { background: var(--sim-red); color: #fff; border-color: var(--sim-red); }
+.panel-accounts .sim-scope .se-add-sim { align-self: flex-start; margin-top: 12px; }
+
+/* change-history timeline (inside the edit modal) */
+.panel-accounts .sim-scope .se-tl-scroll {
+  max-height: 230px; overflow-y: auto; overflow-x: hidden;
+  padding-right: 4px; margin-right: -4px;
+}
+.panel-accounts .sim-scope .se-timeline { display: flex; flex-direction: column; }
+.panel-accounts .sim-scope .se-tl-item { display: flex; gap: 10px; position: relative; padding-bottom: 12px; }
+.panel-accounts .sim-scope .se-tl-item:last-child { padding-bottom: 0; }
+.panel-accounts .sim-scope .se-tl-item::before {
+  content: ''; position: absolute; left: 5px; top: 16px; bottom: 0;
+  width: 2px; background: var(--sim-line);
+}
+.panel-accounts .sim-scope .se-tl-item:last-child::before { display: none; }
+.panel-accounts .sim-scope .se-tl-dot {
+  flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; margin-top: 3px;
+  background: var(--sim-blue); border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #bfdbfe; z-index: 1;
+}
+.panel-accounts .sim-scope .se-tl-card {
+  flex: 1 1 auto; min-width: 0;
+  border: 1px solid var(--sim-line); border-radius: 10px;
+  background: #fbfdff; padding: 9px 11px;
+}
+.panel-accounts .sim-scope .se-tl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.panel-accounts .sim-scope .se-tl-time { font-size: 12px; font-weight: 700; color: var(--sim-ink); }
+.panel-accounts .sim-scope .se-tl-by {
+  font-size: 11px; font-weight: 600; color: var(--sim-blue-dark);
+  background: var(--sim-blue-soft); border-radius: 99px; padding: 1px 8px;
+}
+.panel-accounts .sim-scope .se-tl-none { font-size: 12px; color: var(--sim-ink-soft); font-style: italic; }
+.panel-accounts .sim-scope .se-tl-rows { display: flex; flex-direction: column; gap: 4px; }
+.panel-accounts .sim-scope .se-tl-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.panel-accounts .sim-scope .se-tl-field {
+  flex: 0 0 132px; min-width: 0; color: var(--sim-ink-soft); font-weight: 600;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.panel-accounts .sim-scope .se-delta { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.panel-accounts .sim-scope .se-delta s { color: var(--sim-red); text-decoration-thickness: 1px; }
+.panel-accounts .sim-scope .se-delta em { color: var(--sim-ink-soft); font-style: normal; }
+.panel-accounts .sim-scope .se-delta b.new { color: var(--sim-green); font-weight: 700; }
+.panel-accounts .sim-scope .se-delta.add { color: var(--sim-green); font-weight: 700; }
+.panel-accounts .sim-scope .se-delta.del { color: var(--sim-red); font-weight: 700; text-decoration: line-through; }
+
+.panel-accounts .sim-scope .se-empty {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 22px 14px; text-align: center;
+  font-size: 12.5px; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .se-spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--sim-line); border-top-color: var(--sim-blue);
+  animation: seSpin .7s linear infinite;
+}
+@keyframes seSpin { to { transform: rotate(360deg); } }
+
+/* card summary grid in history modal */
+.panel-accounts .sim-scope .se-sum {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px; background: var(--sim-line);
+}
+.panel-accounts .sim-scope .se-sum-cell { background: #fff; padding: 10px 14px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.panel-accounts .sim-scope .se-sum-cell .k {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .se-sum-cell .v { font-size: 13.5px; font-weight: 600; color: var(--sim-ink); word-break: break-word; }
+
+/* change log table */
+.panel-accounts .sim-scope .se-log-wrap { max-height: 340px; overflow: auto; border: 1px solid var(--sim-line); border-radius: 10px; }
+.panel-accounts .sim-scope .se-log { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+.panel-accounts .sim-scope .se-log thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  text-align: left; padding: 9px 12px;
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  border-bottom: 1px solid var(--sim-line); white-space: nowrap;
+}
+.panel-accounts .sim-scope .se-log tbody td {
+  padding: 9px 12px; border-bottom: 1px solid var(--sim-line);
+  color: var(--sim-ink); vertical-align: middle;
+}
+.panel-accounts .sim-scope .se-log tbody tr:last-child td { border-bottom: none; }
+.panel-accounts .sim-scope .se-log tbody tr:hover td { background: #fbfdff; }
+.panel-accounts .sim-scope .se-log .c-when { white-space: nowrap; color: var(--sim-ink-soft); font-weight: 600; }
+.panel-accounts .sim-scope .se-log .c-field { font-weight: 700; white-space: nowrap; }
+.panel-accounts .sim-scope .se-log .c-old { color: var(--sim-red); }
+.panel-accounts .sim-scope .se-log .c-old s { text-decoration-thickness: 1px; }
+.panel-accounts .sim-scope .se-log .c-new { color: var(--sim-green); font-weight: 700; }
+.panel-accounts .sim-scope .se-log .c-act { white-space: nowrap; }
+.panel-accounts .sim-scope .se-act {
+  display: inline-block; font-size: 10.5px; font-weight: 700;
+  padding: 2px 9px; border-radius: 99px; white-space: nowrap;
+}
+.panel-accounts .sim-scope .se-act.added { background: var(--sim-green-soft); color: var(--sim-green); }
+.panel-accounts .sim-scope .se-act.removed { background: var(--sim-red-soft); color: var(--sim-red); }
+.panel-accounts .sim-scope .se-act.updated { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+
+.panel-accounts .sim-scope .se-foot {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 18px; background: #f8fafc; border-top: 1px solid var(--sim-line);
+}
+.panel-accounts .sim-scope .se-foot-hint {
+  font-size: 11.5px; color: var(--sim-ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-accounts .sim-scope .se-foot-btns { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+  .panel-accounts .sim-scope .se-sum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel-accounts .sim-scope .se-foot { flex-direction: column; align-items: stretch; }
+  .panel-accounts .sim-scope .se-foot-btns { justify-content: flex-end; }
+  .panel-accounts .sim-scope .se-tl-field { flex-basis: 100%; }
+}
+
 .panel-accounts .sim-scope .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .panel-accounts .sim-scope .form-grid .full { grid-column: 1 / -1; }
 .panel-accounts .sim-scope .form-row { display: flex; flex-direction: column; gap: 5px; }
@@ -355,6 +617,185 @@
 .panel-accounts .sim-scope .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
 .panel-accounts .sim-scope .detail-item .k { font-size: 11px; color: var(--sim-ink-soft); }
 .panel-accounts .sim-scope .detail-item .v { font-size: 13px; font-weight: 600; color: var(--sim-ink); }
+
+/* ---------- SIM Card Details view (drawer) ---------- */
+.panel-accounts .sim-scope .sim-view-overlay {
+  padding: 0;
+  align-items: stretch;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, .5);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  overflow: hidden;
+}
+.panel-accounts .sim-scope .modal.drawer.sim-view-drawer {
+  max-width: 620px; width: 100%; height: 100%;
+  margin: 0; border-radius: 16px 0 0 16px;
+  border-left: 1px solid var(--sim-line);
+  display: flex; flex-direction: column;
+  box-shadow: -18px 0 50px rgba(15, 23, 42, .22);
+  animation: simSlideIn .18s ease-out;
+}
+@keyframes simSlideIn {
+  from { transform: translateX(24px); opacity: .4; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* header */
+.panel-accounts .sim-scope .sim-view-drawer .sv-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 16px 16px 18px;
+  background: #ffffff;
+  border-bottom: 2px solid var(--sim-blue);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-avatar {
+  flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue); color: #ffffff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, .3);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-txt { min-width: 0; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-txt h3 {
+  margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;
+  letter-spacing: -.02em; line-height: 1.25;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-sub {
+  margin-top: 3px; font-size: 12.5px; font-weight: 500; color: #475569;
+  display: flex; align-items: center; gap: 7px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-id { font-weight: 700; color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; flex: 0 0 auto; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-head-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-x {
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--sim-ink-soft); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .12s ease;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-x:hover { background: #fee2e2; border-color: #fecaca; color: var(--sim-red); }
+
+/* body */
+.panel-accounts .sim-scope .sim-view-drawer .sv-body {
+  flex: 1 1 auto; min-height: 0; max-height: none;
+  padding: 16px 18px 20px;
+  background: var(--sim-bg);
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* hero strip */
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero {
+  background: #fff; border: 1px solid var(--sim-line);
+  border-radius: var(--sim-radius); box-shadow: var(--sim-shadow);
+  padding: 12px 14px;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero-top { display: flex; align-items: stretch; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero-cell { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero-k {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero-v { font-size: 14px; font-weight: 700; color: var(--sim-ink); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-hero-sep { width: 1px; background: var(--sim-line); margin: 0 12px; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-track {
+  flex: 1; height: 6px; border-radius: 99px; background: #e2e8f0; overflow: hidden;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-fill {
+  display: block; height: 100%; border-radius: 99px;
+  background: var(--sim-blue); transition: width .2s ease;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-fill.days-good { background: var(--sim-green); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-fill.days-warn { background: var(--sim-amber); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-fill.days-urgent,
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-fill.days-expired { background: var(--sim-red); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-meter-txt {
+  font-size: 11px; font-weight: 600; color: var(--sim-ink-soft); white-space: nowrap;
+}
+
+/* sections */
+.panel-accounts .sim-scope .sim-view-drawer .sv-sections { display: flex; flex-direction: column; gap: 14px; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-sec {
+  background: #fff; border: 1px solid var(--sim-line);
+  border-radius: var(--sim-radius); box-shadow: var(--sim-shadow);
+  overflow: hidden;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-sec-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid var(--sim-line);
+  background: #fbfdff;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-sec-ic {
+  width: 24px; height: 24px; border-radius: 7px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue-soft); color: var(--sim-blue);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-sec-head h4 {
+  margin: 0; font-size: 13px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .04em; color: #0f172a;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-sec-count {
+  margin-left: auto; font-size: 11px; font-weight: 700; color: var(--sim-blue-dark);
+  background: var(--sim-blue-soft); border: 1px solid #dbeafe;
+  padding: 2px 9px; border-radius: 99px; white-space: nowrap;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px; background: var(--sim-line);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item {
+  background: #fff; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item.wide { grid-column: 1 / -1; }
+.panel-accounts .sim-scope .sim-view-drawer .sv-item .k {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item .v {
+  font-size: 14px; font-weight: 600; color: var(--sim-ink);
+  word-break: break-word; line-height: 1.4;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item .v.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13.5px; letter-spacing: .01em;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item .v.empty {
+  color: var(--sim-ink-soft); font-weight: 500; font-style: italic;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-item .v.days-neutral { color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .sim-view-drawer .sv-empty {
+  grid-column: 1 / -1; background: #fff;
+  padding: 18px 14px; text-align: center;
+  font-size: 12px; color: var(--sim-ink-soft);
+}
+
+/* footer */
+.panel-accounts .sim-scope .sim-view-drawer .sv-foot {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 18px; background: #f8fafc; border-top: 1px solid var(--sim-line);
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-foot-note {
+  font-size: 11px; color: var(--sim-ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-accounts .sim-scope .sim-view-drawer .sv-foot-btns { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+
+@media (max-width: 560px) {
+  .panel-accounts .sim-scope .sim-view-overlay { padding: 0; }
+  .panel-accounts .sim-scope .modal.drawer.sim-view-drawer { max-width: 100%; border-radius: 0; }
+  .panel-accounts .sim-scope .sim-view-drawer .sv-grid { grid-template-columns: 1fr; }
+  .panel-accounts .sim-scope .sim-view-drawer .sv-hero-top { flex-wrap: wrap; gap: 10px; }
+  .panel-accounts .sim-scope .sim-view-drawer .sv-hero-sep { display: none; }
+  .panel-accounts .sim-scope .sim-view-drawer .sv-foot { flex-direction: column; align-items: stretch; }
+  .panel-accounts .sim-scope .sim-view-drawer .sv-foot-btns { justify-content: flex-end; }
+}
 
 .panel-accounts .sim-scope .bulk-bar {
   padding: 10px 18px; background: #e0f2fe; border-bottom: 1px solid var(--sim-line);
