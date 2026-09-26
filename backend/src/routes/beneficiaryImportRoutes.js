@@ -88,11 +88,15 @@ const ngoKey = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').t
 const NGO_NOISE = /\b(reg|registered|registration|india|india|trust|foundation|society|association|ngo|ngos|project|pune|mumbai|nagpur|aurangabad|beed|jalna|solapur|osmanabad|latur)\b/g;
 
 const loadNgoLookup = async () => {
+  const byId = new Map();
   const exact = new Map();
   const loose = [];
   const names = new Map();
   const { data } = await db.from('ngos').select('id, name, code');
   for (const n of data || []) {
+    // ngos.id is int4/int8/uuid depending on the installation, so index the id
+    // as a string and let the caller compare with String(id) === String(value).
+    if (n.id != null && !byId.has(String(n.id))) byId.set(String(n.id), n.id);
     if (n.name && !names.has(n.id)) names.set(n.id, n.name);
     for (const raw of [n.name, n.code]) {
       const k = ngoKey(raw);
@@ -107,7 +111,7 @@ const loadNgoLookup = async () => {
       }
     }
   }
-  return { exact, loose, names };
+  return { byId, exact, loose, names };
 };
 
 const resolveNgo = (lookup, v) => {
@@ -203,7 +207,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
 
   // The chosen NGO is validated once, not per row, so a bad id fails the whole
   // import loudly instead of silently importing members with no NGO.
-  let ngoLookup = { exact: new Map(), loose: [], names: new Map() };
+  let ngoLookup = { byId: new Map(), exact: new Map(), loose: [], names: new Map() };
   let importNgoId = null;
   try {
     ngoLookup = await loadNgoLookup();
@@ -212,17 +216,12 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
   }
   if (requestedNgoId) {
     const wanted = String(requestedNgoId).trim();
-    // The panel sends the id from /ngos/options, so match on the id directly.
-    // Guard the type: a name that happens to equal another NGO's id is not a hit.
-    const asId = Number(wanted);
-    const ids = [...ngoLookup.names.keys()];
-    if (Number.isInteger(asId) && ids.some((id) => Number(id) === asId)) {
-      importNgoId = ids.find((id) => Number(id) === asId);
-    } else if (ngoLookup.exact.has(wanted)) {
-      importNgoId = ngoLookup.exact.get(wanted);
-    } else {
-      importNgoId = resolveNgo(ngoLookup, wanted);
-    }
+    // The panel sends whatever /ngos/options returned as the value, which is a
+    // string of an int, bigint or uuid. Match it as a string first; fall back
+    // to the name/code path so a hand-made request still works.
+    importNgoId = ngoLookup.byId.get(wanted)
+      ?? ngoLookup.exact.get(ngoKey(wanted))
+      ?? resolveNgo(ngoLookup, wanted);
     if (!importNgoId) {
       return res.status(400).json({ message: 'The selected NGO no longer exists. Pick it again.' });
     }
@@ -280,7 +279,9 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
 
       // The NGO comes from the picker at the top of the page, not the sheet.
       const ngoId = importNgoId;
-      const ngoName = ngoId ? ngoLookup.names.get(ngoId) || null : null;
+      // The panel sends the label it showed; prefer the master's name, but fall
+      // back to it so a nameless NGO row still reads sensibly in the report.
+      const ngoName = (ngoId ? ngoLookup.names.get(ngoId) : null) || text(req.body?.ngo_name) || null;
       if (!ngoId) {
         warnings.push('No NGO was selected for this import, so the member was saved without one');
       }
