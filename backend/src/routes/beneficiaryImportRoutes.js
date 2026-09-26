@@ -3,16 +3,51 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { createImportBatch, getImportBatch, updateImportBatch, addImportRows, getImportRows, updateImportRow, listImportBatches } from '../models/importBatchModel.js';
-import { generateBeneficiaryCode, createBeneficiary, reserveBeneficiaryCodes, createBeneficiaries, updateBeneficiary, findByNumbers, runPooled } from '../models/beneficiaryModel.js';
+import { generateBeneficiaryCode, createBeneficiary, reserveBeneficiaryCodes, createBeneficiaries, updateBeneficiary, findByNumbers, runPooled, beneficiaryColumns, supportedFields } from '../models/beneficiaryModel.js';
 import { addSourceRecord, addSourceRecords, findByOriginalData } from '../models/beneficiarySourceModel.js';
 import { addDisability, addDisabilities, beneficiaryIdsWithDisabilities } from '../models/beneficiaryDisabilityModel.js';
 import { logAuditEvent, logAuditEvents } from '../models/auditLogModel.js';
 import db from '../config/db.js';
+import { ensureBeneficiarySchema } from '../bootstrap/ensureBeneficiarySchema.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const router = Router();
 
 const text = (v) => (v == null ? '' : String(v).trim());
+
+// `needed` and friends are added by the bootstrap repair, not by migration
+// 120, so an instance that has not been restarted since they were introduced
+// has no such column and every INSERT fails with "column ... does not exist".
+// The repair is idempotent, so the import runs it once per process instead of
+// making the operator guess whether a restart is needed.
+//
+// It is best-effort: the repair swallows its own SQL errors, and this wrapper
+// swallows anything else it might throw, so it can never turn a working import
+// into a failed request. What the table really has is decided by the column
+// read below.
+let schemaReady = null;
+const ensureImportSchema = () => {
+  if (!schemaReady) {
+    schemaReady = Promise.resolve()
+      .then(() => ensureBeneficiarySchema())
+      .catch((e) => {
+        console.warn('[beneficiary import] schema repair skipped:', e?.message || e);
+      });
+  }
+  return schemaReady;
+};
+
+// An INSERT that names a column the table does not have fails for every row
+// alike, so retrying row by row would just repeat the same failure hundreds of
+// times. Recognise those and surface them instead.
+const isSchemaError = (e) => {
+  const code = e?.code || '';
+  const msg = String(e?.message || '');
+  return code === '42703'                                   // undefined_column
+    || code === '42P01'                                     // undefined_table
+    || /column .* does not exist/i.test(msg)
+    || /relation .* does not exist/i.test(msg);
+};
 
 // Sheet cells are messy: one cell can hold two numbers ("8268111557/ 9967777103")
 // or a placeholder ("NA", "-", "0"). Pull the genuine 10-digit numbers out of
@@ -92,7 +127,8 @@ const loadNgoLookup = async () => {
   const exact = new Map();
   const loose = [];
   const names = new Map();
-  const { data } = await db.from('ngos').select('id, name, code');
+  const { data, error } = await db.from('ngos').select('id, name, code');
+  if (error) throw error;
   for (const n of data || []) {
     // ngos.id is int4/int8/uuid depending on the installation, so index the id
     // as a string and let the caller compare with String(id) === String(value).
@@ -190,6 +226,32 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
     return res.status(400).json({ message: 'rows array is required' });
   }
 
+  // Make sure the columns this INSERT names actually exist before touching a
+  // single row. The repair is best-effort by design — it swallows its own
+  // errors — so it never blocks an import; the column read below is the real
+  // gate, and it turns a stale schema into a clear answer either way.
+  await ensureImportSchema();
+
+  // Write only the columns this installation actually has. Anything else is
+  // reported per row rather than silently dropped.
+  let bColumns = new Set();
+  try {
+    bColumns = await beneficiaryColumns();
+  } catch (e) {
+    console.error('[beneficiary import] could not read the beneficiaries columns:', e.message);
+    return res.status(500).json({
+      message: `Could not read the beneficiaries table structure (${e.message}).`,
+      summary: { created: 0, updated: 0, no_change: 0, skipped: 0, errors: 0 },
+      results: [],
+      failed: true,
+    });
+  }
+
+  // Express 4 does not catch a rejected promise from an async handler: the
+  // request would simply never respond and the panel would sit on
+  // "Importing..." forever. Everything below is wrapped so any failure turns
+  // into a real answer.
+  try {
   const performedBy = req.user?.name || req.user?.email || 'system';
   const created_by = req.user?.name || req.user?.email || 'system';
 
@@ -200,7 +262,16 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
   try {
     ngoLookup = await loadNgoLookup();
   } catch (e) {
+    // An unreachable database is not the same thing as an unknown NGO. Saying
+    // "pick it again" here would send the operator hunting for the wrong
+    // problem, so report what actually went wrong.
     console.error('[beneficiary import] NGO lookup failed:', e.message);
+    return res.status(500).json({
+      message: `Could not reach the database to check the selected NGO (${e.message}). Try again in a moment.`,
+      summary: { created: 0, updated: 0, no_change: 0, skipped: 0, errors: 0 },
+      results: [],
+      failed: true,
+    });
   }
   if (requestedNgoId) {
     const wanted = String(requestedNgoId).trim();
@@ -325,15 +396,25 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       fill('needed', p.needed);
       fill('ngo_id', p.ngoId);
 
+      let willPatch = false;
       if (Object.keys(patch).length > 0) {
-        mergePatches.push({ id: existing.id, values: { ...patch, updated_by: created_by }, rowNumber: p.rowNumber });
+        const { kept, dropped } = supportedFields(patch, bColumns);
+        if (dropped.length > 0 && !p.droppedColumns) {
+          p.droppedColumns = dropped;
+          p.warnings.push(`This database has no "${dropped.join('", "')}" column, so that detail was not saved`);
+        }
+        if (Object.keys(kept).length > 0) {
+          willPatch = true;
+          mergePatches.push({ id: existing.id, values: { ...kept, updated_by: created_by }, rowNumber: p.rowNumber });
+        }
       }
 
       // Add the disability only when the member has none recorded yet.
       const disabilityAdded = (p.disabilityType || p.disabilityPercentage != null)
         && !idsWithDisability.has(existing.id);
 
-      const changed = Object.keys(patch).length > 0 || disabilityAdded;
+      // Only claim "updated" for a field that is actually written.
+      const changed = willPatch || disabilityAdded;
       if (changed) summary.updated++; else summary.no_change++;
       results.push({
         row: p.rowNumber, status: changed ? 'updated' : 'no_change', name: p.name,
@@ -407,7 +488,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       action: 'IMPORTED',
       performed_by: performedBy,
     });
-    return {
+    const { kept, dropped } = supportedFields({
       beneficiary_code,
       full_name: p.name,
       date_of_birth: p.dob,
@@ -422,22 +503,45 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       fingerprint_status: 'NOT_REGISTERED',
       created_by,
       updated_by: created_by,
-    };
+    }, bColumns);
+    if (dropped.length > 0 && !p.droppedColumns) {
+      p.droppedColumns = dropped;
+      p.warnings.push(`This database has no "${dropped.join('", "')}" column, so that detail was not saved`);
+    }
+    return kept;
   }).filter((r) => r.beneficiary_code);
 
   // A bulk insert is all-or-nothing, so fall back to row-by-row if the batch is
-  // rejected — one malformed row must not cost the other 441 members.
+  // rejected — one malformed row must not cost the other 441 members. A schema
+  // problem is different: it fails identically for every row, so re-sending the
+  // whole file one row at a time would only turn one clear error into a long
+  // wait for the same error.
   const insertChunk = async (rows) => {
     if (rows.length === 0) return [];
     try {
       return await createBeneficiaries(rows);
     } catch (e) {
+      if (isSchemaError(e)) {
+        console.error('[beneficiary import] insert rejected by the schema:', e.message);
+        throw Object.assign(
+          new Error(`The beneficiaries table is missing a column this import needs (${e.message}). Restart the backend and try again.`),
+          { schemaError: true },
+        );
+      }
       console.error('[beneficiary import] bulk insert failed, retrying row by row:', e.message);
       const saved = [];
+      let consecutiveFailures = 0;
       for (const r of rows) {
         try {
           saved.push(...await createBeneficiaries([r]));
+          consecutiveFailures = 0;
         } catch (rowErr) {
+          if (isSchemaError(rowErr) || ++consecutiveFailures >= 5) {
+            // Every row is failing the same way; stop instead of grinding
+            // through the rest of the file.
+            console.error('[beneficiary import] aborting row-by-row retry:', rowErr.message);
+            throw Object.assign(new Error(rowErr.message), { schemaError: isSchemaError(rowErr) });
+          }
           const p = toCreate.find((c) => c.beneficiary_code === r.beneficiary_code);
           console.error(`[beneficiary import] row ${p?.rowNumber} failed:`, rowErr.message);
           if (p) {
@@ -576,6 +680,15 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
   }
 
   return res.json({ summary, results, batch_id: batch?.id ?? null, imported });
+  } catch (error) {
+    console.error('[beneficiary import] failed:', error);
+    return res.status(500).json({
+      message: error?.message || 'The import could not be completed.',
+      summary: { created: 0, updated: 0, no_change: 0, skipped: 0, errors: 0 },
+      results: [],
+      failed: true,
+    });
+  }
 });
 
 // Map columns and preview

@@ -99,6 +99,39 @@ export async function findByNumbers(mobiles) {
   return found;
 }
 
+// Which columns the beneficiaries table actually has, read once per process.
+// The table has grown over time and different installations are at different
+// points, so a write names only the columns that exist rather than assuming
+// the newest schema. `needed`, for example, is added by the bootstrap repair
+// and is absent from migration 120.
+let beneficiaryColumnCache = null;
+export async function beneficiaryColumns() {
+  if (!beneficiaryColumnCache) {
+    beneficiaryColumnCache = (async () => {
+      // db._pool is raw node-postgres, so the rows come back on `rows` — not on
+      // the `data`/`error` shape the query builder returns.
+      const { rows, error } = await db._pool.query(
+        `select column_name from information_schema.columns
+          where table_schema = current_schema() and table_name = 'beneficiaries'`,
+      );
+      if (error) throw error;
+      return new Set((rows || []).map((r) => r.column_name));
+    })().catch((e) => { beneficiaryColumnCache = null; throw e; });
+  }
+  return beneficiaryColumnCache;
+}
+
+// Drop any key the table does not have, so one missing column cannot make the
+// whole insert fail. Returns the fields that had to be left out.
+export const supportedFields = (values, columns) => {
+  const kept = {};
+  const dropped = [];
+  for (const [k, v] of Object.entries(values)) {
+    if (columns.has(k)) kept[k] = v; else dropped.push(k);
+  }
+  return { kept, dropped };
+};
+
 export const createBeneficiaries = async (rows) => {
   if (!rows?.length) return [];
   const { data, error } = await db.from('beneficiaries').insert(rows).select('*');

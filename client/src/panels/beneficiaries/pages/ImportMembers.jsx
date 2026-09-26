@@ -291,15 +291,25 @@ export default function ImportMembers() {
           for (const col of COLUMNS) o[col.key] = r[col.key]
           return o
         })
+      if (payload.length === 0) { setError('No member rows are ready to import'); return }
       const res = await apiPost('/beneficiaries/import/members', {
         rows: payload,
         file_name: fileName,
         ngo_id: ngoId,
         ngo_name: selectedNgo?.name || null,
-      })
+      }, { timeout: 600000 })
+      if (!res || res.failed) {
+        setError(res?.message || 'The import could not be completed. Nothing was saved.')
+        return
+      }
       setResult(res)
     } catch (e) {
-      setError('Import failed: ' + (e.message || 'unknown error'))
+      const msg = String(e?.message || '')
+      setError(
+        /abort|timeout/i.test(msg)
+          ? 'The import timed out before it finished. Check the backend log, then try again.'
+          : 'Import failed: ' + (msg || 'unknown error'),
+      )
     } finally {
       setImporting(false)
     }
