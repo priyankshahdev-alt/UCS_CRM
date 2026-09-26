@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -16,7 +16,7 @@ const text = (v) => (v == null ? '' : String(v).trim());
 
 // Sheet cells are messy: one cell can hold two numbers ("8268111557/ 9967777103")
 // or a placeholder ("NA", "-", "0"). Pull the genuine 10-digit numbers out of
-// the cell and ignore placeholders — concatenating everything and keeping the
+// the cell and ignore placeholders â€” concatenating everything and keeping the
 // last 10 digits would silently turn a member's number into their alternate.
 const PHONE_PLACEHOLDERS = new Set(['na', 'n/a', 'nil', 'none', 'null', 'undefined', '-', '--', '---', '0']);
 const phoneList = (v) => {
@@ -78,7 +78,7 @@ const toDob = (v) => {
 const GENDER = { m: 'MALE', male: 'MALE', man: 'MALE', f: 'FEMALE', female: 'FEMALE', woman: 'FEMALE', o: 'OTHER', other: 'OTHER', t: 'TRANSGENDER', transgender: 'TRANSGENDER' };
 const gender = (v) => GENDER[text(v).toLowerCase()] || text(v).toUpperCase() || null;
 
-// "Needed Type (NGO)" is free text in the sheet, matched against the NGO
+// "NGO" is free text in the sheet, matched against the NGO
 // master list (name first, then code) so the import lands on a real ngo_id.
 const loadNgoLookup = async () => {
   const lookup = new Map();
@@ -145,13 +145,13 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
   }
 });
 
-// ── Member sheet import (Accounts panel → Beneficiaries → Import Members) ──
+// â”€â”€ Member sheet import (Accounts panel â†’ Beneficiaries â†’ Import Members) â”€â”€
 // The panel parses the workbook in the browser and posts the mapped rows, so
-// this endpoint only does the parts that need the database: NGO name → ngo_id,
-// Age → date_of_birth, and the create/merge itself.
+// this endpoint only does the parts that need the database: NGO name â†’ ngo_id,
+// Age â†’ date_of_birth, and the create/merge itself.
 //
 // Sheet columns: Member Name, Number, % of Disability, Type of Disability,
-// Alternate Number, Location, Needed Type (NGO), State, Age, DOB, Gender.
+// Alternate Number, Location, Needed Type, NGO, State, Age, DOB, Gender.
 router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), async (req, res) => {
   const { rows, file_name: fileName } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -206,16 +206,19 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       }
       const location = text(row.location);
       const state = text(row.state);
+      // "Needed Type" (what the member needs) is a plain text field of its own;
+      // "NGO" (who serves them) resolves to ngo_id. They are separate columns.
+      const needed = text(row.needed);
       const disabilityType = text(row.disability_type);
       const disabilityPercentage = pct(row.disability_percentage);
       const g = gender(row.gender);
 
       const ngoId = resolveNgo(ngoLookup, row.ngo);
       if (text(row.ngo) && !ngoId) {
-        warnings.push(`"${text(row.ngo)}" does not match a registered NGO — left unassigned`);
+        warnings.push(`"${text(row.ngo)}" does not match a registered NGO â€” left unassigned`);
       }
       if (disabilityPercentage != null && !disabilityType) {
-        warnings.push('Disability % present without a Type — recorded as "General"');
+        warnings.push('Disability % present without a Type â€” recorded as "General"');
       }
 
       const existing = mobile ? await findByNumber(mobile) : null;
@@ -233,6 +236,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
         fill('gender', g);
         fill('address_line_1', location);
         fill('state', state);
+        fill('needed', needed);
         fill('ngo_id', ngoId);
 
         if (Object.keys(patch).length > 0) {
@@ -276,6 +280,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
         alternate_mobile: alternateMobile,
         address_line_1: location || null,
         state: state || null,
+        needed: needed || null,
         ngo_id: ngoId,
         status: 'ACTIVE',
         fingerprint_status: 'NOT_REGISTERED',

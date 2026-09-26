@@ -12,7 +12,8 @@ const COLUMNS = [
   { key: 'disability_type', label: 'Type of Disability', type: 'text', width: 20, aliases: ['type of disability', 'disability type', 'type disability', 'disability category', 'nature of disability', 'disability'] },
   { key: 'alternate_mobile', label: 'Alternate Number', type: 'phone', width: 15, aliases: ['alternate number', 'alternate mobile', 'alternate mobile number', 'alternate no', 'alt number', 'alt mobile', 'secondary number', 'second number'] },
   { key: 'location', label: 'Location', type: 'text', width: 22, aliases: ['location', 'address', 'address line 1', 'village', 'area', 'place'] },
-  { key: 'ngo', label: 'Needed Type (NGO)', type: 'text', width: 20, aliases: ['needed type ngo', 'needed type', 'needed ngo', 'ngo', 'organisation', 'organization', 'ngo name'] },
+  { key: 'needed', label: 'Needed Type', type: 'text', width: 20, aliases: ['needed type', 'neededtype', 'type of need', 'need type', 'needed', 'requirement', 'requirement type', 'service needed', 'support needed'] },
+  { key: 'ngo', label: 'NGO', type: 'text', width: 20, aliases: ['ngo', 'ngo name', 'ngo code', 'organisation', 'organization', 'serving ngo', 'assigned ngo'] },
   { key: 'state', label: 'State', type: 'text', width: 16, aliases: ['state', 'state name'] },
   { key: 'age', label: 'Age', type: 'number', width: 8, aliases: ['age', 'age in years', 'years'] },
   { key: 'date_of_birth', label: 'DOB', type: 'date', width: 14, aliases: ['dob', 'date of birth', 'dateofbirth', 'birth date', 'birthdate'] },
@@ -29,7 +30,7 @@ const exactMatchCount = (headers) => {
   return COLUMNS.reduce((n, col) => n + (col.aliases.some((a) => normalized.includes(a)) ? 1 : 0), 0)
 }
 
-// Longest alias wins, so "needed type ngo" is claimed before "ngo" and
+// Longest alias wins, so "needed type" is claimed before a bare "needed" and
 // "alternate number" before a bare "number". Returns a column index per key.
 const matchColumns = (headers) => {
   const map = {}
@@ -252,7 +253,8 @@ export default function ImportMembers() {
       'Type of Disability': 'Locomotor',
       'Alternate Number': '9123456780',
       'Location': 'Village Rampur, Block Sadar',
-      'Needed Type (NGO)': '',
+      'Needed Type': 'Wheelchair',
+      'NGO': '',
       'State': 'Uttar Pradesh',
       'Age': 34,
       'DOB': '1992-04-18',
@@ -313,7 +315,7 @@ export default function ImportMembers() {
           <h2 style={styles.title}>Import Members</h2>
           <div style={styles.sub}>
             Upload an Excel sheet to add members in bulk. Columns: <strong>Member Name</strong> (required), Number, % of Disability,
-            Type of Disability, Alternate Number, Location, Needed Type (NGO), State, Age, DOB, Gender.
+            Type of Disability, Alternate Number, Location, Needed Type, NGO, State, Age, DOB, Gender.
             A member already registered under the same number is updated with the missing details instead of being duplicated,
             and <em>Age</em> is converted to DOB when DOB is blank.
           </div>
