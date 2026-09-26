@@ -184,13 +184,16 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
 
 // ── Member sheet import (Accounts panel → Beneficiaries → Import Members) ──
 // The panel parses the workbook in the browser and posts the mapped rows, so
-// this endpoint only does the parts that need the database: NGO name → ngo_id,
-// Age → date_of_birth, and the create/merge itself.
+// this endpoint only does the parts that need the database: Age → date_of_birth
+// and the create/merge itself.
+//
+// The NGO is not a sheet column. The panel asks which NGO the import is for and
+// sends ngo_id once; every member in the file is linked to it.
 //
 // Sheet columns: Member Name, Number, % of Disability, Type of Disability,
-// Alternate Number, Location, Needed Type, NGO, State, Age, DOB, Gender.
+// Alternate Number, Location, Needed Type, State, Age, DOB, Gender.
 router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), async (req, res) => {
-  const { rows, file_name: fileName } = req.body || {};
+  const { rows, file_name: fileName, ngo_id: requestedNgoId } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ message: 'rows array is required' });
   }
@@ -198,10 +201,35 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
   const performedBy = req.user?.name || req.user?.email || 'system';
   const created_by = req.user?.name || req.user?.email || 'system';
 
-  let batch = null;
-  let ngoLookup = new Map();
+  // The chosen NGO is validated once, not per row, so a bad id fails the whole
+  // import loudly instead of silently importing members with no NGO.
+  let ngoLookup = { exact: new Map(), loose: [], names: new Map() };
+  let importNgoId = null;
   try {
     ngoLookup = await loadNgoLookup();
+  } catch (e) {
+    console.error('[beneficiary import] NGO lookup failed:', e.message);
+  }
+  if (requestedNgoId) {
+    const wanted = String(requestedNgoId).trim();
+    // The panel sends the id from /ngos/options, so match on the id directly.
+    // Guard the type: a name that happens to equal another NGO's id is not a hit.
+    const asId = Number(wanted);
+    const ids = [...ngoLookup.names.keys()];
+    if (Number.isInteger(asId) && ids.some((id) => Number(id) === asId)) {
+      importNgoId = ids.find((id) => Number(id) === asId);
+    } else if (ngoLookup.exact.has(wanted)) {
+      importNgoId = ngoLookup.exact.get(wanted);
+    } else {
+      importNgoId = resolveNgo(ngoLookup, wanted);
+    }
+    if (!importNgoId) {
+      return res.status(400).json({ message: 'The selected NGO no longer exists. Pick it again.' });
+    }
+  }
+
+  let batch = null;
+  try {
     batch = await createImportBatch({
       file_name: text(fileName) || `member-import-${new Date().toISOString().slice(0, 10)}.xlsx`,
       total_rows: rows.length,
@@ -250,10 +278,11 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       const disabilityPercentage = pct(row.disability_percentage);
       const g = gender(row.gender);
 
-      const ngoId = resolveNgo(ngoLookup, row.ngo);
+      // The NGO comes from the picker at the top of the page, not the sheet.
+      const ngoId = importNgoId;
       const ngoName = ngoId ? ngoLookup.names.get(ngoId) || null : null;
-      if (text(row.ngo) && !ngoId) {
-        warnings.push(`"${text(row.ngo)}" is not a registered NGO, so no NGO was linked. Add it in NGO master, or correct the sheet.`);
+      if (!ngoId) {
+        warnings.push('No NGO was selected for this import, so the member was saved without one');
       }
       if (disabilityPercentage != null && !disabilityType) {
         warnings.push('Disability % present without a Type — recorded as "General"');
@@ -297,7 +326,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
         results.push({
           row: rowNumber, status: changed ? 'updated' : 'no_change', name,
           mobile, beneficiary_id: existing.id, beneficiary_code: existing.beneficiary_code,
-          needed, ngo: text(row.ngo), ngo_name: ngoName,
+          needed, ngo_name: ngoName,
           message: changed ? 'Existing member updated with the missing details' : 'Already up to date',
           warnings,
         });
@@ -353,8 +382,8 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       imported.push(created);
       results.push({
         row: rowNumber, status: 'created', name, mobile,
-        needed, ngo: text(row.ngo), ngo_name: ngoName,
-        beneficiary_id: created.id, beneficiary_code, message: 'Member added', warnings,
+          needed, ngo_name: ngoName,
+          beneficiary_id: created.id, beneficiary_code, message: 'Member added', warnings,
       });
       staging.push({
         batch_id: batch?.id ?? null, row_number: rowNumber, raw_data: row, mapped_data: row,

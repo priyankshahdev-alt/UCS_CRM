@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { apiPost } from '../store'
+import { apiGet, apiPost } from '../store'
 
 // Sheet columns the Accounts panel accepts. Only "Member Name" is mandatory —
 // every other header is matched loosely so real-world sheets (Member Name vs
@@ -13,7 +13,6 @@ const COLUMNS = [
   { key: 'alternate_mobile', label: 'Alternate Number', type: 'phone', width: 15, aliases: ['alternate number', 'alternate mobile', 'alternate mobile number', 'alternate no', 'alt number', 'alt mobile', 'secondary number', 'second number'] },
   { key: 'location', label: 'Location', type: 'text', width: 22, aliases: ['location', 'address', 'address line 1', 'village', 'area', 'place'] },
   { key: 'needed', label: 'Needed Type', type: 'text', width: 20, aliases: ['needed type', 'neededtype', 'type of need', 'need type', 'needed', 'requirement', 'requirement type', 'service needed', 'support needed'] },
-  { key: 'ngo', label: 'NGO', type: 'text', width: 20, aliases: ['ngo', 'ngo name', 'ngo code', 'organisation', 'organization', 'serving ngo', 'assigned ngo'] },
   { key: 'state', label: 'State', type: 'text', width: 16, aliases: ['state', 'state name'] },
   { key: 'age', label: 'Age', type: 'number', width: 8, aliases: ['age', 'age in years', 'years'] },
   { key: 'date_of_birth', label: 'DOB', type: 'date', width: 14, aliases: ['dob', 'date of birth', 'dateofbirth', 'birth date', 'birthdate'] },
@@ -213,7 +212,21 @@ export default function ImportMembers() {
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
   const [dragOver, setDragOver] = useState(false)
+  const [ngoOptions, setNgoOptions] = useState([])
+  const [ngoId, setNgoId] = useState('')
   const fileRef = useRef(null)
+
+  // The NGO is chosen once and applied to every member in the file, so the
+  // options are fetched up front and the picker is required before importing.
+  useEffect(() => {
+    let live = true
+    apiGet('/ngos/options')
+      .then((list) => { if (live) setNgoOptions(Array.isArray(list) ? list : []) })
+      .catch(() => { if (live) setNgoOptions([]) })
+    return () => { live = false }
+  }, [])
+
+  const selectedNgo = ngoOptions.find((o) => String(o.id) === String(ngoId)) || null
 
   const processFile = (file) => {
     setError(null); setResult(null); setRows([]); setColMap({}); setFileName(''); setParsing(true)
@@ -254,7 +267,6 @@ export default function ImportMembers() {
       'Alternate Number': '9123456780',
       'Location': 'Village Rampur, Block Sadar',
       'Needed Type': 'Wheelchair',
-      'NGO': '',
       'State': 'Uttar Pradesh',
       'Age': 34,
       'DOB': '1992-04-18',
@@ -269,6 +281,7 @@ export default function ImportMembers() {
 
   const handleImport = async () => {
     if (rows.length === 0 || importing) return
+    if (!ngoId) { setError('Choose the NGO for this import first'); return }
     setImporting(true); setError(null); setResult(null)
     try {
       const payload = rows
@@ -278,7 +291,12 @@ export default function ImportMembers() {
           for (const col of COLUMNS) o[col.key] = r[col.key]
           return o
         })
-      const res = await apiPost('/beneficiaries/import/members', { rows: payload, file_name: fileName })
+      const res = await apiPost('/beneficiaries/import/members', {
+        rows: payload,
+        file_name: fileName,
+        ngo_id: ngoId,
+        ngo_name: selectedNgo?.name || null,
+      })
       setResult(res)
     } catch (e) {
       setError('Import failed: ' + (e.message || 'unknown error'))
@@ -294,8 +312,7 @@ export default function ImportMembers() {
       'Number': r.mobile || '',
       'Beneficiary Code': r.beneficiary_code || '',
       'Needed Type': r.needed || '',
-      'NGO In Sheet': r.ngo || '',
-      'NGO Assigned': r.ngo_name || '',
+      NGO: r.ngo_name || '',
       Status: STATUS_LABELS[r.status] || r.status,
       Details: r.message || '',
       Warnings: (r.warnings || []).join('; '),
@@ -317,8 +334,9 @@ export default function ImportMembers() {
         <div>
           <h2 style={styles.title}>Import Members</h2>
           <div style={styles.sub}>
-            Upload an Excel sheet to add members in bulk. Columns: <strong>Member Name</strong> (required), Number, % of Disability,
-            Type of Disability, Alternate Number, Location, Needed Type, NGO, State, Age, DOB, Gender.
+            Choose the NGO first &mdash; every member in the file is linked to it. Then upload an Excel sheet.
+            Columns: <strong>Member Name</strong> (required), Number, % of Disability,
+            Type of Disability, Alternate Number, Location, Needed Type, State, Age, DOB, Gender.
             A member already registered under the same number is updated with the missing details instead of being duplicated,
             and <em>Age</em> is converted to DOB when DOB is blank.
           </div>
@@ -329,20 +347,48 @@ export default function ImportMembers() {
       </div>
 
       <div style={styles.card}>
+        <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+            NGO <span style={{ color: '#b91c1c' }}>*</span>
+          </label>
+          <select
+            value={ngoId}
+            onChange={(e) => setNgoId(e.target.value)}
+            style={{
+              width: '100%', maxWidth: 420, padding: '9px 11px', fontSize: 13,
+              border: `1px solid ${ngoId ? 'var(--line)' : '#d9a3a3'}`,
+              borderRadius: 6, background: 'var(--bg)', color: 'var(--ink)',
+            }}
+          >
+            <option value="">
+              {ngoOptions.length === 0 ? 'Loading NGOs...' : 'Select the NGO for this import'}
+            </option>
+            {ngoOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 6 }}>
+            {ngoOptions.length === 0
+              ? 'If this list is empty, add the NGO in the NGO master first.'
+              : 'Every member in this file will be linked to the selected NGO.'}
+          </div>
+        </div>
+
         <div style={styles.bar}>
           <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
             {rows.length > 0
-              ? <><strong style={{ color: 'var(--ink)' }}>{readyCount}</strong> of {rows.length} row(s) ready to import</>
+              ? <><strong style={{ color: 'var(--ink)' }}>{readyCount}</strong> of {rows.length} row(s) ready to import{selectedNgo ? <> &rarr; <strong style={{ color: 'var(--ink)' }}>{selectedNgo.name}</strong></> : ' (choose an NGO to continue)'}</>
               : 'No file loaded yet'}
           </div>
           {rows.length > 0 && (
             <button
               onClick={handleImport}
-              disabled={importing || readyCount === 0}
+              disabled={importing || readyCount === 0 || !ngoId}
               style={{
                 ...styles.btn, marginLeft: 'auto',
-                background: readyCount === 0 ? 'var(--bg)' : 'var(--sage)', color: readyCount === 0 ? 'var(--ink-soft)' : '#fff',
-                cursor: readyCount === 0 ? 'not-allowed' : 'pointer',
+                background: readyCount === 0 || !ngoId ? 'var(--bg)' : 'var(--sage)',
+                color: readyCount === 0 || !ngoId ? 'var(--ink-soft)' : '#fff',
+                cursor: readyCount === 0 || !ngoId ? 'not-allowed' : 'pointer',
               }}
             >
               {importing ? 'Importing...' : `Import ${readyCount} Member${readyCount === 1 ? '' : 's'}`}
@@ -464,9 +510,7 @@ export default function ImportMembers() {
                     <td style={{ ...styles.td, color: 'var(--ink-soft)' }}>{r.row}</td>
                     <td style={styles.td}>{r.name || '\u2014'}</td>
                     <td style={{ ...styles.td, fontFamily: 'monospace' }}>{r.mobile || '\u2014'}</td>
-                    <td style={styles.td}>
-                      {r.ngo_name || (r.ngo ? <span style={{ color: '#92400e' }}>{r.ngo} (not linked)</span> : '—')}
-                    </td>
+                    <td style={styles.td}>{r.ngo_name || '- not linked'}</td>
                     <td style={styles.td}>{r.needed || '—'}</td>
                     <td style={styles.td}>{r.beneficiary_code ? <code style={{ fontSize: 11, background: 'var(--bg)', padding: '2px 6px', borderRadius: 4 }}>{r.beneficiary_code}</code> : '\u2014'}</td>
                     <td style={styles.td}>
