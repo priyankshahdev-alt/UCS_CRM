@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api/auth'
 import { onDbChange } from './lib/socket'
+import { syncFrom as syncServerClock } from './lib/serverClock'
 
 // Shared "meeting mode" state for the whole web CRM. One poller + realtime
 // events feed every consumer (MeetingGate overlay, admin button, FRO call
@@ -40,8 +41,13 @@ export function refreshMeeting() {
     return
   }
   inflight = true
+  const sentAt = Date.now()
   api('/meeting', { _prefix: 'ucs' })
     .then((r) => {
+      // Keep the device clock anchored to the server on every poll, even when
+      // the meeting itself hasn't changed — this is what makes the elapsed
+      // counter read the same on a phone with a wrong clock.
+      syncServerClock(r, { sentAt, receivedAt: Date.now() })
       const next = r && r.active ? r : null
       if ((next?.id) !== (state.meeting?.id) || Boolean(next) !== Boolean(state.meeting)) {
         state = { meeting: next }

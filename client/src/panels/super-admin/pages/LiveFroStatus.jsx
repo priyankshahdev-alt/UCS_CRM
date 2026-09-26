@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { api } from '../../../api/auth'
 import { onDbChange } from '../../../lib/socket'
+import { now as serverNow, syncFrom as syncServerClock } from '../../../lib/serverClock'
 import { fmt } from '../components/froShared'
 
 const LFS_CSS = `
@@ -107,7 +108,9 @@ export default function LiveFroStatus() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sort, setSort] = useState('name-asc')
-  const [now, setNow] = useState(() => Date.now())
+  // Ticks on the SERVER's clock. Using the device clock made these durations
+  // wrong on any machine whose clock is off (clamped to 00:00 or inflated).
+  const [now, setNow] = useState(() => serverNow())
   const aliveRef = useRef(true)
 
   useEffect(() => {
@@ -163,8 +166,24 @@ export default function LiveFroStatus() {
 
   // One shared ticker for call/break durations — no per-card intervals.
   useEffect(() => {
-    const t = setInterval(() => { if (aliveRef.current) setNow(Date.now()) }, 30000)
+    const t = setInterval(() => { if (aliveRef.current) setNow(serverNow()) }, 30000)
     return () => clearInterval(t)
+  }, [])
+
+  // Anchor the device clock to the server on mount. GET /meeting is the cheap
+  // authenticated endpoint that stamps `server_now`; it is called here purely for
+  // its clock and the meeting payload itself is ignored.
+  useEffect(() => {
+    let alive = true
+    const sentAt = Date.now()
+    api('/meeting', { _prefix: 'ucs' })
+      .then((r) => {
+        if (!alive) return
+        syncServerClock(r, { sentAt, receivedAt: Date.now() })
+        if (aliveRef.current) setNow(serverNow())
+      })
+      .catch(() => {})
+    return () => { alive = false }
   }, [])
 
   const refresh = () => { loadStatuses(true) }
@@ -175,7 +194,10 @@ export default function LiveFroStatus() {
     const id = fs.worker_id || fs.fro_id || fs.id
     if (!id || pausingId) return
     const pausing = !fs.is_paused
-    const liveSeen = fs.updated_at ? Date.now() - new Date(fs.updated_at).getTime() : Infinity
+    // `updated_at` is written by the server, so compare it against the SERVER
+    // clock. A device clock 12h behind made this look stale and falsely warned
+    // that the FRO's panel was offline.
+    const liveSeen = fs.updated_at ? serverNow() - Date.parse(fs.updated_at) : Infinity
     // Freshness gate (~3 min): a stale heartbeat means their panel is
     // closed/offline — the pause still saves server-side and applies the
     // moment they next open the app.
@@ -231,14 +253,21 @@ export default function LiveFroStatus() {
     return out
   }, [statuses, query, statusFilter, sort])
 
+  // `now` is on the server's clock (see serverClock), and an unparseable
+  // timestamp must render as 00:00 rather than NaN.
+  const secsSince = (iso) => {
+    const s = Date.parse(iso)
+    if (Number.isNaN(s)) return 0
+    return Math.max(0, Math.floor((now - s) / 1000))
+  }
   const liveCallSecs = (fs) => {
     if (fs.computed?.call_duration_seconds != null) return fs.computed.call_duration_seconds
-    if (fs.call_started_at) return Math.max(0, Math.floor((now - new Date(fs.call_started_at).getTime()) / 1000))
+    if (fs.call_started_at) return secsSince(fs.call_started_at)
     return 0
   }
   const liveBreakSecs = (fs) => {
     if (fs.computed?.break_duration_seconds != null) return fs.computed.break_duration_seconds
-    if (fs.break_started_at) return Math.max(0, Math.floor((now - new Date(fs.break_started_at).getTime()) / 1000))
+    if (fs.break_started_at) return secsSince(fs.break_started_at)
     return 0
   }
 

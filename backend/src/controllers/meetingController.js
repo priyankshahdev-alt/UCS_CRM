@@ -25,15 +25,30 @@ const getCallerTeam = async (userId) => {
   } catch { return null; }
 };
 
-const serialize = (meeting) => meeting ? {
-  active: true,
-  id: meeting.id,
-  title: meeting.title || 'Meeting',
-  started_by: meeting.started_by,
-  started_by_name: meeting.started_by_name || 'Admin',
-  started_at: meeting.started_at,
-  teams: meeting.teams || [],
-} : { active: false };
+// The server is the authority on time. Clients that tick an elapsed timer
+// against their own device clock show a different number on every phone (a
+// clock behind us clamps to a permanent 00:00:00, a clock ahead inflates it),
+// so every payload carries `server_now` for the client to anchor against, plus
+// an already-computed `elapsed_seconds` so the very first paint is correct.
+const serialize = (meeting) => {
+  const server_now = new Date().toISOString();
+  if (!meeting) return { active: false, server_now };
+
+  const startMs = new Date(meeting.started_at).getTime();
+  return {
+    active: true,
+    id: meeting.id,
+    title: meeting.title || 'Meeting',
+    started_by: meeting.started_by,
+    started_by_name: meeting.started_by_name || 'Admin',
+    started_at: meeting.started_at,
+    teams: meeting.teams || [],
+    server_now,
+    elapsed_seconds: Number.isNaN(startMs)
+      ? null
+      : Math.max(0, Math.floor((Date.now() - startMs) / 1000)),
+  };
+};
 
 export const getMeetingStatus = async (req, res) => {
   try {
