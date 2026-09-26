@@ -11,6 +11,7 @@ import {
   bulkInsertSimCards,
   createSimCardHistory,
   getSimCardHistory,
+  listSimCardHistory,
 } from '../models/simCardModel.js';
 
 export const SIM_STATUSES = ['Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
@@ -187,6 +188,26 @@ export const editSimCard = async (req, res) => {
 export const historyForSim = async (req, res) => {
   try {
     const history = await getSimCardHistory(req.params.id);
+    return res.json(history);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Brand-wide number-change log backing the Nokia/Android history option.
+// Read-only: this never writes, it only widens the existing audit trail across
+// every card of a brand in one request.
+const HISTORY_BRANDS = ['all', 'nokia', 'android'];
+
+export const historyAll = async (req, res) => {
+  try {
+    const asked = String(req.query.brand || 'all').toLowerCase();
+    const brand = HISTORY_BRANDS.includes(asked) ? asked : 'all';
+    // Accept a plain YYYY-MM-DD prefix; anything else is ignored so a bad query
+    // string degrades to "all time" instead of erroring or emptying the log.
+    const rawFrom = String(req.query.from || '').trim();
+    const from = /^\d{4}-\d{2}-\d{2}/.test(rawFrom) ? rawFrom : null;
+    const history = await listSimCardHistory({ brand, from });
     return res.json(history);
   } catch (error) {
     return res.status(500).json({ message: error.message });

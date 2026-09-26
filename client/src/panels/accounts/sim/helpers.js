@@ -279,8 +279,172 @@ function buildSpreadsheetXml(cards, columns, row) {
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">
-<Worksheet ss:Name="SIM Cards">
-<Table>${body}</Table>
-</Worksheet>
+ <Worksheet ss:Name="SIM Cards">
+ <Table>${body}</Table>
+ </Worksheet>
 </Workbook>`;
+}
+
+// ---------------------------------------------------------------------------
+// Nokia / Android number history
+// ---------------------------------------------------------------------------
+// A card is exactly one brand, decided by its Mobile ID, using the same rules
+// as the list filters in SimSection.jsx and Inventory.jsx:
+//   ufrs...                     -> Nokia
+//   "android <n>"               -> Android
+//   "android whatsapp <n>"      -> companion row, hidden from every list
+export function simBrandOf(mobileId) {
+  const id = String(mobileId || '').toLowerCase().trim();
+  if (id.startsWith('ufrs')) return 'Nokia';
+  if (id.startsWith('android whatsapp')) return '';
+  if (id.startsWith('android ')) return 'Android';
+  return '';
+}
+
+export const SIM_BRAND_FILTERS = ['All', 'Nokia', 'Android'];
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function historyValue(v) {
+  if (v === null || v === undefined || v === '') return 'Blank';
+  return String(v);
+}
+
+function historyAction(oldV, newV) {
+  const oldEmpty = oldV === null || oldV === undefined || String(oldV).trim() === '';
+  const newEmpty = newV === null || newV === undefined || String(newV).trim() === '';
+  if (oldEmpty && !newEmpty) return 'Added';
+  if (!oldEmpty && newEmpty) return 'Removed';
+  return 'Updated';
+}
+
+function historyTime(value) {
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+// Flattens audit rows into one entry per changed SIM slot, newest first.
+// Only sim_N columns are kept: this view answers "which number changed", so
+// edits to team/status/expiry and friends are intentionally left out.
+export function numberHistoryEntries(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    if (!r) continue;
+    const cols = r.changed_cols && typeof r.changed_cols === 'object' ? r.changed_cols : null;
+    if (!cols) continue;
+    const card = r.sim_cards && typeof r.sim_cards === 'object' ? r.sim_cards : {};
+    for (const [key, change] of Object.entries(cols)) {
+      if (!/^sim_\d+$/.test(key)) continue;
+      const oldV = change && typeof change === 'object' ? change.old : change;
+      const newV = change && typeof change === 'object' ? change.new : change;
+      out.push({
+        key: `${r.id}-${key}`,
+        changed_at: r.changed_at,
+        changed_by: r.changed_by || '',
+        mobile_id: card.mobile_id || '',
+        device_model: card.device_model || '',
+        slot: key.slice(4),
+        old: historyValue(oldV),
+        new: historyValue(newV),
+        action: historyAction(oldV, newV),
+      });
+    }
+  }
+  out.sort((a, b) => historyTime(b.changed_at) - historyTime(a.changed_at));
+  return out;
+}
+
+// Buckets entries into month groups, newest month first. Entries with an
+// unreadable changed_at keep their data and collect in a trailing group
+// instead of being dropped.
+export function groupEntriesByMonth(entries) {
+  const groups = new Map();
+  for (const e of entries || []) {
+    const dt = new Date(e.changed_at);
+    const valid = Number.isFinite(dt.getTime());
+    const key = valid ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}` : 'unknown';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: valid ? `${MONTH_NAMES[dt.getMonth()]} ${dt.getFullYear()}` : 'Date unknown',
+        entries: [],
+      });
+    }
+    groups.get(key).entries.push(e);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === 'unknown') return 1;
+    if (b.key === 'unknown') return -1;
+    return b.key.localeCompare(a.key);
+  });
+}
+
+// The period filter, in one place: the label the chip shows and how far back it
+// reaches. Adding an option (12m, 2y, ...) is a single line here - the cutoff
+// math and the row filter both read from this.
+export const HISTORY_PERIODS = [
+  { value: 'all', label: 'All Time', months: null },
+  { value: '6m', label: '6 Month', months: 6 },
+  { value: '3m', label: '3 Month', months: 3 },
+];
+
+export function historyPeriod(range) {
+  return HISTORY_PERIODS.find((p) => p.value === range) || HISTORY_PERIODS[0];
+}
+
+// Period value -> YYYY-MM-DD cutoff, or null for all time.
+// The day is clamped to the target month's length: d.setMonth() on the 31st
+// would overflow (31 Feb -> 3 Mar) and silently shorten the window by a month.
+export function historyRangeFrom(range) {
+  const months = historyPeriod(range).months;
+  if (!months) return null;
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth() - months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(now.getDate(), lastDay));
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+}
+
+const BRAND_ORDER = ['Nokia', 'Android', 'Other'];
+
+// Applies a period option to already-loaded entries. The full history is kept
+// in memory and narrowed here, so switching periods costs no request.
+export function filterEntriesByRange(entries, range) {
+  const from = historyRangeFrom(range);
+  if (!from) return entries || [];
+  const cutoff = new Date(`${from}T00:00:00`).getTime();
+  if (!Number.isFinite(cutoff)) return entries || [];
+  return (entries || []).filter((e) => {
+    const t = new Date(e.changed_at).getTime();
+    return !Number.isFinite(t) || t >= cutoff;
+  });
+}
+
+// Splits entries into one section per brand, each holding its own month groups,
+// so a Nokia row can never sit under an Android heading. Brands come out in a
+// fixed order; months inside each stay newest first.
+export function groupEntriesByBrand(entries, selectedBrand = 'All') {
+  const buckets = new Map();
+  for (const e of entries || []) {
+    const of = simBrandOf(e.mobile_id) || 'Other';
+    if (selectedBrand !== 'All' && of !== selectedBrand) continue;
+    if (!buckets.has(of)) buckets.set(of, []);
+    buckets.get(of).push(e);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => {
+      const ia = BRAND_ORDER.indexOf(a[0]);
+      const ib = BRAND_ORDER.indexOf(b[0]);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    })
+    .map(([name, list]) => ({
+      brand: name,
+      key: name,
+      label: name,
+      total: list.length,
+      months: groupEntriesByMonth(list),
+    }));
 }

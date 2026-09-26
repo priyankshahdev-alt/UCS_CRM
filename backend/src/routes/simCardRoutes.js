@@ -12,6 +12,7 @@ import {
   deleteBulk,
   importSimCards,
   historyForSim,
+  historyAll,
 } from '../controllers/simCardController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
@@ -21,6 +22,9 @@ const ANY_AUTH = authenticate;
 
 router.get('/', ANY_AUTH, listSimCards);
 router.get('/replacements', ANY_AUTH, listReplacements);
+// Must stay above '/:id' and '/:id/history': both are two-segment patterns that
+// would otherwise swallow '/history/all' by matching id='history'.
+router.get('/history/all', ANY_AUTH, historyAll);
 router.get('/:id', ANY_AUTH, getSimCard);
 router.get('/:id/replacements', ANY_AUTH, replaceHistoryForSim);
 router.get('/:id/history', ANY_AUTH, historyForSim);

@@ -36,6 +36,14 @@ export async function fetchSimHistory(id) {
   return call(`/sim-cards/${id}/history`, 'GET');
 }
 
+// Brand-wide number-change log for the Nokia/Android history option. One
+// request for every card of a brand, instead of one request per card.
+export async function fetchBrandSimHistory({ brand = 'all', from } = {}) {
+  const params = new URLSearchParams({ brand: String(brand || 'all') });
+  if (from) params.set('from', String(from));
+  return call(`/sim-cards/history/all?${params.toString()}`, 'GET');
+}
+
 export async function importSimCards(rows) {
   return call('/sim-cards/import', 'POST', { rows });
 }

@@ -114,3 +114,37 @@ export const getSimCardHistory = async (simCardId) => {
   if (error) throw error;
   return data || [];
 };
+
+// Brand-wide number-change log. Joins the parent card so the caller gets the
+// Mobile ID / device alongside each audit row, and filters on the embedded
+// mobile_id instead of the client fanning out one request per card.
+// Brand rules mirror the list filters in SimSection.jsx / Inventory.jsx:
+//   nokia   -> mobile_id ILIKE 'ufrs%'
+//   android -> 'android %' but NOT 'android whatsapp%' (companion rows are
+//              hidden from every list, so they are hidden here too)
+//   all     -> everything except the android whatsapp companion rows
+// The LIKE patterns are written out with the SQL wildcard because this query
+// builder passes filter values through verbatim (no * -> % rewriting).
+export const listSimCardHistory = async ({ brand, from, limit = 5000 } = {}) => {
+  let query = db
+    .from('sim_card_history')
+    .select('id, sim_card_id, changed_by, changed_at, changed_cols, sim_cards!inner(mobile_id, device_model)')
+    .order('changed_at', { ascending: false })
+    .limit(limit);
+
+  if (brand === 'nokia') {
+    query = query.ilike('sim_cards.mobile_id', 'ufrs%');
+  } else if (brand === 'android') {
+    query = query
+      .ilike('sim_cards.mobile_id', 'android %')
+      .not('sim_cards.mobile_id', 'ilike', 'android whatsapp%');
+  } else {
+    query = query.not('sim_cards.mobile_id', 'ilike', 'android whatsapp%');
+  }
+
+  if (from) query = query.gte('changed_at', from);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
