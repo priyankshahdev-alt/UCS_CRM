@@ -76,38 +76,79 @@ const pct = (v) => {
   return Math.min(100, Math.round(n * 100) / 100);
 };
 
+// A date of birth has to be a real, plausible day, and it is checked here
+// rather than trusted to the database. Handing an odd value straight to
+// Postgres fails the whole import: a bare cell number like the Excel serial
+// 42693 is not a date, so new Date() reads it as the *year* 42693 and emits
+// "+042693-01-01T00:00:00.000Z", which Postgres rejects with "time zone
+// displacement out of range". Silently storing the wrong century is worse.
+const MIN_DOB_YEAR = 1900;
+const isoDay = (y, m, d) => {
+  const year = Number(y);
+  const month = Number(m);
+  const day = Number(d);
+  if (!Number.isInteger(year) || year < MIN_DOB_YEAR || year > new Date().getFullYear()) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  // Reject the likes of 31/02 that the calendar never had.
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+// Excel stores dates as a day count from 1900-01-01. Done by hand rather than
+// through xlsx's SSF, which is only reachable on the CommonJS default export
+// under Node's ESM interop and threw on every genuine date cell.
+const fromSerial = (n) => {
+  if (!Number.isFinite(n) || n < 1 || n > 2958465) return null; // 9999-12-31
+  // Excel counts a leap day that 1900 never had, so serials past 59 sit one
+  // day ahead of a plain day count.
+  const epoch = n > 59 ? Date.UTC(1899, 11, 30) : Date.UTC(1899, 11, 31);
+  const d = new Date(epoch + Math.floor(n) * 86400000);
+  return isoDay(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+};
+
 const ageToDob = (v) => {
   const years = Number.parseFloat(String(v ?? '').replace(/[^\d.]/g, ''));
   if (!Number.isFinite(years) || years <= 0 || years > 120) return null;
   const d = new Date();
   d.setFullYear(d.getFullYear() - Math.floor(years));
-  return d.toISOString().slice(0, 10);
+  return isoDay(d.getFullYear(), d.getMonth() + 1, d.getDate());
 };
 
 // Accepts Excel dates (serial numbers, ISO strings) and the usual Indian
 // dd/mm/yyyy and dd-mm-yyyy written forms.
 const toDob = (v) => {
   if (v == null || v === '') return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    // The local calendar day, not toISOString(): that converts to UTC first
+    // and can shift a midnight birth date back to the previous day.
+    return isoDay(v.getFullYear(), v.getMonth() + 1, v.getDate());
+  }
   if (typeof v === 'number' && Number.isFinite(v)) {
-    const parsed = XLSX.SSF.parse_date_code(v);
-    if (parsed) {
-      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
-    }
-    return null;
+    return fromSerial(v);
   }
   const s = text(v);
   if (!s) return null;
-  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  // A cell holding only digits is a serial date that arrived as text. Without
+  // this it falls through to new Date() below and becomes a nonsense year.
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    return fromSerial(Number(s));
+  }
+  // A JSON-serialised cell arrives as a full timestamp; take the calendar date
+  // as written rather than re-deriving it in this server's time zone, which
+  // can move a midnight birth date to the day before.
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ].*)?$/);
+  if (m) return isoDay(m[1], m[2], m[3]);
   m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (m) {
     // 2-digit years pivot at 50: 92 -> 1992, 07 -> 2007.
     const year = m[3].length === 2 ? (Number(m[3]) >= 50 ? `19${m[3]}` : `20${m[3]}`) : m[3];
-    return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return isoDay(year, m[2], m[1]);
   }
   const parsed = new Date(s);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return isoDay(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
 };
 
 const GENDER = { m: 'MALE', male: 'MALE', man: 'MALE', f: 'FEMALE', female: 'FEMALE', woman: 'FEMALE', o: 'OTHER', other: 'OTHER', t: 'TRANSGENDER', transgender: 'TRANSGENDER' };
@@ -735,7 +776,9 @@ router.post('/:batchId/confirm', authenticate, async (req, res) => {
         const duplicates = await findByOriginalData({
           mobile: row.mobile,
           full_name: row.full_name,
-          date_of_birth: row.date_of_birth,
+          // Normalised so a sheet holding "42693" still matches a member saved
+          // as 2016-11-19.
+          date_of_birth: toDob(row.date_of_birth),
         });
 
         if (duplicates.length > 0) {
@@ -757,7 +800,9 @@ router.post('/:batchId/confirm', authenticate, async (req, res) => {
           full_name: row.full_name || row.name || '',
           first_name: row.first_name,
           last_name: row.last_name,
-          date_of_birth: row.date_of_birth || null,
+          // Same reasoning as the lookup above: never hand the raw cell to
+          // Postgres, or an Excel serial becomes a year and the insert fails.
+          date_of_birth: toDob(row.date_of_birth),
           gender: row.gender,
           mobile: row.mobile,
           alternate_mobile: row.alternate_mobile,
