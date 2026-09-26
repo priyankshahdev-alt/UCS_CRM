@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, Coins, Trophy } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -38,6 +38,8 @@ import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import reelMp3 from '../../assets/audio/reel.mp3'
 import congratsMp3 from '../../assets/audio/congrats.mp3'
 
@@ -124,6 +126,7 @@ const NAV_BASE = [
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
+  { id: 'chat', path: '/fro/chat', label: 'Community', Icon: MessagesSquare },
 ]
 
 const formatTeamName = (name) => String(name || '').replace(/^UFS\s*(\d+)$/i, 'UFS $1');
@@ -389,8 +392,9 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
               style={waDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
             <n.Icon size={18} strokeWidth={2} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>{n.label}</span>
-              {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
+            <span>{n.label}</span>
+            {n.id === 'chat' && <ChatNavBadge quiet />}
+            {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
                   {waUnreadCounts[n.id] > 9 ? '9+' : waUnreadCounts[n.id]}
                 </span>
@@ -1179,6 +1183,7 @@ useEffect(() => onFroAction((action) => {
             <Route path="incentive-info" element={<IncentiveInfo />} />
             <Route path="lead-incentive" element={<LeadIncentive />} />
             <Route path="tickets" element={<FroTickets />} />
+            <Route path="chat" element={<ChatWorkspace />} />
             <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
             <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />

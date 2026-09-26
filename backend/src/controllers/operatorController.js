@@ -3,7 +3,7 @@ import {
   listOperatorEvents, deleteOperatorEvent, assignOperatorEvent,
   getOperatorAssignmentsByDate, getTodayAssignment, upsertSelfAssignment,
   attachProgramsToEvent, listEventPrograms, removeEventProgram,
-  listEventMarkedBeneficiaries, demoOperatorEvent,
+  listEventMarkedBeneficiaries, demoOperatorEvent, getKitsDashboard,
 } from '../models/operatorModel.js';
 import { listCatalog } from '../models/bnfCatalogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
@@ -299,6 +299,21 @@ export const listEventBeneficiariesController = async (req, res) => {
     }
     const beneficiaries = await listEventMarkedBeneficiaries(eventId);
     return res.json(beneficiaries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Kits screen for the beneficiaries app: BSCT/AFLF/MANN registration +
+// kit-given counts, today's event, and the latest kit handouts.
+export const getKitsController = async (req, res) => {
+  try {
+    const worker = await getBnfOperatorBySession(req.user);
+    const data = await getKitsDashboard({
+      operatorId: worker?.id || null,
+      date: NORMALIZED_DATE(),
+    });
+    return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

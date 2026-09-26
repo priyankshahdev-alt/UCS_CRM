@@ -34,12 +34,14 @@ export const getImportBatches = async () => {
   return batches;
 };
 
-export const getBatchRecords = async (batchId) => {
-  const { data, error } = await db
+export const getBatchRecords = async (batchId, { limit = null, offset = 0 } = {}) => {
+  const query = db
     .from('new_data')
     .select('*')
     .eq('import_batch_id', batchId)
     .order('created_at', { ascending: true });
+  if (limit) query.range(offset, offset + limit - 1);
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 };

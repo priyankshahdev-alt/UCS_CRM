@@ -20,7 +20,7 @@
     <uses-feature android:name="android.hardware.biometrics" android:required="false"/>
 
     <application
-        android:label="beneficiaries"
+        android:label="J O D"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { decodeAadhaarQr, AadhaarDecodeError } from './decoder.js';
+import {
+  decodeAadhaarQr,
+  AadhaarDecodeError,
+  buildFailureDetail,
+} from './decoder.js';
 
 const router = Router();
 
@@ -24,13 +28,19 @@ router.post(
       return res.json({ success: true, data });
     } catch (error) {
       if (error instanceof AadhaarDecodeError) {
-        if (error.kind === 'unsupported') {
-          return res.status(400).json({ success: false, message: 'Unsupported Aadhaar QR format' });
-        }
-        return res.status(400).json({ success: false, message: 'Invalid Aadhaar QR' });
+        const message =
+          error.kind === 'unsupported'
+            ? 'Unsupported Aadhaar QR format'
+            : 'Invalid Aadhaar QR';
+        const detail = buildFailureDetail(qrData, error.detail);
+        // Metadata only (length / format flags / package error) — never the
+        // raw payload or any decoded field values.
+        console.warn(`[aadhaar] ${message}: ${detail}`);
+        return res.status(400).json({ success: false, message, detail });
       }
-      // Never leak internal exceptions to the client.
-      return res.status(500).json({ success: false, message: 'Unable to decode Aadhaar QR' });
+      const detail = buildFailureDetail(qrData, {});
+      console.warn(`[aadhaar] Unable to decode Aadhaar QR: ${detail}`);
+      return res.status(500).json({ success: false, message: 'Unable to decode Aadhaar QR', detail });
     }
   },
 );

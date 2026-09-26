@@ -9,6 +9,13 @@ const CallContext = createContext()
 
 const BREAK_LIMIT = 3600
 
+// A live call is exempt from idle detection, but only for a bounded window. A
+// disposition modal left open (or a startCall whose endCall never fires) must
+// not disable idle for the rest of the shift. The idle watchdog re-reads this
+// every 15s, so a long call simply starts accruing idle once it passes the cap.
+const MAX_CALL_EXEMPT = 30 * 60 * 1000
+const isWithinCallExempt = (call) => !!call && Date.now() - (call.startTime || 0) < MAX_CALL_EXEMPT
+
 const ZERO_STATS = { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
 
 function fmt(seconds) {
@@ -311,8 +318,9 @@ export function CallProvider({ children, userId, operatorId }) {
     // detection. Open donor views are NOT exempt: opening a record refreshes
     // the activity timers, but a record left open with no work for over 4
     // minutes starts counting as idle (mouse movement does NOT reset it — idle
-    // tracks panel work only, on any page or modal).
-    isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null,
+    // tracks panel work only, on any page or modal). A call is exempt only for
+    // MAX_CALL_EXEMPT so a forgotten modal can never suspend idle indefinitely.
+    isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || isWithinCallExempt(activeCallRef.current),
     onCallIdle: (sinceIso) => {
       const nowMs = Date.now()
       if (shiftStartMsRef.current && nowMs < shiftStartMsRef.current) {
@@ -715,11 +723,20 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [onBreak, toggleBreak, resetCallActivity])
 
   const endCall = useCallback(() => {
-    if (activeCall) {
+    // Read the call through activeCallRef, never through the `activeCall`
+    // closure. endCall is invoked from effect cleanups (the disposition modal
+    // calls it on unmount with [] deps), where a closure captured before
+    // startCall ran still holds activeCall === null — so the old `if (activeCall)`
+    // silently skipped the call/talk counters and left today_calls at 0 all day.
+    const call = activeCallRef.current
+    if (call) {
+      // Clear before counting so a cleanup plus an explicit endCall in the same
+      // tick cannot book the same call twice.
+      activeCallRef.current = null
       const nowClock = Date.now()
       // Meeting/paused time is excluded: only talk time outside those windows counts.
       const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0) + (pauseStartRef.current ? nowClock - pauseStartRef.current : 0)
-      const duration = Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000))
+      const duration = Math.max(0, Math.floor((nowClock - call.startTime - paused) / 1000))
       if (duration > 0) {
         commitTodayStats({
           calls: todayStatsRef.current.calls + 1,
@@ -729,7 +746,7 @@ export function CallProvider({ children, userId, operatorId }) {
     }
     setActiveCall(null)
     resetCallActivity() // call ended → idle timer restarts
-  }, [activeCall, resetCallActivity])
+  }, [commitTodayStats, resetCallActivity])
 
   return (
     <CallContext.Provider value={{

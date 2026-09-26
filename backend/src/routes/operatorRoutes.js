@@ -6,9 +6,13 @@ import {
   operatorDashboard, saveSelfAssignment, uploadOperatorSelfie,
   listOperatorDayAssignments, listEventProgramsController,
   attachEventPrograms, detachEventProgram, listEventBeneficiariesController,
+  getKitsController,
 } from '../controllers/operatorController.js';
 
 const router = Router();
+
+// Kits screen data (per-NGO counts, today's event, latest handouts).
+router.get('/kits', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getKitsController);
 
 // Any authenticated worker can view their own dashboard / assignments.
 router.get('/dashboard', authenticate, operatorDashboard);

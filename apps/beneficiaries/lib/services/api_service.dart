@@ -48,16 +48,15 @@ class ApiService {
     return _handleResponse(res);
   }
 
-  /// Decodes a raw Aadhaar QR payload server-side and returns the autofill
-  /// fields ({ name, dob, gender, address }). The raw payload is sent once
-  /// and never persisted on the device.
-  static Future<Map<String, dynamic>> decodeAadhaarQr(String qrData) async {
-    final res = await post('/aadhaar/decode-qr',
-        body: {'qrData': qrData}, timeout: const Duration(seconds: 30));
-    final data = res['data'];
-    return data is Map<String, dynamic>
-        ? data
-        : (data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+  /// Sends a card photo (base64) to the backend which reads the details with
+  /// Gemini vision and returns the fields scraped from it (name/dob/gender/
+  /// address_line_1/aadhaar_number). `side` picks the extraction scope:
+  /// 'front', 'back', or 'all' (default). The photo is sent once and never
+  /// persisted on the device.
+  static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64,
+      {String side = 'all'}) async {
+    return post('/beneficiaries/aadhaar/parse-photo',
+        body: {'image': base64, 'side': side}, timeout: const Duration(seconds: 60));
   }
 
   static Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {
@@ -81,7 +80,13 @@ class ApiService {
   static Map<String, dynamic> _handleResponse(http.Response res) {
     final body = _tryDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body['message'] ?? 'Server error (${res.statusCode})');
+      final message = body['message'] ?? 'Server error (${res.statusCode})';
+      final detail = body['detail'];
+      throw Exception(
+        detail != null && detail.toString().isNotEmpty
+            ? '$message ($detail)'
+            : message,
+      );
     }
     return body;
   }

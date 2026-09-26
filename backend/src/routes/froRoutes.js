@@ -37,6 +37,7 @@ import {
   getMyDisposedLeads,
   updateLiveStatus,
   getLiveStatuses,
+  getPresentToday,
   getMyProgress,
   saveMyProgress,
   getReactivatedDonors,
@@ -54,6 +55,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
+// Attendance-punched roster for today. Registered next to /status; the path is
+// two segments so it cannot be shadowed by any single-segment /:id route.
+router.get('/status/present', authenticateRole('super_admin', 'admin'), getPresentToday);
 router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
 router.post('/status/logout-all', authenticateRole('admin', 'super_admin'), logoutAllFros);
 router.get('/status/me', getMyLiveStatus);

@@ -113,6 +113,16 @@ const stoppedToday = (slab) => !!(
   slab && slab.stopped_date && String(slab.stopped_date).slice(0, 10) === todayLocal()
 )
 
+// The 3-minute pre-live window after clicking Start: started_at sits a few
+// minutes in the future. Return that exact timestamp (ISO) so the table can
+// show a live countdown; null when the range has gone live or never started.
+const pendingStartAt = (slab) => {
+  if (!slab || !slab.started_at) return null
+  const s = new Date(slab.started_at).getTime()
+  if (Number.isNaN(s) || s <= Date.now()) return null
+  return slab.started_at
+}
+
 const LI_CSS = `
 .li-grid, .li-col, .li-panel, .li-table-scroll { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; color: ${C.dark}; }
 .li-col *, .li-panel *, .li-table-scroll *, .li-col *:before, .li-panel *:before, .li-col *:after, .li-panel *:after { box-sizing: border-box; }
@@ -122,7 +132,7 @@ const LI_CSS = `
 .li-panel { background: ${C.panelBg}; border: 1px solid ${C.line}; border-radius: 12px; box-shadow: 0 2px 10px rgba(30,80,140,.05); overflow: hidden; max-width: 100%; }
 .li-table-scroll { overflow-x: auto; max-width: 100%; }
 .li-table { width: 100%; min-width: 460px; table-layout: fixed; border-collapse: collapse; }
-.li-ranges-table { min-width: 560px; }
+.li-ranges-table { min-width: 640px; }
 .li-noscroll { scrollbar-width: none; -ms-overflow-style: none; }
 .li-noscroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .li-table th { padding: 9px 10px; font-size: 11px; font-weight: 700; color: #52698A; background: #F8FAFD; border-bottom: 1px solid #E5EDF7; white-space: nowrap; }
@@ -176,6 +186,35 @@ function StatusPill({ status }) {
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.color, display: 'inline-block' }} />
       {m.label}
+    </span>
+  )
+}
+
+// ─── Live countdown until a range goes live ───────────────
+// Shows only after Start is clicked (started_at set ~3 min ahead) and ticks
+// down to 0:00, after which the range counts as Running.
+function StartCountdown({ startedAt, onDone }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const target = new Date(startedAt).getTime()
+  const valid = Number.isFinite(target)
+  const remaining = valid ? Math.max(0, Math.ceil((target - now) / 1000)) : 0
+  const fired = useRef(false)
+  useEffect(() => {
+    if (valid && remaining === 0 && !fired.current) {
+      fired.current = true
+      onDone && onDone()
+    }
+  }, [valid, remaining, onDone])
+  if (!valid || remaining === 0) return null
+  const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
+  const ss = String(remaining % 60).padStart(2, '0')
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, background: '#FFF7E8', color: '#B7791F', fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+      <Clock size={11} weight="fill" /> {mm}:{ss}
     </span>
   )
 }
@@ -308,7 +347,7 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
 }
 
 // ─── Left panel: Incentive Ranges ─────────────────────────
-function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTargetSlabs }) {
+function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTargetSlabs, onCountdownDone }) {
   // Fixed label widths (longest min/max across rows) so every row's arrow
   // starts and ends at the same distance — nothing looks crooked.
   const arrowW = useMemo(() => {
@@ -366,6 +405,7 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
             <colgroup>
               <col style={{ width: 34 }} />
               <col />
+              <col style={{ width: 70 }} />
               <col style={{ width: 110 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 100 }} />
@@ -374,6 +414,7 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
               <tr>
                 <th style={{ textAlign: 'left' }}>#</th>
                 <th style={{ textAlign: 'left' }}>Range (₹)</th>
+                <th style={{ textAlign: 'center' }}>Starts In</th>
                 <th style={{ textAlign: 'center' }}>Status</th>
                 <th style={{ textAlign: 'left' }}>FROs</th>
                 <th style={{ textAlign: 'center' }}>Action</th>
@@ -387,6 +428,11 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
                     <td style={{ color: C.muted, fontWeight: 600 }}>{r.idx}</td>
                     <td style={{ minWidth: 0 }}>
                       <RangeArrow min={r.slab.min_amount} max={r.slab.max_amount} minW={arrowW.minW} maxW={arrowW.maxW} />
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {r.starts_in
+                        ? <StartCountdown startedAt={r.starts_in} onDone={onCountdownDone} />
+                        : <span style={{ fontSize: 11.5, color: C.muted }}>—</span>}
                     </td>
                     <td style={{ textAlign: 'center' }}><StatusPill status={r.status} /></td>
                     <td>
@@ -1289,6 +1335,9 @@ export default function LeadIncentive() {
           slab_label: fmtSlabRange(slab),
           idx: idx + 1,
           status: rangeStatus(slab),
+          // ~3-min pre-live window after Start: expose the future start time so
+          // the table can render a live countdown between Range and Status.
+          starts_in: pendingStartAt(slab),
           // STOP-AFTER-WIN: a range with a winner (or stopped today) is out of
           // the live race — the table shows it back as Not Started and the
           // leaderboard hides it; the winner lives on in History.
@@ -1470,6 +1519,7 @@ export default function LeadIncentive() {
             slabFros={frosBySlab}
             onConfigure={setConfigureSlab}
             onTargetSlabs={() => setSlabsOpen(true)}
+            onCountdownDone={reloadAll}
           />
           <div style={{ height: 16 }} />
           <HistoryPanel

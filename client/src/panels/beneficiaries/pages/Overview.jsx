@@ -37,12 +37,14 @@ export default function Overview() {
   const [stats, setStats] = useState(null)
   const [reports, setReports] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
 
   useEffect(() => {
     loadData()
   }, [])
 
   const loadData = async () => {
+    setErr(null)
     try {
       const data = await apiGet('/beneficiaries/overview')
       setStats(data)
@@ -59,7 +61,11 @@ export default function Overview() {
         volunteers: v.status === 'fulfilled' ? v.value : null,
       })
     } catch (e) {
+      // Without this the cards below render "0" for every stat, which is
+      // indistinguishable from a genuinely empty database. Say which it is.
       console.error('Failed to load overview:', e)
+      setStats(null)
+      setErr(e?.message || 'Could not load the overview.')
     } finally {
       setLoading(false)
     }
@@ -80,11 +86,26 @@ export default function Overview() {
         <h2 style={styles.sectionTitle}>Beneficiaries Overview</h2>
       </div>
 
-      <div style={styles.statsGrid}>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Total Beneficiaries</div>
-          <div style={{ ...styles.statValue, color: 'var(--sage)' }}>{stats?.total_beneficiaries || 0}</div>
+      {err && (
+        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: '#fee2e2', color: '#991b1b', fontSize: '13px', marginBottom: '12px' }}>
+          Could not load the overview: {err}. The counts below are empty because the request failed, not because the database is empty.{' '}
+          <button type="button" onClick={() => { setLoading(true); loadData() }} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', marginLeft: '8px' }}>Retry</button>
         </div>
+      )}
+
+      <div style={styles.statsGrid}>
+        <button
+          type="button"
+          onClick={() => navigate(base + '/all')}
+          title="View all members"
+          style={{ ...styles.statCard, cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', display: 'block', width: '100%' }}
+        >
+          <div style={{ ...styles.statLabel, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Total Members</span>
+            <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--sage)', fontWeight: 600 }}>View all →</span>
+          </div>
+          <div style={{ ...styles.statValue, color: 'var(--sage)' }}>{stats?.total_beneficiaries || 0}</div>
+        </button>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Active</div>
           <div style={{ ...styles.statValue, color: '#059669' }}>{stats?.active || 0}</div>
@@ -116,6 +137,7 @@ export default function Overview() {
           <div style={styles.cardTitle}>Quick Actions</div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={() => navigate(base + '/all')} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>View All</button>
+            <button onClick={() => navigate(base + '/import')} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Import Members</button>
           </div>
         </div>
 

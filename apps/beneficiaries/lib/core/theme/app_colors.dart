@@ -42,6 +42,11 @@ class AppColors {
   static const Color statDonationsBorder = Color(0xFFD9F0E7);
   static const Color statDonationsIconBg = Color(0xFFE2F5ED);
 
+  // Pink accent (MANN program card).
+  static const Color statPinkBg = Color(0xFFFDF0F3);
+  static const Color statPinkBorder = Color(0xFFF8D9E2);
+  static const Color statPinkText = Color(0xFFE04779);
+
   static const Color dashedBorder = Color(0xFFD8DEE8);
   static const Color subtleIllustration = Color(0xFFD9E0EA);
   static const Color skeleton = Color(0xFFE9EDF2);

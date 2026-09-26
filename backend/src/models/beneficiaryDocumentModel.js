@@ -1,11 +1,22 @@
 import db from '../config/db.js';
 
 export const addDocument = async (beneficiaryId, data) => {
-  data.beneficiary_id = beneficiaryId;
-  data.uploaded_at = new Date().toISOString();
+  // Only persist columns that actually exist on beneficiary_documents. The
+  // mobile app sends file_base64 + mime_type (used for the S3 upload), which
+  // are not table columns — leaking them into the INSERT makes Postgres abort
+  // with "column does not exist" and the document is silently lost.
+  const row = { beneficiary_id: beneficiaryId };
+  for (const key of [
+    'document_type', 'file_url', 'file_name', 'document_number',
+    'verification_status', 'uploaded_by', 'remarks',
+  ]) {
+    const v = data[key];
+    if (v !== undefined && v !== null && v !== '') row[key] = v;
+  }
+  row.uploaded_at = new Date().toISOString();
   const { data: result, error } = await db
     .from('beneficiary_documents')
-    .insert(data)
+    .insert(row)
     .select('*')
     .single();
   if (error) throw error;

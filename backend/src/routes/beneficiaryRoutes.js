@@ -4,7 +4,7 @@ import {
   createNewBeneficiary, getBeneficiary, getBeneficiaryByCodeController,
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
-  markBeneficiaryKitGiven, lookupBeneficiaryByToken,
+  markBeneficiaryKitGiven, lookupBeneficiaryByToken, deleteBeneficiariesController,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
 } from '../controllers/beneficiaryController.js';
@@ -68,8 +68,13 @@ router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
 router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);
-router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBeneficiaryController);
+router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), updateBeneficiaryController);
 router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiaryByCodeController);
+
+// Deletion — permanently removes the beneficiary and EVERYTHING attached
+// (documents, fingerprints, disability, family, benefits, audit of BULK_DELETED).
+router.post('/bulk-delete', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), deleteBeneficiariesController);
+router.delete('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), deleteBeneficiariesController);
 
 // Kit given — records that the event kit was handed to the beneficiary
 // (operator swipe flow on the beneficiaries app).

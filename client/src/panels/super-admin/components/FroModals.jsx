@@ -1,4 +1,13 @@
 import { fmt, STATUS_META, StatBox } from './froShared'
+import { now as serverNow } from '../../../lib/serverClock'
+
+// Elapsed time on the SERVER's clock — a device with a wrong clock used to show
+// a clamped 00:00 or an inflated value here. Unparseable timestamps give 00:00.
+const secsSince = (iso) => {
+  const s = Date.parse(iso)
+  if (Number.isNaN(s)) return 0
+  return Math.max(0, Math.floor((serverNow() - s) / 1000))
+}
 
 export function FroDeepDetailModal({ fro, onClose }) {
   if (!fro) return null
@@ -33,7 +42,7 @@ export function FroDeepDetailModal({ fro, onClose }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.computed?.call_duration_seconds != null ? fmt(fro.computed.call_duration_seconds) : (fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00')}
+                {fro.computed?.call_duration_seconds != null ? fmt(fro.computed.call_duration_seconds) : (fro.call_started_at ? fmt(secsSince(fro.call_started_at)) : '00:00')}
               </span>
             </div>
           </div>
@@ -43,7 +52,7 @@ export function FroDeepDetailModal({ fro, onClose }) {
             <div style={{ fontSize: 10, color: '#92400e', fontWeight: 600, marginBottom: 4 }}> On Break</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: (fro.performance?.today_break_seconds || 0) > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.computed?.break_duration_seconds != null ? fmt(fro.computed.break_duration_seconds) : (fro.break_started_at ? fmt(Math.floor((Date.now() - new Date(fro.break_started_at).getTime()) / 1000)) : '00:00')}
+                {fro.computed?.break_duration_seconds != null ? fmt(fro.computed.break_duration_seconds) : (fro.break_started_at ? fmt(secsSince(fro.break_started_at)) : '00:00')}
               </span>
               <span style={{ fontSize: 11, color: '#92400e' }}>today: {fmt(fro.performance?.today_break_seconds || 0)}</span>
             </div>
@@ -97,7 +106,7 @@ export function FroDetailModal({ fro, onClose, onShowDeep }) {
               <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#dc2626' }}>call</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.computed?.call_duration_seconds != null ? fmt(fro.computed.call_duration_seconds) : (fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00')}
+                {fro.computed?.call_duration_seconds != null ? fmt(fro.computed.call_duration_seconds) : (fro.call_started_at ? fmt(secsSince(fro.call_started_at)) : '00:00')}
               </span>
             </div>
           </div>

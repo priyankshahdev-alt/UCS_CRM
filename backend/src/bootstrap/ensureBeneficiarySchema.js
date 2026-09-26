@@ -54,6 +54,83 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS aadhaar_number TEXT"
   ).catch(() => {});
 
+  // Free-text "what does this beneficiary need" (typed by the operator on the
+  // Add Beneficiary screen).
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS needed TEXT"
+  ).catch(() => {});
+
+  // ensureBeneficiarySchema creates any missing table as a bare "id SERIAL", so
+  // on an installation where migration 120 never ran the beneficiary columns
+  // only exist if they are added here. Everything the member import and the
+  // beneficiary profile read or write is listed, and each ALTER is idempotent.
+  const beneficiaryColumns = [
+    ['beneficiary_code', 'TEXT'],
+    ['full_name', 'TEXT'],
+    ['first_name', 'TEXT'],
+    ['middle_name', 'TEXT'],
+    ['last_name', 'TEXT'],
+    ['date_of_birth', 'DATE'],
+    ['gender', 'TEXT'],
+    ['mobile', 'TEXT'],
+    ['alternate_mobile', 'TEXT'],
+    ['email', 'TEXT'],
+    ['address_line_1', 'TEXT'],
+    ['address_line_2', 'TEXT'],
+    ['area', 'TEXT'],
+    ['city', 'TEXT'],
+    ['district', 'TEXT'],
+    ['state', 'TEXT'],
+    ['pincode', 'TEXT'],
+    ['photo', 'TEXT'],
+    ['occupation', 'TEXT'],
+    ['mother_name', 'TEXT'],
+    ['father_name', 'TEXT'],
+    ['guardian_name', 'TEXT'],
+    ['guardian_occupation', 'TEXT'],
+    ['total_family_members', 'INT'],
+    ['monthly_family_income', 'NUMERIC'],
+    ['income_category', 'TEXT'],
+    ['bpl_available', 'BOOLEAN DEFAULT false'],
+    ['ration_card_available', 'BOOLEAN DEFAULT false'],
+    ['fingerprint_status', 'TEXT'],
+    ['status', 'TEXT'],
+    ['created_by', 'TEXT'],
+    ['updated_by', 'TEXT'],
+    ['created_at', 'TIMESTAMPTZ'],
+    ['updated_at', 'TIMESTAMPTZ'],
+  ];
+  for (const [column, type] of beneficiaryColumns) {
+    await db._pool.query(
+      `ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS ${column} ${type}`
+    ).catch(() => {});
+  }
+  await db._pool.query('ALTER TABLE beneficiaries ALTER COLUMN created_at SET DEFAULT NOW()').catch(() => {});
+  await db._pool.query('ALTER TABLE beneficiaries ALTER COLUMN updated_at SET DEFAULT NOW()').catch(() => {});
+  // ngo_id is added separately below: its type must match the live ngos.id.
+  await db._pool.query("UPDATE beneficiaries SET fingerprint_status = 'NOT_REGISTERED' WHERE fingerprint_status IS NULL OR fingerprint_status = ''").catch(() => {});
+  await db._pool.query("UPDATE beneficiaries SET status = 'ACTIVE' WHERE status IS NULL OR status = ''").catch(() => {});
+  // Lookups by number drive the import's merge-by-phone behaviour.
+  await db._pool.query('CREATE INDEX IF NOT EXISTS idx_beneficiaries_mobile ON beneficiaries(mobile)').catch(() => {});
+  await db._pool.query('CREATE INDEX IF NOT EXISTS idx_beneficiaries_alt_mobile ON beneficiaries(alternate_mobile)').catch(() => {});
+
+  // ngo_id must exactly match ngos.id's type (int4/int8/uuid) for the FK, so
+  // adopt the live column type instead of hardcoding one. The column is added
+  // without a constraint on purpose: if ngos does not exist yet (it is created
+  // by ensureEventHeadSchema) the FK would fail and the column would be lost.
+  const { rows: ngoIdTypeRows } = await db._pool.query(
+    `SELECT format_type(a.atttypid, a.atttypmod) AS t
+     FROM pg_attribute a
+     WHERE a.attrelid = 'ngos'::regclass AND a.attname = 'id'`
+  ).catch(() => ({ rows: [] }));
+  const ngoIdType = (ngoIdTypeRows[0] && ngoIdTypeRows[0].t) || 'bigint';
+  await db._pool.query(
+    `ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS ngo_id ${ngoIdType}`
+  ).catch(() => {});
+  await db._pool.query(
+    `ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS registration_date DATE`
+  ).catch(() => {});
+
   // Upgrade guard for installations that still use the old kit_collected*
   // naming: copy the values over and drop the legacy columns.
   await db._pool.query(

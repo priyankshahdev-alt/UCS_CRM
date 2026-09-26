@@ -2890,7 +2890,7 @@ export const importReceipts = async (req, res) => {
               if (rErr) throw new Error(rErr.message);
               const { error: lErr } = await from('fro_donor_logs').update({
                 accounts_status: 'verified',
-                verified_at: row.receipt_date || nowIso,
+                verified_at: nowIso,
                 verified_by: req.user.id,
               }).eq('id', lead.id);
               if (lErr) throw new Error(lErr.message);
@@ -3297,7 +3297,7 @@ export const importReceipts = async (req, res) => {
                 action: 'donation',
                 amount_collected: amount,
                 accounts_status: 'verified',
-                verified_at: r.receipt_date || nowIso,
+                verified_at: nowIso,
                 verified_by: req.user.id,
                 created_by: req.user.id,
                 upi_transaction_id: r.payment_id || null,

@@ -74,6 +74,29 @@ export const getNgoSummary = async (req, res) => {
   }
 };
 
+// Total beneficiaries (members) recorded under each NGO. Serves the NGO cards
+// on the Beneficiaries app home "kit" section — one card per NGO with its
+// member count.
+export const getNgoMemberCounts = async (req, res) => {
+  try {
+    const { rows } = await db._pool.query(`
+      SELECT n.id, n.name, n.code,
+             (SELECT COUNT(*) FROM beneficiaries b WHERE b.ngo_id = n.id)::int AS member_count,
+             (SELECT COALESCE(SUM(r.amount), 0) FROM receipts r
+               WHERE r.receipt_no IS NOT NULL AND lower(r.project_id) = lower(n.name))::float8 AS donated
+        FROM ngos n
+       ORDER BY n.name ASC
+    `);
+    return res.json(rows.map((r) => ({
+      id: r.id, name: r.name, code: r.code,
+      member_count: r.member_count || 0,
+      donated: parseFloat(r.donated) || 0,
+    })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const addNgo = async (req, res) => {
   try {
     const { name, code, address, registration_no } = req.body;
@@ -82,6 +105,19 @@ export const addNgo = async (req, res) => {
     }
     const ngo = await createNgo({ name, code: code.toUpperCase(), address, registration_no });
     return res.status(201).json({ message: 'NGO created successfully', ngo });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Lightweight NGO list for the Beneficiaries app operator dropdown — only the
+// options the worker actually needs (id, name, code), no user aggregation.
+export const listNgoOptions = async (req, res) => {
+  try {
+    const ngos = await getAllNgos();
+    return res.json(
+      ngos.map(({ id, name, code }) => ({ id, name, code }))
+    );
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

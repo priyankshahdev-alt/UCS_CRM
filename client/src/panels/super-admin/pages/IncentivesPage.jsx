@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { Trophy, ChartBar } from '@phosphor-icons/react'
 
 const TABS = [
-  { to: 'sir', label: 'Sir ka Incentive', Icon: Trophy },
+  { to: 'sir', label: 'Special Incentive', Icon: Trophy },
   { to: 'lead', label: 'Lead Incentive', Icon: ChartBar },
 ]
 

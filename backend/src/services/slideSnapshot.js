@@ -6,10 +6,28 @@ import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
+// A headless LibreOffice conversion holds a child soffice.bin that can consume
+// ~300-500MB of RSS. Bulk certificate/preview generation used to launch one
+// conversion per request concurrently, stacking many child processes on the
+// 2GB host until the watchdog/OOM killer intervened. Single-flight serializes
+// them: while one conversion is running, additional requests are answered null
+// (the shared contract is "best-effort snapshot; manual upload otherwise").
+let conversionInFlight = false;
+
 // Renders the first page/slide of a .docx / .pptx to a PNG using LibreOffice
 // headless. Returns a PNG buffer, or null when soffice is unavailable or
 // rendering fails (the caller treats null as "no auto snapshot", never as an error).
 export async function snapshotToPng(buffer, ext = 'pptx') {
+  if (conversionInFlight) return null;
+  conversionInFlight = true;
+  try {
+    return await renderSnapshotToPng(buffer, ext);
+  } finally {
+    conversionInFlight = false;
+  }
+}
+
+async function renderSnapshotToPng(buffer, ext = 'pptx') {
   if (!buffer || !buffer.length) return null;
   const safeExt = ext === 'docx' ? 'docx' : 'pptx';
   const dir = mkdtempSync(path.join(tmpdir(), 'cert-slide-'));

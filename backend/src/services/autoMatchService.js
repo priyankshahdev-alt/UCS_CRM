@@ -5,6 +5,34 @@ const MIN_SCORE = 75;
 const MARGIN = 10;
 const DATE_WINDOW_DAYS = 3;
 
+// The matching engine is O(entries × candidates) in-memory work. On the shared
+// 2-core host it used to run unrestricted: every payment scrape / bank audit
+// import re-scanned ALL unverified entries and ALL receipts/leads, blocking the
+// event loop and doubling RSS as concurrent scrapes each loaded the same pools.
+// These bounds keep a run finite and cooperative:
+const MAX_ENTRIES_PER_RUN = Number(process.env.AUTOMATCH_MAX_ENTRIES || 1500); // newest unverified entries per run
+const MAX_LEADS_PER_RUN = Number(process.env.AUTOMATCH_MAX_LEADS || 2000);      // pending leads to score against
+const YIELD_EVERY = 50;                                                          // let other requests breathe every N rows
+
+const yieldNow = () => new Promise((r) => setImmediate(r));
+
+// One engine run at a time. If a scrape lands while a previous match is still
+// working, skip it (callers treat no-match as success) instead of stacking a
+// second copy that would burn 2x CPU/memory.
+let engineBusy = false;
+async function withEngineGuard(name, fn, fnResult) {
+  if (engineBusy) {
+    console.warn(`[autoMatch] ${name}: previous run still active — skipping this run`);
+    return fnResult;
+  }
+  engineBusy = true;
+  try {
+    return await fn();
+  } finally {
+    engineBusy = false;
+  }
+}
+
 // ─── Name normalization / fuzzy matching ───────────────────
 const TITLES = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'smt', 'shri', 'shree', 'kumari', 'kumar', 'sir', 'sd', 's/o', 'd/o', 'c/o']);
 
@@ -183,12 +211,14 @@ const normTokens = (v) => String(v || '')
   .split(' ')
   .filter((w) => w.length >= 3 && !TITLES.has(w));
 
-export const linkEntriesWithReceipts = async () => {
+const linkEntriesWithReceiptsRaw = async () => {
   const { data: entries, error: eErr } = await db
     .from('bank_audit_entries')
     .select('id, amount, payment_id, transaction_date, payer_name, donor_mobile')
     .eq('status', 'unverified')
-    .is('receipt_id', null);
+    .is('receipt_id', null)
+    .order('transaction_date', { ascending: false })
+    .range(0, MAX_ENTRIES_PER_RUN - 1);
   if (eErr) throw eErr;
 
   const { data: receipts, error: rErr } = await db
@@ -239,7 +269,10 @@ export const linkEntriesWithReceipts = async () => {
 
   const usedReceipts = new Set();
   let linked = 0;
+  let iteration = 0;
   for (const entry of entries || []) {
+    iteration += 1;
+    if (iteration % YIELD_EVERY === 0) await yieldNow();
     let pick = null;
     const k = normPay(entry.payment_id);
     if (k) {
@@ -284,16 +317,17 @@ export const linkEntriesWithReceipts = async () => {
   return linked;
 };
 
-export const findAutoMatches = async () => {
+const findAutoMatchesRaw = async () => {
   // Settle UTR-backed entries first so they never reach lead matching.
-  await linkEntriesWithReceipts();
+  await linkEntriesWithReceiptsRaw();
 
   const { data: entries, error: eErr } = await db
     .from('bank_audit_entries')
     .select('id, amount, payer_name, payment_id, transaction_date, project_id, receipt_id, status')
     .eq('status', 'unverified')
     .is('match_status', null)
-    .order('transaction_date', { ascending: false });
+    .order('transaction_date', { ascending: false })
+    .range(0, MAX_ENTRIES_PER_RUN - 1);
   if (eErr) throw eErr;
 
   const { data: leads, error: lErr } = await db
@@ -309,7 +343,9 @@ export const findAutoMatches = async () => {
     `)
     .eq('action', 'disposition')
     .eq('disposition_detail', 'lead_done')
-    .eq('accounts_status', 'pending');
+    .eq('accounts_status', 'pending')
+    .order('created_at', { ascending: true })
+    .range(0, MAX_LEADS_PER_RUN - 1);
   if (lErr) throw lErr;
 
   // Never auto-link a second receipt onto a lead that already holds one.
@@ -322,7 +358,10 @@ export const findAutoMatches = async () => {
   const autoLeads = (leads || []).filter((l) => !existingLogs.has(String(l.id)));
 
   const matched = [];
+  let entryIteration = 0;
   for (const entry of entries || []) {
+    entryIteration += 1;
+    if (entryIteration % YIELD_EVERY === 0) await yieldNow();
     let best = null;
     let second = null;
     for (const lead of autoLeads || []) {
@@ -342,8 +381,11 @@ export const findAutoMatches = async () => {
   // ── Suspense receipt pass: auto-link anonymous money to a pending lead ──
   // Uses the same scoring engine (payment id / amount / NGO / date signals) and
   // the same thresholds. Links the receipt to the lead WITHOUT verifying it.
-  const suspenseReceipts = await getUnlinkedReceipts();
+  const suspenseReceipts = ((await getUnlinkedReceipts()) || []).slice(0, MAX_ENTRIES_PER_RUN);
+  let suspenseIteration = 0;
   for (const receipt of suspenseReceipts || []) {
+    suspenseIteration += 1;
+    if (suspenseIteration % YIELD_EVERY === 0) await yieldNow();
     const pseudo = {
       id: `suspense-${receipt.id}`,
       payment_id: receipt.payment_id,
@@ -402,3 +444,11 @@ export const findAutoMatches = async () => {
     })),
   };
 };
+
+// Public entry points: guarded so only one engine run happens at a time.
+// Skipped runs return the same shape callers already handle (0 matches).
+export const linkEntriesWithReceipts = () =>
+  withEngineGuard('linkEntriesWithReceipts', linkEntriesWithReceiptsRaw, 0);
+
+export const findAutoMatches = () =>
+  withEngineGuard('findAutoMatches', findAutoMatchesRaw, { matched: 0, matches: [], skipped: true });

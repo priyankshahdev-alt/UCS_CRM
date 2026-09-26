@@ -1,5 +1,15 @@
 import db from '../config/db.js';
 
+export const addSourceRecords = async (rows) => {
+  if (!rows?.length) return [];
+  const { data, error } = await db
+    .from('beneficiary_source_records')
+    .insert(rows)
+    .select('*');
+  if (error) throw error;
+  return data || [];
+};
+
 export const addSourceRecord = async (beneficiaryId, data) => {
   data.beneficiary_id = beneficiaryId;
   const { data: result, error } = await db

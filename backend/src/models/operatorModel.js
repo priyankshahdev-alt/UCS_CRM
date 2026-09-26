@@ -182,6 +182,115 @@ export const listEventMarkedBeneficiaries = async (eventId) => {
   }));
 };
 
+// Per-NGO (BSCT/AFLF/MANN) registration and kit-given counts, today's event
+// name, and the most recent kit handouts. Drives the Beneficiaries app's Kits
+// screen.
+export const getKitsDashboard = async ({ operatorId, date } = {}) => {
+  // db._pool is raw node-postgres: results come back on `rows`, not `data`.
+  // Reading `data` here left ngoRows undefined, so every NGO fell through to
+  // the zero fallback and the Kits screen showed 0 regardless of real data.
+  const { rows: ngoRows } = await db._pool
+    .query(
+      `SELECT n.id, n.name,
+              COUNT(b.id) FILTER (WHERE b.ngo_id = n.id)                                        AS registered,
+              COUNT(b.id) FILTER (WHERE b.ngo_id = n.id AND b.kit_given = true)                 AS kit_given
+         FROM ngos n
+         LEFT JOIN beneficiaries b ON b.ngo_id = n.id
+        WHERE UPPER(n.name) IN ('BSCT', 'AFLF', 'MANN')
+        GROUP BY n.id, n.name
+        ORDER BY n.name`
+    )
+    .catch((e) => {
+      console.error('getKitsDashboard NGO count query failed:', e);
+      return { rows: [] };
+    });
+
+  const byName = {};
+  for (const r of ngoRows || []) {
+    const key = String(r.name || '').toUpperCase();
+    byName[key] = {
+      name: String(r.name || ''),
+      registered: Number(r.registered) || 0,
+      kit_given: Number(r.kit_given) || 0,
+    };
+  }
+  const programs = ['BSCT', 'AFLF', 'MANN'].map((code) => ({
+    code,
+    ...(byName[code] || { name: code, registered: 0, kit_given: 0 }),
+  }));
+
+  const total_registered = programs.reduce((s, p) => s + p.registered, 0);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { count: kitGivenToday } = await db
+    .from('beneficiaries')
+    .select('id', { count: 'exact', head: true })
+    .eq('kit_given', true)
+    .gte('kit_given_at', todayStart.toISOString());
+
+  // Today's event: the operator's assignment first, then any event scheduled
+  // for today, then the demo fallback (mirrors markBeneficiaryKitGiven).
+  let event_name = null;
+  let event_id = null;
+  try {
+    if (operatorId) {
+      const assignment = await getTodayAssignment(operatorId, date);
+      const ev = assignment?.operator_events;
+      if (ev) {
+        event_name = ev?.title || ev?.name || null;
+        event_id = ev?.id != null ? Number(ev.id) : null;
+      }
+    }
+    if (!event_name) {
+      const events = await listOperatorEvents({ date });
+      if (events && events.length > 0) {
+        event_name = events[0].title || events[0].name || demoOperatorEvent.title;
+        event_id = events[0].id != null ? Number(events[0].id) : null;
+      } else {
+        event_name = demoOperatorEvent.title;
+      }
+    }
+  } catch (_) {
+    if (!event_name) event_name = demoOperatorEvent.title;
+  }
+
+  // Most recent kit handouts with beneficiary identity + the event it was
+  // collected at. Today-scoped to match the kit-given counter above.
+  const { data: logs, error } = await db
+    .from('beneficiary_audit_logs')
+    .select(
+      'beneficiary_id, performed_by, performed_at, details, beneficiaries(id, beneficiary_code, full_name, mobile, photo)'
+    )
+    .eq('action', 'KIT_GIVEN')
+    .gte('performed_at', todayStart.toISOString())
+    .order('performed_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+
+  const collectors = (logs || []).map((r) => ({
+    beneficiary_id: r.beneficiary_id,
+    beneficiary_code: r.beneficiaries?.beneficiary_code || null,
+    full_name: r.beneficiaries?.full_name || null,
+    mobile: r.beneficiaries?.mobile || null,
+    photo: r.beneficiaries?.photo || null,
+    event_name: r.details?.event_name || null,
+    event_id: r.details?.event_id != null ? Number(r.details.event_id) : null,
+    performed_by: r.performed_by,
+    performed_at: r.performed_at,
+  }));
+
+  return {
+    programs,
+    total_registered,
+    kit_given_today: kitGivenToday || 0,
+    event_name,
+    event_id,
+    collectors,
+  };
+};
+
 // Demo event used when no real event exists yet (for testing the dropdown).
 export const demoOperatorEvent = {
   id: null,

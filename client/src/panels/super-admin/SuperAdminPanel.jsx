@@ -10,6 +10,7 @@ import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
+import { CHAT_NOTIFICATION_TYPE } from '../../components/chat/chatNotificationTypes'
 import { useRealtime } from '../../hooks/useRealtime'
 import { GridFour, Buildings, Users, Airplane, Ticket, Database } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
@@ -30,6 +31,9 @@ import LiveFroStatus from './pages/LiveFroStatus'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
 import MetropadPage from '../accounts/metropad/MetropadPage'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import { ChatIcon } from '../../components/chat/chatIcons'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', eyebrow: 'Super Admin', icon: GridFour },
@@ -51,6 +55,7 @@ const NAV = [
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
+  { id: 'chat', path: '/sa/chat', label: 'Community', eyebrow: 'Team', icon: ChatIcon },
 ]
 
 const navMap = {}
@@ -60,7 +65,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices', 'late-policy']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -102,6 +107,7 @@ function Sidebar({ mobileOpen }) {
             <NavLink key={n.id} to={n.path} end className={`sa-nav-item${isActive(n.path) ? ' active' : ''}`}>
               <Icon className="sa-nav-icon" size={16} />
               <span className="sa-nav-label">{n.label}</span>
+              {n.id === 'chat' && <ChatNavBadge />}
             </NavLink>
           )
         })}
@@ -137,6 +143,7 @@ function Sidebar({ mobileOpen }) {
 
 function PageShell({ children }) {
   const { user, logout } = useUcs()
+  const navigate = useNavigate()
   const [showMenu, setShowMenu] = useState(false)
   const [mobileSidebar, setMobileSidebar] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -178,7 +185,13 @@ function PageShell({ children }) {
 
   const loadNotifications = () => {
     const uid = user?.id;
-    if (!uid) return;
+    // The env-configured Super Admin signs in with id 0 and has no workers row.
+    // notification_log.worker_id is a uuid with a foreign key into workers(id), so
+    // no notification row can ever belong to them, and asking for
+    // /notifications/0 makes postgres raise `invalid input syntax for type uuid`.
+    // Chat notifications are deliberately not delivered to this account; the
+    // unread badge on the Community nav item covers the gap.
+    if (uid === null || uid === undefined || uid === 0) return;
     api(`/notifications/${uid}`, { _prefix: 'ucs' })
       .then(data => {
         const all = data || [];
@@ -278,7 +291,12 @@ function PageShell({ children }) {
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
-            onItemClick={() => setDrawerOpen(false)}
+            onItemClick={(item) => {
+              setDrawerOpen(false)
+              // A chat notification points at a room, so make it actionable:
+              // clicking it should land on Community rather than just closing.
+              if (item?.type === CHAT_NOTIFICATION_TYPE) navigate('/sa/chat')
+            }}
           />
           <SettingsDrawer
             open={showSettings}
@@ -349,6 +367,7 @@ export default function SuperAdminPanel() {
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
         <Route path="notices" element={<Notices />} />
         <Route path="late-policy" element={<LatePolicy />} />
+        <Route path="chat" element={<ChatWorkspace />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
     </PageShell>

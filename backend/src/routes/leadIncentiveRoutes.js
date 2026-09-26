@@ -25,7 +25,7 @@ import {
 } from '../controllers/leadIncentiveController.js';
 
 const router = Router();
-const sirLevel = authenticateRole('super_admin', 'admin');
+const sirLevel = authenticateRole('super_admin', 'admin', 'accounts');
 // Champion display is visible to the same audience that sees contest popups.
 const popupLevel = authenticateRole('super_admin', 'admin', 'accounts', 'hr', 'worker', 'fro');
 

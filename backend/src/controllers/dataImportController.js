@@ -10,6 +10,9 @@ import {
 } from '../services/fileParser.js';
 import { autoAssignDonorsToStations, roundRobinAssignToStations } from '../services/assignmentHelpers.js';
 
+const yieldNow = () => new Promise((r) => setImmediate(r));
+const CHUNK = 500;
+
 const resolveAmount = (val) => {
   const parsed = parseFloat(val);
   if (parsed && parsed > 0) return parsed;
@@ -747,8 +750,14 @@ export const getImportBatch = async (req, res) => {
   try {
     const batch = await getBatchById(req.params.id);
     if (!batch) return res.status(404).json({ message: 'Batch not found' });
-    const records = await getBatchRecords(req.params.id);
-    return res.json({ ...batch, records });
+    // Preview is bounded: a multi-hundred-thousand-row import batch must not be
+    // materialized into one JSON response (RAM + client hang). Fetch the first
+    // page only; export remains fully paginated out-of-band if needed.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 1000, 1), 5000);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const records = await getBatchRecords(req.params.id, { limit, offset });
+    const total = await getBatchCount(req.params.id);
+    return res.json({ ...batch, records, total });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -944,7 +953,10 @@ export const copyDonorsToNgos = async (req, res) => {
       const existingTargetMobiles = new Set((existingTarget || []).map(r => r.mobile_number));
 
       const toInsert = [];
+      let mobileIteration = 0;
       for (const mobile of mobilesToCopy) {
+        mobileIteration += 1;
+        if (mobileIteration % 200 === 0) await yieldNow();
         if (!existingTargetMobiles.has(mobile)) {
           const sourceRow = latestPerMobile[mobile];
           if (sourceRow) {
@@ -960,7 +972,12 @@ export const copyDonorsToNgos = async (req, res) => {
       }
 
       if (toInsert.length > 0) {
-        await insertNewDataBatch(toInsert);
+        // Insert in bounded chunks so a huge copy never materializes the whole
+        // array in one VALUES clause or blocks the event loop the whole time.
+        for (let i = 0; i < toInsert.length; i += CHUNK) {
+          await insertNewDataBatch(toInsert.slice(i, i + CHUNK));
+          await yieldNow();
+        }
       }
       results.push({ ngo: targetNgo.name, ngo_id: targetNgo.id, copied: toInsert.length });
     }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMeeting, endMeeting } from '../meetingStore'
+import { now as serverNow, isSynced, skewMs, onSync } from '../lib/serverClock'
 
 const ADMIN_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'master', 'administrator'])
 const GATE_ROLES = new Set(['fro', 'worker', 'team_lead'])
@@ -18,14 +19,56 @@ const fmtElapsed = (secs) => {
   return [h, m, s].map(v => String(v).padStart(2, '0')).join(':')
 }
 
-function ElapsedTicker({ since }) {
-  const [now, setNow] = useState(Date.now())
+// Ticks on the SERVER's clock, not the device clock. A phone whose clock is
+// wrong used to show a permanently clamped 00:00:00 (clock behind) or an
+// inflated value like 12:30:54 (clock ahead).
+function ElapsedTicker({ meeting }) {
+  const startMs = Date.parse(meeting?.started_at)
+
+  // Bad/missing start time must not masquerade as "the meeting just started",
+  // so show an explicit placeholder instead of 00:00:00.
+  if (Number.isNaN(startMs)) {
+    return <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.55 }}>--:--:--</span>
+  }
+
+  // First paint uses the server's own elapsed value when we have it, so the
+  // number is right even before the first tick.
+  const seed = Number.isFinite(meeting?.elapsed_seconds)
+    ? startMs + meeting.elapsed_seconds * 1000
+    : serverNow()
+
+  const [now, setNow] = useState(seed)
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
+    const t = setInterval(() => setNow(serverNow()), 1000)
     return () => clearInterval(t)
   }, [])
-  const start = new Date(since).getTime()
-  return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(Number.isNaN(start) ? 0 : Math.max(0, Math.floor((now - start) / 1000)))}</span>
+
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      {fmtElapsed(Math.max(0, Math.floor((now - startMs) / 1000)))}
+    </span>
+  )
+}
+
+// Warns the user when their own device clock is far enough off to be worth
+// fixing — otherwise every other timestamp in the app is suspect too.
+function ClockSkewNotice() {
+  // The offset lands after the first /meeting response, so subscribe to onSync;
+  // reading isSynced() during render alone would never show the warning.
+  const [, force] = useState(0)
+  useEffect(() => onSync(() => force((n) => n + 1)), [])
+  if (!isSynced()) return null
+  const skew = Math.abs(skewMs())
+  if (skew < 60 * 1000) return null
+  const mins = Math.round(skew / 60000)
+  const label = mins >= 90 ? `${Math.round(mins / 60)}h ${mins % 60}m` : `${mins}m`
+  const behind = skewMs() < 0
+  return (
+    <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 12, fontWeight: 600, textAlign: 'left' }}>
+      This device&apos;s clock is {label} {behind ? 'behind' : 'ahead of'} server time. Timers are shown
+      using server time, but please set automatic date &amp; time on this device.
+    </div>
+  )
 }
 
 // Team-scoped "Meeting" gate. Mounted once in App.jsx; it only renders for FRO
@@ -72,8 +115,14 @@ export default function MeetingGate() {
           </div>
           <div style={{ marginTop: 18, padding: '12px 16px', borderRadius: 12, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#94a3b8' }}>Elapsed</div>
-            <div style={{ fontSize: 30, fontWeight: 800, color: '#0f172a', marginTop: 2 }}><ElapsedTicker since={meeting.started_at} /></div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#0f172a', marginTop: 2 }}><ElapsedTicker meeting={meeting} /></div>
+            {meeting.started_at && !Number.isNaN(Date.parse(meeting.started_at)) && (
+              <div style={{ marginTop: 4, fontSize: 11.5, color: '#94a3b8' }}>
+                Started {new Date(meeting.started_at).toLocaleString()}
+              </div>
+            )}
           </div>
+          <ClockSkewNotice />
           <p style={{ margin: '18px 0 0', fontSize: 13.5, color: '#475569', lineHeight: 1.6 }}>
             The entire team is paused for this meeting. Live counters (idle, calls, breaks) are frozen and will resume automatically once the meeting ends.
           </p>

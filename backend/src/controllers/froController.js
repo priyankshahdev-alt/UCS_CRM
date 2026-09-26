@@ -14,7 +14,8 @@ import {
   getScheduledByAssignment,
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker } from '../models/froTargetModel.js';
-import { classifyLogSide } from './ngoAdminController.js';
+import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
+import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
   createDonorLog,
@@ -4687,12 +4688,29 @@ export const resumeOwnPause = async (req, res) => {
   try {
     const workerId = req.user.id;
     const nowIso = new Date().toISOString();
-    const { error } = await db.from('fro_live_status').upsert(
-      { worker_id: workerId, is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso },
-      { onConflict: 'worker_id' }
-    );
+
+    // A "work as" session writes its live status onto the impersonated TARGET's
+    // row, and getMyLiveStatus reports the operator as paused when EITHER row is
+    // paused. Clearing only the operator's own row therefore left the target
+    // paused, the panel re-converged to paused on the very next db:change, and
+    // the FRO could never escape — the "resume runs on a loop" report. Clear
+    // every row this session can legitimately be paused on.
+    const ids = [String(workerId)];
+    if (req.user.impersonation && req.user.imposter_id) ids.push(String(req.user.imposter_id));
+
+    // Update, never upsert: a resume must not manufacture a live row for a
+    // worker who has never opened the panel (no row already means "not paused").
+    const { error } = await db
+      .from('fro_live_status')
+      .update({ is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso })
+      .in('worker_id', ids);
     if (error) throw error;
-    emitRealtime('fro:resume', { at: nowIso, by: 'self' }, `worker:${workerId}`);
+
+    // The admin FRO Status page is served from a 15s cached payload, so without
+    // this the pill still reads "Paused" right after a successful resume — which
+    // is exactly what made this look like the resume had been undone.
+    bustTlCache();
+    for (const id of ids) emitRealtime('fro:resume', { at: nowIso, by: 'self' }, `worker:${id}`);
     return res.json({ message: 'Resumed', paused: false });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -4882,6 +4900,137 @@ export const getLiveStatuses = async (req, res) => {
 
     return res.json(result);
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Everyone punched in through the attendance app today, scoped to the admin's
+// NGO(s). Deliberately NOT derived from fro_live_status the way getLiveStatuses
+// is: staff who have not opened the CRM panel have no live row at all, so
+// attendance is the only roster that actually knows who is in the building.
+// Each member is annotated with their CRM presence so the two views can be
+// compared side by side.
+export const getPresentToday = async (req, res) => {
+  try {
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const todayStr = new Date(Date.now() + istOffset).toISOString().slice(0, 10);
+
+    // 1. Attendance punches for today. Same shape the FRO Status page already
+    //    uses, so this stays on query patterns known to work against this DB.
+    //    'half-day' counts as in: it is derived from a real punch-in (see
+    //    attendanceStatus.resolveStatus), and excluding it would hide people
+    //    who are standing in the office. Gating on punch_in_time being set
+    //    keeps out half-days that come from approved leave with no punch.
+    const { data: attendanceRows, error: attErr } = await db
+      .from('attendance')
+      .select('worker_id, status, punch_in_time, punch_out_time, late_minutes')
+      .eq('date', todayStr)
+      .in('status', ['present', 'late', 'half-day'])
+      .not('punch_in_time', 'is', null);
+    if (attErr) throw attErr;
+
+    const members = attendanceRows || [];
+    if (members.length === 0) {
+      return res.json({ date: todayStr, total: 0, present: 0, late: 0, in_crm: 0, members: [] });
+    }
+
+    const ids = [...new Set(members.map(a => a.worker_id).filter(Boolean).map(String))];
+    if (ids.length === 0) {
+      return res.json({ date: todayStr, total: 0, present: 0, late: 0, in_crm: 0, members: [] });
+    }
+
+    // 2. NGO scope. Filtered here in JS (every query below is a plain
+    //    .in('id'/'worker_id', ids)) so no embedded-resource filter is needed.
+    let ngoIds = [];
+    try {
+      const access = await getUserNgoAccess(req.user.id, req.user.role);
+      ngoIds = [...new Set(access.map(a => a.ngo_id).filter(Boolean).map(String))];
+    } catch { /* fall back to the user's own ngo_id below */ }
+    if (ngoIds.length === 0 && req.user.ngo_id) ngoIds = [String(req.user.ngo_id)];
+
+    const { ngo_id: filterNgoId } = req.query;
+    const wantsAll = filterNgoId === 'all';
+    // super_admin with no allocation rows manages every NGO.
+    const scopeAll = req.user.role === 'super_admin' && ngoIds.length === 0;
+
+    const [workerRes, liveRes, allocRes] = await Promise.all([
+      db.from('workers').select('id, name, login_id, department, ngo_id, is_active').in('id', ids),
+      db.from('fro_live_status').select('worker_id, status, is_paused, updated_at').in('worker_id', ids),
+      db.from('worker_ngo_allocations').select('worker_id, ngos(name)').in('worker_id', ids),
+    ]);
+
+    const workerMap = {};
+    (workerRes.data || []).forEach(w => { workerMap[String(w.id)] = w; });
+    const liveMap = {};
+    (liveRes.data || []).forEach(l => { liveMap[String(l.worker_id)] = l; });
+    const ngoNameMap = {};
+    (allocRes.data || []).forEach(a => { if (a.ngos?.name) ngoNameMap[String(a.worker_id)] = a.ngos.name; });
+
+    // Punch times are formatted to IST server-side: the client must not redo
+    // timezone maths on a device whose clock/timezone we do not trust.
+    const fmtIst = (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return null;
+      const ist = new Date(d.getTime() + istOffset);
+      const hh = String(ist.getUTCHours()).padStart(2, '0');
+      const mm = String(ist.getUTCMinutes()).padStart(2, '0');
+      const ampm = ist.getUTCHours() >= 12 ? 'PM' : 'AM';
+      const h12 = ist.getUTCHours() % 12 === 0 ? 12 : ist.getUTCHours() % 12;
+      return `${h12}:${mm} ${ampm}`;
+    };
+
+    const result = members
+      .map((a) => {
+        const key = String(a.worker_id);
+        const w = workerMap[key] || null;
+        const live = liveMap[key] || null;
+        return {
+          worker_id: a.worker_id,
+          name: w?.name || 'Unknown',
+          login_id: w?.login_id || '',
+          department: w?.department || '',
+          ngo_id: w?.ngo_id || null,
+          ngo_name: ngoNameMap[key] || '',
+          is_active: w?.is_active !== false,
+          attendance_status: a.status,
+          late_minutes: a.late_minutes || 0,
+          punch_in_time: a.punch_in_time || null,
+          punch_out_time: a.punch_out_time || null,
+          punch_in_label: fmtIst(a.punch_in_time),
+          punch_out_label: fmtIst(a.punch_out_time),
+          // CRM presence, purely informational — attendance is the source of
+          // truth for this list.
+          in_crm: !!live,
+          crm_status: live?.status || null,
+          is_paused: !!live?.is_paused,
+          last_crm_heartbeat: live?.updated_at || null,
+        };
+      })
+      .filter((m) => {
+        if (scopeAll || wantsAll) return true;
+        if (filterNgoId) return String(m.ngo_id) === String(filterNgoId);
+        return ngoIds.includes(String(m.ngo_id));
+      });
+
+    // Earliest punch-in first: that is the order the office cares about.
+    result.sort((a, b) => {
+      const av = a.punch_in_time ? new Date(a.punch_in_time).getTime() : Infinity;
+      const bv = b.punch_in_time ? new Date(b.punch_in_time).getTime() : Infinity;
+      return av - bv || a.name.localeCompare(b.name);
+    });
+
+    return res.json({
+      date: todayStr,
+      total: result.length,
+      present: result.filter(m => m.attendance_status === 'present').length,
+      late: result.filter(m => m.attendance_status === 'late').length,
+      half_day: result.filter(m => m.attendance_status === 'half-day').length,
+      in_crm: result.filter(m => m.in_crm).length,
+      members: result,
+    });
+  } catch (error) {
+    console.error('getPresentToday error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

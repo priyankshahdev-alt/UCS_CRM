@@ -1,10 +1,10 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitGiven
+  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
-import { getDisabilities } from '../models/beneficiaryDisabilityModel.js';
+import { getDisabilities, addDisability, removeDisability } from '../models/beneficiaryDisabilityModel.js';
 import { getFamilyMembers } from '../models/beneficiaryFamilyModel.js';
 import { getEducation } from '../models/beneficiaryEducationModel.js';
 import { getEmployment } from '../models/beneficiaryEmploymentModel.js';
@@ -17,7 +17,7 @@ import { getBeneficiaryDistributionHistory } from '../models/distributionModel.j
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
-import { extractAadhaarFromPhoto } from '../utils/aadhaarPhotoOcr.js';
+import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -66,7 +66,7 @@ export const createNewBeneficiary = async (req, res) => {
       bpl_available, ration_card_available, occupation, mother_name, father_name,
       guardian_name, guardian_occupation, total_family_members, ngo_id, registration_date,
       category_ids, disabilities, family_members, education, employment, assistance_requirements,
-      aadhaar_number,
+      aadhaar_number, needed,
     } = req.body;
 
     if (!full_name) return res.status(400).json({ message: 'Full name is required' });
@@ -80,7 +80,7 @@ export const createNewBeneficiary = async (req, res) => {
       address_line_1, address_line_2, area, city, district, state, pincode, photo,
       monthly_family_income, income_category, bpl_available, ration_card_available,
       occupation, mother_name, father_name, guardian_name, guardian_occupation,
-      total_family_members, ngo_id, registration_date, aadhaar_number,
+      total_family_members, ngo_id, registration_date, aadhaar_number, needed,
       status: 'ACTIVE', fingerprint_status: 'NOT_REGISTERED',
       created_by, updated_by: created_by,
     });
@@ -89,13 +89,52 @@ export const createNewBeneficiary = async (req, res) => {
       await assignCategories(beneficiary.id, category_ids);
     }
 
+    // Persist disability records (disability_type + percentage) sent from the
+    // operator app. Failures here never block the registration itself, but are
+    // surfaced to the caller as warnings instead of being swallowed.
+    const warnings = [];
+    if (Array.isArray(disabilities)) {
+      for (const d of disabilities) {
+        if (!d || typeof d !== 'object') continue;
+        let saved = false;
+        for (let attempt = 1; attempt <= 3 && !saved; attempt++) {
+          try {
+            await addDisability(beneficiary.id, {
+              disability_type: String(d.disability_type || 'General'),
+              disability_percentage:
+                d.disability_percentage != null && d.disability_percentage !== ''
+                  ? Number(d.disability_percentage)
+                  : null,
+              certificate_available:
+                d.certificate_available != null ? Boolean(d.certificate_available) : false,
+            });
+            saved = true;
+          } catch (e) {
+            if (attempt === 3) {
+              const msg = `Disability details could not be saved (${String(
+                d.disability_type || 'General'
+              )} — ${e.message}).`;
+              console.error(`[beneficiaries] disability save failed for ${beneficiary.id}:`, e.message);
+              warnings.push(msg);
+            } else {
+              await new Promise((r) => setTimeout(r, 400 * attempt));
+            }
+          }
+        }
+      }
+    }
+
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
       beneficiary_id: beneficiary.id, action: 'CREATED',
       details: { beneficiary_code }, performed_by: created_by,
     });
 
-    return res.status(201).json({ message: 'Beneficiary created', beneficiary });
+    return res.status(201).json({
+      message: 'Beneficiary created',
+      beneficiary,
+      warnings: warnings.length ? warnings : undefined,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -179,6 +218,36 @@ export const getBeneficiaryByCodeController = async (req, res) => {
   }
 };
 
+// Deletes one or more beneficiaries and everything attached to them (all
+// "details" including fingerprints and documents). Used by both
+// DELETE /beneficiaries/:id and POST /beneficiaries/bulk-delete.
+export const deleteBeneficiariesController = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids
+      : req.params.id
+        ? [req.params.id]
+        : [];
+    const cleanIds = [...new Set(ids.map((n) => parseInt(n, 10)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (cleanIds.length === 0) {
+      return res.status(400).json({ message: 'No valid beneficiary ids provided' });
+    }
+
+    const { deleted } = await deleteBeneficiaries(cleanIds);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: cleanIds[0], beneficiary_id: null,
+      action: 'BULK_DELETED',
+      details: { ids: cleanIds, requested: cleanIds.length, deleted },
+      performed_by: req.user?.name || 'system',
+    });
+
+    return res.json({ message: `Deleted ${deleted} beneficiary${deleted === 1 ? '' : 'ies'}. All related records removed (documents, fingerprints, disability, family, benefits).`, deleted });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const markBeneficiaryKitGiven = async (req, res) => {
   try {
     const beneficiary = await getBeneficiaryById(req.params.id);
@@ -254,6 +323,13 @@ export const updateBeneficiaryController = async (req, res) => {
     delete updates.beneficiary_code;
     delete updates.created_at;
     delete updates.created_by;
+    // Sub-resource payloads are applied through their own tables below — they
+    // are not columns of `beneficiaries` and would break the UPDATE.
+    delete updates.disabilities;
+    delete updates.category_ids;
+    delete updates.family_members;
+    delete updates.education;
+    delete updates.employment;
 
     const updated_by = req.user?.name || req.user?.email || 'system';
     updates.updated_by = updated_by;
@@ -262,6 +338,18 @@ export const updateBeneficiaryController = async (req, res) => {
 
     if (req.body.category_ids) {
       await assignCategories(beneficiary.id, req.body.category_ids);
+    }
+
+    // The operator app edits disabilities together, so replace the whole set
+    // when the payload carries one.
+    if (Array.isArray(req.body.disabilities)) {
+      const existing = await getDisabilities(beneficiary.id);
+      for (const d of existing) {
+        await removeDisability(d.id);
+      }
+      for (const d of req.body.disabilities) {
+        await addDisability(beneficiary.id, d);
+      }
     }
 
     await logAuditEvent({
@@ -345,30 +433,37 @@ export const getAuditTrail = async (req, res) => {
 // decoder as fallback.
 
 // OCRs a photo of an Aadhaar card and returns the same field shape as
-// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a
-// base64 JPEG (/data:image;base64,... or raw). Uses Groq vision first, falls
-// back to OCR.space + regex heuristics.
+// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a base64 JPEG
+// (/data:image;base64,... or raw). Uses Gemini vision first, falls back to
+// OCR.space + regex heuristics. If everything fails, `detail` explains which
+// OCR engine was missing/broken so the operator can fix it server-side.
 export const parseAadhaarPhotoController = async (req, res) => {
   try {
-    const { image } = req.body || {};
+    const { image, side } = req.body || {};
     if (!image) {
       return res.status(400).json({ message: 'image is required' });
     }
 
-    const fields = await extractAadhaarFromPhoto(String(image));
+    // side: 'front' | 'back' | anything else → 'all' (scrape every visible
+    // detail, used when a single uploaded Aadhaar document must autofill).
+    const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
+    const { fields, via, errors } = await extractAadhaarFromPhoto(String(image), sideKey);
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
-        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole front of the Aadhaar card.',
+        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole Aadhaar card.',
+        detail: errors.join('; ') || 'No OCR engine returned usable text.',
       });
     }
 
     await logAuditEvent({
       entity_type: 'aadhaar_scan',
       action: 'AADHAAR_PHOTO_SCANNED',
-      details: { found: Object.keys(fields).filter((k) => fields[k]).length },
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via },
       performed_by: req.user?.name || req.user?.email || 'system',
     });
 
+    const discarded = [...new Set([...ALL_KEYS].filter((k) => !(k in fields)))];
+    console.log(`[aadhaar OCR] via=${via} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
     return res.json(fields);
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -50,6 +50,58 @@ export function buildSecureQrPayload({
   return BigInt('0x' + deflated.toString('hex')).toString(10);
 }
 
+// A realistic SecureQR payload following the UIDAI spec (Annexure / Secure QR
+// specification 3.1–3.2):
+//   byte array = [indicator(0–3)] [referenceId] [name] [dob] [gender] co,
+//   district, landmark, house, location, pincode, post office, state, street,
+//   subdist, vtc ... each 0xFF-delimited, then photo + 32-byte email/mobile
+//   hashes + 256-byte signature
+//   compressed = gzip (real cards are gzip, not zlib)
+//   payload    = BigInt(hex(compressed)) as a decimal string
+// Note: no 'V' header byte — older implementations wrongly assume one.
+export function buildRealSecureQrPayload({
+  indicator = '0',
+  referenceId = '269720190308114407437',
+  name = 'Sumit Kumar',
+  dob = '01-01-1984',
+  gender = 'M',
+  address = null,
+} = {}) {
+  const a = address || {};
+  const fields = [
+    indicator,
+    referenceId,
+    name,
+    dob,
+    gender,
+    a.co ?? '',
+    a.district ?? '',
+    a.landmark ?? '',
+    a.house ?? '',
+    a.location ?? '',
+    a.pincode ?? '',
+    a.po ?? '',
+    a.state ?? '',
+    a.street ?? '',
+    a.subdist ?? '',
+    a.vtc ?? '',
+  ];
+
+  const bytes = [];
+  for (const field of fields) {
+    if (field) bytes.push(...Buffer.from(String(field), 'utf8'));
+    bytes.push(0xff);
+  }
+  // Photo blob (kept short here), fixed-size hashes and 256-byte signature.
+  for (let i = 0; i < 64; i++) bytes.push(0x47);
+  for (let i = 0; i < 32; i++) bytes.push(0x13);
+  for (let i = 0; i < 32; i++) bytes.push(0x29);
+  for (let i = 0; i < 256; i++) bytes.push(0x01);
+
+  const compressed = zlib.gzipSync(Buffer.from(bytes));
+  return BigInt('0x' + compressed.toString('hex')).toString(10);
+}
+
 export function sampleAddress() {
   return {
     co: 'C/O Ramesh Kumar',

@@ -1,5 +1,24 @@
 import db from '../config/db.js';
 
+export const logAuditEvents = async (entries) => {
+  const rows = (entries || []).map((e) => ({
+    entity_type: e.entity_type,
+    entity_id: e.entity_id,
+    beneficiary_id: e.beneficiary_id,
+    action: e.action,
+    details: e.details ? JSON.stringify(e.details) : null,
+    performed_by: e.performed_by,
+    performed_at: new Date().toISOString(),
+  }));
+  if (rows.length === 0) return [];
+  const { data, error } = await db
+    .from('beneficiary_audit_logs')
+    .insert(rows)
+    .select('*');
+  if (error) throw error;
+  return data || [];
+};
+
 export const logAuditEvent = async ({ entity_type, entity_id, beneficiary_id, action, details, performed_by }) => {
   const { data, error } = await db
     .from('beneficiary_audit_logs')

@@ -112,6 +112,39 @@ const PER_PAGE = 50;
 const toIstDate = (d = new Date()) =>
   new Date(new Date(d).getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
 
+const mergePauseState = (payload, overrides) => {
+  if (!payload || !Array.isArray(payload.performance) || !overrides.size) return payload;
+  let changed = false;
+  const performance = payload.performance.map(row => {
+    const key = String(row.fro_id);
+    const intent = overrides.get(key);
+    if (!intent) return row;
+    if (intent.expiresAt <= Date.now()) {
+      overrides.delete(key);
+      return row;
+    }
+    if (!!row.is_paused === intent.paused) {
+      overrides.delete(key);
+      return row;
+    }
+    changed = true;
+    return {
+      ...row,
+      is_paused: intent.paused,
+      paused_by: intent.paused ? (row.paused_by || intent.pausedBy || 'Admin') : null,
+      paused_at: intent.paused ? (row.paused_at || intent.pausedAt) : null,
+    };
+  });
+  return changed ? { ...payload, performance } : payload;
+};
+
+const formatIdle = (seconds) => {
+  const total = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+};
+
 const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
 
 
@@ -1019,6 +1052,10 @@ export default function Dashboard() {
   })), [accessibleNgos]);
 
   const [tlData, setTlData] = useState(null);
+  const [tlRefreshNonce, setTlRefreshNonce] = useState(0);
+  const tlRequestVersionRef = useRef(0);
+  const tlForceFreshRef = useRef(false);
+  const pauseOverridesRef = useRef(new Map());
 
   // Global meeting mode (from meetingStore): freezes live counts + suppresses
   // idle/zero-call alerts while a company-wide meeting is active.
@@ -1098,7 +1135,11 @@ export default function Dashboard() {
   ), [tlData, froSearch]);
   useEffect(() => {
     let cancelled = false;
-    const buildParams = () => {
+    let inFlight = false;
+    let useFresh = tlForceFreshRef.current;
+    const requestVersion = ++tlRequestVersionRef.current;
+    const controller = new AbortController();
+    const buildParams = (fresh) => {
       const params = [];
       if (selectedNgoId !== 'all') params.push(`ngo_id=${selectedNgoId}`);
       let from, to;
@@ -1118,24 +1159,31 @@ export default function Dashboard() {
       if (from) params.push(`from=${from}`);
       if (to) params.push(`to=${to}`);
       if (selectedFroId) params.push(`fro_id=${selectedFroId}`);
+      if (fresh) params.push('fresh=1');
       return params.length ? `?${params.join('&')}` : '';
     };
-    const ngoParam = () => buildParams();
-    let inFlight = false;
     const fetchTl = () => {
-      if (inFlight) return; // never stack 30s polls
+      if (inFlight) return;
       inFlight = true;
-      apiGet(`/ngo-admin/tl-dashboard${ngoParam()}`)
-        .then(d => { if (!cancelled) setTlData(d); })
-        // Keep the last good data on transient failures so the Telecaller
-        // Performance section never vanishes mid-session; the next poll retries.
-        .catch(() => { if (!cancelled) setTlData(prev => prev || null); })
+      const fresh = useFresh;
+      useFresh = false;
+      apiGet(`/ngo-admin/tl-dashboard${buildParams(fresh)}`, { signal: controller.signal })
+        .then(d => {
+          if (cancelled || requestVersion !== tlRequestVersionRef.current) return;
+          setTlData(mergePauseState(d, pauseOverridesRef.current));
+        })
+        .catch(() => {})
         .finally(() => { inFlight = false; });
     };
+    tlForceFreshRef.current = false;
     fetchTl();
     const interval = setInterval(fetchTl, 10000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId, tlRefreshNonce]);
 
   // Send an idle_alert notification to a specific FRO (bell + realtime + FCM).
   const [notifyingFroId, setNotifyingFroId] = useState(null);
@@ -1169,9 +1217,16 @@ export default function Dashboard() {
     setPausingFroId(id);
     try {
       await apiPost(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, {});
-      // Optimistic flip: render Resume/Play instantly instead of waiting for
-      // the next 10s poll (the poll then confirms it server-side).
       const stamp = new Date().toISOString();
+      pauseOverridesRef.current.set(String(id), {
+        paused: pausing,
+        pausedBy: pausing ? 'Admin' : null,
+        pausedAt: stamp,
+        expiresAt: Date.now() + 120000,
+      });
+      tlRequestVersionRef.current += 1;
+      tlForceFreshRef.current = true;
+      setTlRefreshNonce(value => value + 1);
       setTlData(prev => prev && Array.isArray(prev.performance)
         ? { ...prev, performance: prev.performance.map(p => String(p.fro_id) === String(id)
           ? { ...p, is_paused: pausing, paused_by: pausing ? (p.paused_by || 'Admin') : null, paused_at: pausing ? (p.paused_at || stamp) : null }
@@ -2282,14 +2337,7 @@ export default function Dashboard() {
 
               {/* Body: loading / empty states / present-FRO list with Pause-Resume */}
               {(() => {
-                const idleShort = (secs) => {
-                  const m = Math.round((secs || 0) / 60);
-                  if (!m || m < 0) return '—';
-                  const h = Math.floor(m / 60); const mm = m % 60;
-                  if (h === 0) return `${mm}m`;
-                  if (mm === 0) return `${h}h`;
-                  return `${h}h ${mm}m`;
-                };
+                const idleShort = (secs) => formatIdle(secs);
                 const pillOf = (p) => {
                   if (p.is_paused) return { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' };
                   if (p.status === 'on_call') return { label: 'On Call', color: '#15803d', bg: '#ecfdf5' };
@@ -2437,7 +2485,7 @@ export default function Dashboard() {
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
         const METRICS = [
-          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, narrow: true, display: (v) => { const m = Math.round((v || 0) / 60); if (!m || m < 0) return '—'; const h = Math.floor(m / 60); const mm = m % 60; if (h === 0) return `${mm}m`; if (mm === 0) return `${h}h`; return `${h}h ${mm}m`; } },
+          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, narrow: true, display: (v) => formatIdle(v) },
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },

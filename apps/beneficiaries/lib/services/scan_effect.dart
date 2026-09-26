@@ -57,6 +57,41 @@ Uint8List scanDocument(Uint8List bytes, {int maxDim = 1600}) {
   return out.isEmpty ? bytes : out;
 }
 
+/// Crops [bytes] to the normalized region [norm] then whitens the selection
+/// like a real scan. [norm] is `[left, top, right, bottom]` with all values in
+/// the 0..1 range (fractions of the image width/height from the top-left).
+/// Invalid selections degrade to a plain [scanWhiten] of the whole frame.
+Uint8List cropAndWhiten(Uint8List bytes, List<double> norm, {int maxDim = 1600}) {
+  img.Image? src;
+  try {
+    src = img.decodeImage(bytes);
+  } catch (_) {
+    return bytes;
+  }
+  if (src == null) return bytes;
+
+  final img.Image work = _resizeMax(src, maxDim);
+  img.Image result = work;
+  if (norm.length == 4) {
+    final double left = norm[0].clamp(0.0, 1.0).toDouble();
+    final double top = norm[1].clamp(0.0, 1.0).toDouble();
+    final double right = norm[2].clamp(left + 0.01, 1.0).toDouble();
+    final double bottom = norm[3].clamp(top + 0.01, 1.0).toDouble();
+    final int x = (left * work.width).floor().clamp(0, work.width - 1);
+    final int y = (top * work.height).floor().clamp(0, work.height - 1);
+    final int w = ((right - left) * work.width).ceil().clamp(1, work.width - x);
+    final int h = ((bottom - top) * work.height).ceil().clamp(1, work.height - y);
+    try {
+      result = img.copyCrop(work, x: x, y: y, width: w, height: h);
+    } catch (_) {
+      result = work;
+    }
+  }
+
+  final Uint8List out = _whiten(result);
+  return out.isEmpty ? bytes : out;
+}
+
 /// Resize so the longest edge is <= [maxDim], preserving aspect ratio.
 img.Image _resizeMax(img.Image src, int maxDim) {
   if (src.width <= maxDim && src.height <= maxDim) return src;

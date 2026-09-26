@@ -83,7 +83,61 @@ const REALTIME_TABLES = new Set([
   'lead_champion_announcements', 'incentive_slabs',
 ]);
 
+// High-volume tables whose rows are written in bulk (imports, scrapes, donor
+// logs): broadcasting one db:change per row would fan an N-row write into N
+// socket emits across every connected panel and stall the shared event loop.
+// Clients only use db:change for these tables as a "something changed, refetch"
+// signal, so a single coalesced event per (table, eventType) carrying the last
+// row (plus count) is behaviorally equivalent and drops the fan-out to ~1.
+const BULK_EMIT_TABLES = new Set([
+  'receipts', 'bank_audit_entries', 'fro_donor_logs', 'rejected_lead_tickets',
+  'lead_champion_announcements', 'incentive_slabs', 'impersonation_codes',
+]);
+
+// Pending bulk-emission windows, keyed by `${table}:${eventType}`. Each window
+// flushes at most once per RT_BULK_FLUSH_MS (default 2s) with the last row seen.
+const pendingBulkEmits = new Map();
+
+function flushBulkEmit(table, eventType) {
+  const key = `${table}:${eventType}`;
+  const rec = pendingBulkEmits.get(key);
+  if (!rec) return;
+  pendingBulkEmits.delete(key);
+  if (rec.timer) clearTimeout(rec.timer);
+  const row = rec.last;
+  if (!row) return;
+  emitDbChange({
+    table, schema: 'public', eventType, bulk: true, count: rec.count,
+    new: eventType === 'DELETE' ? null : row,
+    old: eventType === 'DELETE' ? row : null,
+  });
+}
+
 function emitRealtimeRows(table, eventType, rows) {
+  if (!rows || rows.length === 0) return;
+
+  if (BULK_EMIT_TABLES.has(table)) {
+    // Collapse the whole batch into one pending event. Consecutive writes to
+    // the same table land on the same window, so a multi-thousand-row import
+    // produces ~1 broadcast instead of ~thousands.
+    const key = `${table}:${eventType}`;
+    for (const row of rows) {
+      if (!row) continue;
+      let rec = pendingBulkEmits.get(key);
+      if (!rec) {
+        rec = { last: null, count: 0, timer: null };
+        pendingBulkEmits.set(key, rec);
+      }
+      rec.last = row;
+      rec.count += 1;
+      if (!rec.timer) {
+        rec.timer = setTimeout(() => flushBulkEmit(table, eventType), Number(process.env.RT_BULK_FLUSH_MS || 2000));
+        rec.timer.unref?.();
+      }
+    }
+    return;
+  }
+
   for (const row of rows) {
     if (!row) continue;
     // fro_live_status rows are rewritten by every heartbeat and broadcast to

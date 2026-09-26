@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import db from './config/db.js';
 
 let io = null;
 
@@ -71,14 +72,97 @@ export function initRealtime(server) {
     // Presence: an open authenticated socket means the panel is open, no
     // heartbeat timer needed. Multi-tab = multiple socket ids, one entry.
     trackPresence(socket);
+
+    // Community Chat: join one room per conversation this identity participates
+    // in, so typing frames reach the right people. A direct conversation is only
+    // ever joined by its two participants, so a read-only role structurally
+    // cannot receive a DM typing frame. Resolved from chat_participants rather
+    // than from the JWT role, which is what keeps the two in step.
+    //
+    // A DM opened after connect is a room this socket has never joined, so the
+    // client asks again once it creates a conversation - otherwise the two
+    // people in a brand new DM get no live messages until they reload.
+    const rejoinChatRooms = () =>
+      joinChatRooms(socket).catch((e) =>
+        console.warn('[socket] chat room join failed:', e?.message || String(e))
+      );
+    rejoinChatRooms();
+    socket.on('chat:join', rejoinChatRooms);
+    socket.on('chat:typing', (payload) => relayTyping(socket, payload));
   });
 
   return io;
 }
 
+/**
+ * Puts a newly connected socket into the chat rooms it is entitled to.
+ *
+ * Runs asynchronously after connect so a slow query cannot delay the socket
+ * handshake for panels that are not even using chat.
+ */
+async function joinChatRooms(socket) {
+  const user = socket.user;
+  if (!user) return;
+  const email = String(user.email || '').trim().toLowerCase();
+  const uid = email
+    ? `email:${email}`
+    : (user.id ?? user.workerId) != null && String(user.id ?? user.workerId) !== ''
+      ? `login:${user.id ?? user.workerId}`
+      : null;
+  if (!uid) return;
+
+  const { rows } = await db._pool.query(
+    `SELECT conversation_id FROM chat_participants WHERE uid = $1`,
+    [uid]
+  );
+  for (const r of rows) socket.join(`chat:${r.conversation_id}`);
+}
+
+/**
+ * Relays a typing indicator to the rest of the conversation.
+ *
+ * Authorisation is re-checked here rather than trusted from the client: the
+ * socket only relays into a room the sender has actually joined, so a forged
+ * conversation_id cannot fan out into someone else's thread.
+ */
+function relayTyping(socket, payload) {
+  const conversationId = Number(payload?.conversation_id);
+  if (!Number.isInteger(conversationId)) return;
+  if (!socket.rooms.has(`chat:${conversationId}`)) return;
+  socket.to(`chat:${conversationId}`).emit('chat:typing', {
+    conversation_id: conversationId,
+    uid: chatUidOf(socket.user),
+    name: socket.user?.name || '',
+    typing: !!payload?.typing,
+  });
+}
+
+/** Mirrors chatModel.chatUidFor so both sides derive the same key. */
+function chatUidOf(user) {
+  const email = String(user?.email || '').trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const id = user?.id ?? user?.workerId;
+  if (id != null && String(id) !== '') return `login:${id}`;
+  return null;
+}
+
 export function emitDbChange(payload) {
   if (!io) return;
   io.emit('db:change', payload);
+}
+
+/**
+ * Emits a chat event to one conversation room only.
+ *
+ * Chat deliberately does NOT go through emitDbChange: that is an io.emit to
+ * every connected socket, so a DM body would be pushed to all six read-only
+ * roles. The client would not render it (the conversation is not in their list)
+ * but it would still cross the wire and sit in their tab's memory. Room-scoped
+ * emit is the only thing that keeps a DM inside the DM.
+ */
+export function emitChat(conversationId, payload) {
+  if (!io) return;
+  io.to(`chat:${conversationId}`).emit('chat:message', payload);
 }
 
 export function emitRealtime(event, payload, room) {

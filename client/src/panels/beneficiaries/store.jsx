@@ -11,8 +11,11 @@ export async function apiGet(path) {
   return res
 }
 
-export async function apiPost(path, body) {
-  const res = await api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
+// `opts` is optional and passed straight through to api(), so callers that need
+// a longer deadline than the 120s default (bulk imports, exports) can ask for
+// one without every other caller changing.
+export async function apiPost(path, body, opts = {}) {
+  const res = await api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs', ...opts })
   return res
 }
 

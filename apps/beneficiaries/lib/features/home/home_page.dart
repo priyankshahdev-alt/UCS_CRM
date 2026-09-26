@@ -1,12 +1,9 @@
 ﻿import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../core/lucide_icons.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/widgets/bottom_navigation.dart';
-import '../../core/widgets/stat_card.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
-import 'widgets/kit_given_users_card.dart';
+import 'widgets/kits_page.dart';
 import '../profile/profile_page.dart';
 import '../beneficiaries/fingerprint_lookup_page.dart';
 
@@ -21,7 +18,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentTab = 0;
   Map<String, dynamic>? _volunteerData;
-  Map<String, dynamic>? _overview;
   StreamSubscription<Map<String, dynamic>>? _deviceEventSub;
 
   @override
@@ -49,9 +45,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadData() async {
     _volunteerData = await ApiService.getVolunteerData();
-    try {
-      _overview = await ApiService.get('/beneficiaries/overview');
-    } catch (_) {}
     if (mounted) setState(() {});
   }
 
@@ -92,7 +85,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  final GlobalKey<KitGivenUsersCardState> _kitCardKey = GlobalKey();
+  final GlobalKey<KitsPageState> _kitCardKey = GlobalKey();
 
   Widget _buildHomeContent() {
     return SafeArea(
@@ -106,42 +99,10 @@ class _HomePageState extends State<HomePage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           children: [
-            if (_overview != null) _buildStats(),
-            if (_overview != null) const SizedBox(height: 28),
-            KitGivenUsersCard(key: _kitCardKey),
+            KitsPage(key: _kitCardKey),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildStats() {
-    return Row(
-      children: [
-        Expanded(
-          child: StatCard(
-            icon: LucideIcons.user,
-            value: '${_overview!['total_beneficiaries'] ?? 0}',
-            label: 'Total Members',
-            background: AppColors.statMembersBg,
-            border: AppColors.statMembersBorder,
-            iconBackground: AppColors.statMembersIconBg,
-            iconColor: AppColors.primaryBlue,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: StatCard(
-            icon: LucideIcons.package,
-            value: '${_overview!['kit_given_today'] ?? 0}',
-            label: 'Given Today',
-            background: AppColors.statDonationsBg,
-            border: AppColors.statDonationsBorder,
-            iconBackground: AppColors.statDonationsIconBg,
-            iconColor: AppColors.successGreen,
-          ),
-        ),
-      ],
     );
   }
 }

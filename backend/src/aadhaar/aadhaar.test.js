@@ -6,10 +6,11 @@ import jwt from 'jsonwebtoken';
 import { QR } from '@xone-labs/aadharjs';
 import { decodeAadhaarQr, AadhaarDecodeError } from './decoder.js';
 import aadhaarRouter from './routes.js';
-import { buildSecureQrPayload, buildLegacyXmlPayload, sampleAddress } from './fixture.js';
+import { buildSecureQrPayload, buildLegacyXmlPayload, buildRealSecureQrPayload, sampleAddress } from './fixture.js';
 
 const validSecureQr = buildSecureQrPayload({ address: sampleAddress(), name: 'Asha Kumari', gender: 'M', dob: '22-08-1991' });
 const legacyXmlQr = buildLegacyXmlPayload();
+const realSecureQr = buildRealSecureQrPayload({ address: sampleAddress(), name: 'Sumit Kumar', gender: 'M', dob: '01-01-1984' });
 
 // ---- decoder unit tests -----------------------------------------------------
 
@@ -30,6 +31,16 @@ test('falls back to the legacy XML decoder', () => {
   assert.equal(out.dob, '1991-08-22');
   assert.equal(out.gender, 'Female');
   assert.ok(out.address.includes('Jaipur'));
+  assert.ok(out.address.includes('302015'));
+});
+
+test('decodes a spec-real SecureQR (gzip, no V header) into normalized fields', () => {
+  const out = decodeAadhaarQr(realSecureQr);
+  assert.equal(out.name, 'Sumit Kumar');
+  assert.equal(out.dob, '1984-01-01');
+  assert.equal(out.gender, 'Male');
+  assert.ok(out.address.includes('Tilak Nagar'));
+  assert.ok(out.address.includes('Gandhi Chowk'));
   assert.ok(out.address.includes('302015'));
 });
 
@@ -134,6 +145,9 @@ test('POST /decode-qr returns 400 for an unreadable payload', async () => {
     });
     assert.equal(status, 400);
     assert.equal(json.message, 'Invalid Aadhaar QR');
+    // Safe diagnostic metadata accompanies the error (length + format flags),
+    // never the payload itself.
+    assert.ok(json.detail.includes('len='));
   });
 });
 

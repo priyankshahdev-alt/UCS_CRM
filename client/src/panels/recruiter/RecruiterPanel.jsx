@@ -13,6 +13,9 @@ import Dashboard from './components/Dashboard'
 import NoticePopup from '../../components/NoticePopup'
 import Leads from './components/Leads'
 import Candidates from './components/Candidates'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import { ChatIcon } from '../../components/chat/chatIcons'
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 
@@ -21,6 +24,7 @@ const NAV = [
   { id:'leads',      path:'/recruiter/leads',      label:'Leads',      icon:Users,  eyebrow:'Leads',    sub:'Manage incoming leads and track conversions' },
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
   { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
+  { id:'chat',       path:'/recruiter/chat',       label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -40,6 +44,7 @@ function Sidebar({ open, onClose }) {
             <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
               onClick={() => onClose?.()}>
               <Icon className="ico" /> <span>{n.label}</span>
+              {n.id === 'chat' && <ChatNavBadge quiet />}
             </NavLink>
           )})}
         </nav>
@@ -170,6 +175,7 @@ function AppShell() {
             <Route path="leads" element={<Leads />} />
             <Route path="candidates" element={<Candidates />} />
             <Route path="tickets" element={<TechnicalTickets panel="recruiter" />} />
+            <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
           </Suspense>

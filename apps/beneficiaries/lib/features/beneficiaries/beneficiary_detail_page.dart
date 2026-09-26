@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
+import 'edit_beneficiary_page.dart';
 
 /// Spec-exact colors (JOD Beneficiary Detail Screen) not already in AppColors.
 const Color _kAvatarBg = Color(0xFFEEF4FF);
@@ -23,7 +24,15 @@ const Color _kWarnText = Color(0xFF80500F);
 class BeneficiaryDetailPage extends StatefulWidget {
   final Map<String, dynamic> beneficiary;
 
-  const BeneficiaryDetailPage({super.key, required this.beneficiary});
+  /// Read-only presentation (no give-again accept/reject flow, no "give kit"
+  /// swipe). Used by the kit-given list on the home screen.
+  final bool readOnly;
+
+  const BeneficiaryDetailPage({
+    super.key,
+    required this.beneficiary,
+    this.readOnly = false,
+  });
 
   @override
   State<BeneficiaryDetailPage> createState() => _BeneficiaryDetailPageState();
@@ -49,7 +58,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     _b = widget.beneficiary;
     _player = AudioPlayer();
     if (_b['id'] != null) _refresh();
-    _maybePromptDecision();
+    if (!widget.readOnly) _maybePromptDecision();
   }
 
   @override
@@ -319,6 +328,21 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     }
   }
 
+  // ---- edit ----------------------------------------------------------------
+
+  Future<void> _openEdit() async {
+    if (_markingKit) return;
+    final updated = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditBeneficiaryPage(beneficiary: _b),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _b = updated);
+    _refresh();
+  }
+
   // ---- helpers ------------------------------------------------------------
 
   String _fmt(dynamic v) {
@@ -376,14 +400,28 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               color: AppColors.textPrimary,
             ),
             const SizedBox(width: 8),
-            const Text(
-              'Beneficiary',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+            const Expanded(
+              child: Text(
+                'Beneficiary',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ),
+            if (!widget.readOnly)
+              IconButton(
+                onPressed: _openEdit,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 44, minHeight: 44),
+                tooltip: 'Edit beneficiary',
+                icon: const Icon(Icons.edit_outlined,
+                    size: 21, color: AppColors.textPrimary),
+              ),
           ],
         ),
       ),
@@ -398,8 +436,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         children: [
           _buildProfileCard(),
           const SizedBox(height: 24),
+          _buildDetailsCard(),
+          const SizedBox(height: 24),
           _buildHistoryCard(),
-          if (_kitGiven && !_justGiven) ...[
+          if (_kitGiven && !_justGiven && !widget.readOnly) ...[
             const SizedBox(height: 24),
             _buildWarning(),
           ],
@@ -519,13 +559,147 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     );
   }
 
+  // ---- details card ---------------------------------------------------------
+  // Every registration-captured field except fingerprints, Aadhaar number and
+  // document uploads — those stay out of this read-mostly screen.
+
+  Widget _buildDetailsCard() {
+    final rows = <(String, String)>[
+      ('Date of Birth', _fmt(_b['date_of_birth'])),
+      ('Gender', _b['gender']?.toString() ?? ''),
+      ('Mobile', _b['mobile']?.toString() ?? ''),
+      ('Occupation', _b['occupation']?.toString() ?? ''),
+      ('Address', _address),
+      ('Pincode', _b['pincode']?.toString() ?? ''),
+      ('NGO', _ngoName),
+      ('Disability', _disability),
+      ('Needed', _b['needed']?.toString() ?? ''),
+    ].where((r) => r.$2.isNotEmpty).toList();
+
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return _card(
+      Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Details',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: 12),
+              _labelValueRow(rows[i].$1, rows[i].$2),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String get _address {
+    final parts = <String>[
+      _b['address_line_1']?.toString() ?? '',
+      _b['city']?.toString() ?? '',
+      _b['state']?.toString() ?? '',
+    ].where((p) => p.trim().isNotEmpty).toList();
+    return parts.join(', ');
+  }
+
+  String get _ngoName {
+    final ngo = _b['ngos'];
+    if (ngo is Map) {
+      final parts = <String>[
+        ngo['name']?.toString() ?? '',
+        ngo['code']?.toString() ?? '',
+      ].where((p) => p.trim().isNotEmpty).toList();
+      return parts.join(' • ');
+    }
+    return '';
+  }
+
+  String get _disability {
+    final list = _b['disabilities'];
+    if (list is! List || list.isEmpty) return '';
+    final d = list.first;
+    if (d is! Map) return '';
+    final type = d['disability_type']?.toString() ?? '';
+    final pct = d['disability_percentage']?.toString() ?? '';
+    if (type.isEmpty && pct.isEmpty) return '';
+    final val = [type, pct.isNotEmpty ? '$pct%' : '']
+        .where((p) => p.isNotEmpty)
+        .join(' — ');
+    return val;
+  }
+
+  Widget _labelValueRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 96,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.3,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ---- history card -------------------------------------------------------
 
+  // Every kit handed out to this beneficiary, newest first. Kits are recorded
+  // as `KIT_GIVEN` audit entries; if the trail is somehow empty we still
+  // surface the beneficiary's own kit_given_at so History never lies.
+  List<Map<String, dynamic>> get _historyEntries {
+    if (_kitHistory.isNotEmpty) return _kitHistory;
+    final at = _b['kit_given_at'];
+    if (at != null && at.toString().trim().isNotEmpty) {
+      return [
+        {
+          'action': 'KIT_GIVEN',
+          'performed_at': at,
+          'performed_by': _b['kit_given_by'],
+          'details': null,
+        },
+      ];
+    }
+    return const [];
+  }
+
+  String _historyGivenBy(Map<String, dynamic> entry) {
+    final by = entry['performed_by']?.toString().trim();
+    if (by == null || by.isEmpty || by.toLowerCase() == 'system') return '';
+    return by;
+  }
+
   Widget _buildHistoryCard() {
-    final n = _kitHistory.length;
+    final entries = _historyEntries;
+    final n = entries.length;
     final visible = _historyExpanded
-        ? _kitHistory
-        : _kitHistory.take(_initialHistoryRows).toList();
+        ? entries
+        : entries.take(_initialHistoryRows).toList();
     final showToggle = n > _initialHistoryRows;
 
     return _card(
@@ -538,7 +712,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               children: [
                 const Expanded(
                   child: Text(
-                    'Kit Given History',
+                    'History',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
@@ -546,7 +720,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
                     ),
                   ),
                 ),
-                _countBadge(n),
+                if (n > 0) _countBadge(n),
               ],
             ),
             const SizedBox(height: 16),
@@ -611,13 +785,19 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   Widget _historyRow(Map<String, dynamic> entry, {required bool notLast}) {
     final name = _historyEventName(entry);
     final at = _fmtDateTime(entry['performed_at']);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 56),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: 32,
+    final by = _historyGivenBy(entry);
+    // IntrinsicHeight gives the stretch Row a bounded height even when
+    // AnimatedSize measures its child with an unbounded max height; without
+    // it the constraining assertions throw and the whole card fails to lay
+    // out for any beneficiary with kit history.
+    return IntrinsicHeight(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 56),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 32,
             child: Column(
               children: [
                 Container(
@@ -674,11 +854,33 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
                     at,
                     style: const TextStyle(fontSize: 12.5, color: _kHistTs),
                   ),
+                  if (by.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.user,
+                            size: 12, color: _kHistTs),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            by,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _kHistTs,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -762,6 +964,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   // after Reject a persistent banner; otherwise the decision sheet owns the
   // screen (nothing pinned) until the delegate picks.
   Widget _buildBottomArea() {
+    if (widget.readOnly) return const SizedBox.shrink();
     if (_justGiven) {
       return const Padding(
         padding: EdgeInsets.fromLTRB(24, 14, 24, 24),

@@ -20,7 +20,7 @@ import {
 
 const router = Router();
 
-const sirLevel = authenticateRole('super_admin', 'admin');
+const sirLevel = authenticateRole('super_admin', 'admin', 'accounts');
 // Anyone who should see the live popup: FROs, Accounts, HR, Admin, Super Admin.
 const popupLevel = authenticateRole('super_admin', 'admin', 'accounts', 'hr', 'worker', 'fro');
 // Accounts-level role gate for prize verification/claim.
