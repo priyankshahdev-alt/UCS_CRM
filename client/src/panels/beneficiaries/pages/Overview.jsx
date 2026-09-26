@@ -37,12 +37,14 @@ export default function Overview() {
   const [stats, setStats] = useState(null)
   const [reports, setReports] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
 
   useEffect(() => {
     loadData()
   }, [])
 
   const loadData = async () => {
+    setErr(null)
     try {
       const data = await apiGet('/beneficiaries/overview')
       setStats(data)
@@ -59,7 +61,11 @@ export default function Overview() {
         volunteers: v.status === 'fulfilled' ? v.value : null,
       })
     } catch (e) {
+      // Without this the cards below render "0" for every stat, which is
+      // indistinguishable from a genuinely empty database. Say which it is.
       console.error('Failed to load overview:', e)
+      setStats(null)
+      setErr(e?.message || 'Could not load the overview.')
     } finally {
       setLoading(false)
     }
@@ -79,6 +85,13 @@ export default function Overview() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={styles.sectionTitle}>Beneficiaries Overview</h2>
       </div>
+
+      {err && (
+        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: '#fee2e2', color: '#991b1b', fontSize: '13px', marginBottom: '12px' }}>
+          Could not load the overview: {err}. The counts below are empty because the request failed, not because the database is empty.{' '}
+          <button type="button" onClick={() => { setLoading(true); loadData() }} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', marginLeft: '8px' }}>Retry</button>
+        </div>
+      )}
 
       <div style={styles.statsGrid}>
         <button
