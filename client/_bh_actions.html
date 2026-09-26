@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>actions probe</title>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  window.__errs = [];
+  window.addEventListener('error', (e) => window.__errs.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => window.__errs.push(String(e.reason)));
+
+  // Enough columns to squeeze the last one, like the real page.
+  function card(i) {
+    const c = {
+      id: i, mobile_id: 'android ' + (77000000 + i), calling_mobile: '98' + (20000000 + i),
+      device_model: 'Redmi Note 12 Pro', imei: '35693803564380' + i, status: 'Active',
+      team: 'UFS 3', owner: 'UFS 3', remark: 'Regular', signature: 'sig-' + i,
+      issue_date: '2025-01-0' + (1 + (i % 9)), expiry_date: '2027-06-1' + (i % 9),
+      use_for: 'WhatsApp', user_name: 'Ravi K', team_leader_name: 'Asha P',
+      replacement_count: i % 3,
+    };
+    for (let n = 1; n <= 4; n++) c['sim_' + n] = '88790340' + n + (i % 9);
+    for (let n = 1; n <= 4; n++) c['w' + n + '_name'] = ['BSCT', 'MANN', 'AFLF', ''][n - 1];
+    return c;
+  }
+  window.__cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+
+  window.fetch = function (input) {
+    var url = String(input);
+    if (/\/sim-cards(\?|$)/.test(url)) {
+      return Promise.resolve(new Response(JSON.stringify(window.__cards), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({ message: 'probe: ' + url }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }));
+  };
+</script>
+<script type="module" src="/_bh_actions.jsx"></script>
+</body>
+</html>

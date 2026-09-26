@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { toast } from '../../../components/Toast';
-import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory } from './api';
+import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory } from './api';
 import { Icon } from './components';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { useSim } from './store';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder, full, required }) {
   return (
@@ -704,6 +705,286 @@ export function SimHistoryModal({ card, open, onClose }) {
 
         <div className="modal-foot se-foot">
           <span className="se-foot-hint">{loading ? 'Fetching change log...' : `${rows.length} recorded change${rows.length === 1 ? '' : 's'}`}</span>
+          <div className="se-foot-btns">
+            <button className="sim-btn primary" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const BRAND_API = { All: 'all', Nokia: 'nokia', Android: 'android' };
+
+const BRAND_HISTORY_CAP = 5000;
+
+const BRAND_FALLBACK_CONCURRENCY = 8;
+
+// The bulk endpoint (GET /sim-cards/history/all) only exists once the backend is
+// restarted/redeployed. Until then the API answers 404 and the feature would
+// look broken, so fall back to reading each card's own history - an endpoint
+// every backend already has - and stitch the rows together here. Concurrency is
+// capped so a few hundred cards cannot fire hundreds of requests at once.
+async function fetchBrandHistoryViaCards(brand, from, cards) {
+  const wanted = (cards || []).filter((c) => {
+    const mobileId = String(c.mobile_id || '');
+    if (/^android whatsapp/i.test(mobileId)) return false;
+    if (brand === 'all') return true;
+    // simBrandOf returns the UI label ('Nokia'); `brand` is the API value
+    // ('nokia'), so compare case-insensitively.
+    return simBrandOf(mobileId).toLowerCase() === brand;
+  });
+
+  const collected = [];
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= wanted.length) return;
+      const card = wanted[i];
+      try {
+        const res = await fetchSimHistory(card.id);
+        const list = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
+        for (const row of list) {
+          // The per-card endpoint returns no card info, so attach it here for
+          // the same table the bulk endpoint feeds.
+          collected.push({
+            ...row,
+            sim_cards: { mobile_id: card.mobile_id || '', device_model: card.device_model || '' },
+          });
+        }
+      } catch { /* one unreadable card must not sink the whole log */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(BRAND_FALLBACK_CONCURRENCY, wanted.length)) }, worker));
+
+  let rows = collected;
+  if (from) {
+    const cutoff = new Date(`${from}T00:00:00`).getTime();
+    if (Number.isFinite(cutoff)) {
+      rows = rows.filter((r) => {
+        const t = new Date(r.changed_at).getTime();
+        return !Number.isFinite(t) || t >= cutoff;
+      });
+    }
+  }
+  rows.sort((a, b) => {
+    const ta = new Date(a.changed_at).getTime();
+    const tb = new Date(b.changed_at).getTime();
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+  return rows.slice(0, BRAND_HISTORY_CAP);
+}
+
+// A dead session is the one failure a fallback cannot paper over, and fanning
+// out would just repeat it once per card.
+function isAuthFailure(err) {
+  const msg = err && err.message ? String(err.message) : '';
+  return /no token|token provided|session|unauthor|log ?in|login/i.test(msg);
+}
+
+// Brand-wide number history, opened from the SIM toolbar. Answers "which SIM
+// number changed, and when" across every card of a brand in one request, with
+// the entries bucketed by month. Deliberately separate from the per-card
+// Change History inside the edit form, which is left untouched.
+export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
+  const { cards: simCards } = useSim();
+  // Sanitised at init, not in an effect: an effect runs after the first paint,
+  // which would briefly title the modal with an unrecognised brand.
+  const [brand, setBrand] = useState(() => (SIM_BRAND_FILTERS.includes(initialBrand) ? initialBrand : 'All'));
+  const [range, setRange] = useState('all');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (open) setBrand(SIM_BRAND_FILTERS.includes(initialBrand) ? initialBrand : 'All');
+  }, [open, initialBrand]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    setLoading(true);
+    setError('');
+    // The whole history for this brand is fetched once; the period chips then
+    // narrow it in memory. Asking the server for a windowed slice instead would
+    // make the chips unable to state the true full-history span.
+    fetchBrandSimHistory({ brand: BRAND_API[brand] })
+      .catch((e) => {
+        if (isAuthFailure(e)) throw e;
+        return fetchBrandHistoryViaCards(BRAND_API[brand], null, simCards);
+      })
+      .then((res) => {
+        if (!active) return;
+        const list = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
+        setRows(list);
+      })
+      .catch((e) => {
+        if (!active) return;
+        setRows([]);
+        setError(e && e.message ? e.message : 'Could not load number history');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [open, brand, simCards]);
+
+  if (!open) return null;
+
+  const allEntries = numberHistoryEntries(rows);
+  const entries = filterEntriesByRange(allEntries, range);
+  const sections = groupEntriesByBrand(entries, brand);
+  const capped = rows.length >= BRAND_HISTORY_CAP;
+  const title = brand === 'All' ? 'SIM Number History' : `${brand} Number History`;
+  // Each period chip carries how many changes it would show, so a window with
+  // nothing in it is greyed out instead of looking broken, and the footer can
+  // state the window that is actually active.
+  const periodChips = HISTORY_PERIODS.map((p) => ({
+    ...p,
+    count: filterEntriesByRange(allEntries, p.value).length,
+    from: historyRangeFrom(p.value),
+  }));
+  const activePeriod = periodChips.find((p) => p.value === range) || periodChips[0];
+  const sinceText = activePeriod.from ? ` · since ${formatDate(activePeriod.from)}` : '';
+  const cardsTouched = new Set(entries.map((e) => e.mobile_id)).size;
+
+  return (
+    <div className="modal-overlay sim-edit-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal sim-hist-modal sim-bh-modal">
+        <div className="se-head">
+          <div className="se-head-main">
+            <span className="se-avatar"><Icon name="history" size={18} /></span>
+            <div className="se-head-txt">
+              <h3>{title}</h3>
+              <div className="se-head-sub">
+                <span>Which SIM number changed, and when</span>
+              </div>
+            </div>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><Icon name="close" size={17} /></button>
+        </div>
+
+        <div className="modal-body se-body">
+          <section className="se-sec">
+            <div className="se-sec-head">
+              <span className="se-sec-ic"><Icon name="mobile" size={14} /></span>
+              <div className="se-sec-txt">
+                <h4>Number Changes</h4>
+                <p>Grouped by month, newest first</p>
+              </div>
+              {!loading && !error && entries.length > 0 && (
+                <span className="se-sec-count">{entries.length} change{entries.length === 1 ? '' : 's'}</span>
+              )}
+            </div>
+            <div className="se-sec-body">
+              <div className="se-bh-bar">
+                <div className="se-bh-chips" role="group" aria-label="Brand">
+                  {SIM_BRAND_FILTERS.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      className={`se-bh-chip${b === brand ? ' on' : ''}`}
+                      aria-pressed={b === brand}
+                      onClick={() => setBrand(b)}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+                <div className="se-bh-chips" role="group" aria-label="Period">
+                  {periodChips.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      className={`se-bh-chip${p.value === range ? ' on' : ''}`}
+                      aria-pressed={p.value === range}
+                      disabled={p.count === 0 && p.value !== range}
+                      title={`${p.count} change${p.count === 1 ? '' : 's'}${p.from ? ` · since ${formatDate(p.from)}` : ''}`}
+                      onClick={() => setRange(p.value)}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="se-empty"><span className="se-spin" /> Loading number history...</div>
+              ) : error ? (
+                <div className="se-empty">
+                  <Icon name="history" size={18} />
+                  <span>{error}</span>
+                </div>
+              ) : sections.length === 0 ? (
+                <div className="se-empty">
+                  <Icon name="history" size={18} />
+                  <span>No SIM number changes recorded for {brand === 'All' ? 'any card' : brand} in {activePeriod.label.toLowerCase()}.</span>
+                </div>
+              ) : (
+                <div className="se-log-wrap se-bh-wrap">
+                  <table className="se-log se-bh-log">
+                    <thead>
+                      <tr>
+                        <th className="c-when">Date &amp; Time</th>
+                        <th className="c-card">Mobile ID</th>
+                        <th className="c-field">Number</th>
+                        <th className="c-old">Old Number</th>
+                        <th className="c-new">New Number</th>
+                        <th className="c-act">Action</th>
+                        <th className="c-by">Changed By</th>
+                      </tr>
+                    </thead>
+                    {sections.map((sec) => (
+                      <tbody key={sec.key}>
+                        {sections.length > 1 ? (
+                          <tr className="se-bh-brand">
+                            <td colSpan={7}>
+                              <span className={`se-bh-brand-name b-${sec.brand.toLowerCase()}`}>{sec.label}</span>
+                              <span className="se-bh-brand-count">{sec.total} change{sec.total === 1 ? '' : 's'}</span>
+                            </td>
+                          </tr>
+                        ) : null}
+                        {sec.months.map((g) => (
+                          <tr className="se-bh-month" key={g.key}>
+                            <td colSpan={7}>
+                              <span className="se-bh-month-label">{g.label}</span>
+                              <span className="se-bh-month-count">{g.entries.length} change{g.entries.length === 1 ? '' : 's'}</span>
+                            </td>
+                          </tr>
+                        ))}
+                        {sec.months.map((g) => g.entries.map((e) => (
+                          <tr key={e.key}>
+                            <td className="c-when">{formatDateTime(e.changed_at)}</td>
+                            <td className="c-card">
+                              <span className="se-bh-mid">{txt(e.mobile_id) || '—'}</span>
+                              {raw(e.device_model) ? <span className="se-bh-dev">{e.device_model}</span> : null}
+                            </td>
+                            <td className="c-field">SIM {e.slot}</td>
+                            <td className="c-old">{e.action === 'Added' ? <span className="se-bh-none">—</span> : <s>{e.old}</s>}</td>
+                            <td className="c-new">{e.action === 'Removed' ? <span className="se-bh-none">—</span> : e.new}</td>
+                            <td className="c-act"><span className={`se-act ${e.action.toLowerCase()}`}>{e.action}</span></td>
+                            <td className="c-by">{e.changed_by || '—'}</td>
+                          </tr>
+                        )))}
+                      </tbody>
+                    ))}
+                  </table>
+                </div>
+              )}
+
+              {capped && !loading && !error ? (
+                <p className="se-bh-note">Showing the most recent {BRAND_HISTORY_CAP} history records. Narrow the brand or period to see older changes.</p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+
+        <div className="modal-foot se-foot">
+          <span className="se-foot-hint">
+            {loading
+              ? 'Fetching number history...'
+              : `${entries.length} number change${entries.length === 1 ? '' : 's'} across ${cardsTouched} card${cardsTouched === 1 ? '' : 's'}${sinceText}`}
+          </span>
           <div className="se-foot-btns">
             <button className="sim-btn primary" onClick={onClose}>Close</button>
           </div>

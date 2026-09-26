@@ -221,7 +221,21 @@
 .panel-accounts .sim-scope .days-urgent { color: var(--sim-red); }
 .panel-accounts .sim-scope .days-expired { color: var(--sim-red); }
 
-.panel-accounts .sim-scope .cell-actions { display: inline-flex; gap: 4px; }
+.panel-accounts .sim-scope .cell-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+/* Actions column: width:1% + nowrap lets it shrink to fit instead of being
+   squeezed by the wide table, and the fixed height/width keeps the text button
+   and the three-dot button the same size and on the same line. flex:0 0 auto
+   stops either one being compressed when space is tight. */
+.panel-accounts .sim-scope .sim-table tbody td.actions-cell { width: 1%; white-space: nowrap; }
+.panel-accounts .sim-scope .cell-actions .mini-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; height: 28px; min-width: 28px; padding: 0 10px;
+  line-height: 1; white-space: nowrap;
+}
+.panel-accounts .sim-scope .cell-actions .kebab { display: inline-flex; flex: 0 0 auto; }
+/* Square icon button next to the text button: same height, so the two line up. */
+.panel-accounts .sim-scope .cell-actions .kebab .mini-btn { width: 28px; padding: 0; }
+.panel-accounts .sim-scope .cell-actions .mini-btn svg { display: block; flex: 0 0 auto; }
 .panel-accounts .sim-scope .sim-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .panel-accounts .sim-scope .sim-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--sim-line); background: #fff;
@@ -581,6 +595,79 @@
 .panel-accounts .sim-scope .se-act.removed { background: var(--sim-red-soft); color: var(--sim-red); }
 .panel-accounts .sim-scope .se-act.updated { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
 
+/* brand-wide number history (Nokia / Android toolbar option) */
+/* Needs .modal.sim-hist-modal in the selector to outrank the 860px cap set for
+   the standalone per-card history modal further up - 7 columns need the room. */
+.panel-accounts .sim-scope .modal.sim-hist-modal.sim-bh-modal { max-width: 1080px; }
+.panel-accounts .sim-scope .se-bh-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.panel-accounts .sim-scope .se-bh-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
+.panel-accounts .sim-scope .se-bh-chip {
+  font: inherit; font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--sim-line); background: #fff; color: var(--sim-ink-soft);
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.panel-accounts .sim-scope .se-bh-chip:hover { background: #f1f5f9; color: var(--sim-ink); }
+.panel-accounts .sim-scope .se-bh-chip.on {
+  background: var(--sim-blue); border-color: var(--sim-blue);
+  color: #fff; font-weight: 700;
+}
+.panel-accounts .sim-scope .se-bh-chip:disabled { opacity: .45; cursor: not-allowed; }
+.panel-accounts .sim-scope .se-bh-wrap { max-height: 52vh; }
+.panel-accounts .sim-scope .se-bh-log thead th { height: 32px; }
+.panel-accounts .sim-scope .se-bh-log .c-card { min-width: 150px; }
+.panel-accounts .sim-scope .se-bh-log .c-by { color: var(--sim-ink-soft); white-space: nowrap; }
+/* Month group rows stick right under the sticky header so the current month
+   stays visible while scrolling a long log. Offset matches the thead height
+   set above. */
+.panel-accounts .sim-scope .se-bh-log .se-bh-month td {
+  position: sticky; top: 32px; z-index: 1;
+  padding: 7px 12px; background: #eef2f7;
+  border-top: 1px solid var(--sim-line); border-bottom: 1px solid var(--sim-line);
+}
+.panel-accounts .sim-scope .se-bh-log .se-bh-month td:hover { background: #eef2f7; }
+.panel-accounts .sim-scope .se-bh-month-label {
+  font-size: 12px; font-weight: 800; color: var(--sim-ink); letter-spacing: .01em;
+}
+.panel-accounts .sim-scope .se-bh-month-count {
+  margin-left: 8px; font-size: 10.5px; font-weight: 700;
+  color: var(--sim-blue-dark); background: var(--sim-blue-soft);
+  border-radius: 99px; padding: 1px 8px;
+}
+.panel-accounts .sim-scope .se-bh-mid { display: block; font-weight: 700; color: var(--sim-ink); overflow-wrap: anywhere; }
+.panel-accounts .sim-scope .se-bh-dev {
+  display: block; font-size: 11px; color: var(--sim-ink-soft);
+  font-weight: 500; overflow-wrap: anywhere;
+}
+.panel-accounts .sim-scope .se-bh-none { color: var(--sim-ink-soft); font-weight: 600; }
+.panel-accounts .sim-scope .se-bh-note {
+  margin: 8px 0 0; font-size: 11.5px; color: var(--sim-ink-soft);
+}
+/* Brand sections keep Nokia and Android apart, so a row can never appear under
+   the wrong heading. Dark bar, month rows stay light grey underneath. */
+.panel-accounts .sim-scope .se-bh-log .se-bh-brand td {
+  padding: 9px 12px; background: #0f172a; border-top: 2px solid #fff;
+}
+.panel-accounts .sim-scope .se-bh-brand-name {
+  font-size: 12px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .06em; color: #fff;
+}
+.panel-accounts .sim-scope .se-bh-brand-name.b-nokia { color: #bfdbfe; }
+.panel-accounts .sim-scope .se-bh-brand-name.b-android { color: #bbf7d0; }
+.panel-accounts .sim-scope .se-bh-brand-count {
+  margin-left: 8px; font-size: 10.5px; font-weight: 700;
+  color: #e2e8f0; background: rgba(255, 255, 255, .16);
+  border-radius: 99px; padding: 1px 8px;
+}
+@media (max-width: 720px) {
+  .panel-accounts .sim-scope .se-bh-bar { align-items: stretch; }
+  .panel-accounts .sim-scope .se-bh-chips { width: 100%; }
+  .panel-accounts .sim-scope .se-bh-chip { flex: 1 1 auto; }
+}
+
 .panel-accounts .sim-scope .se-foot {
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -866,19 +953,25 @@
 
 .panel-accounts .sim-scope .kebab { position: relative; }
 .panel-accounts .sim-scope .kebab .mini-btn { margin: 0; }
+/* Positioned by Inventory.jsx from the button's rect: fixed so the scrolling
+   table and the overflow:hidden card cannot clip it, and clamped to the
+   viewport, flipping above the button when there is no room below. */
 .panel-accounts .sim-scope .kebab-menu {
-  position: absolute; right: 0; top: 28px; z-index: 60;
+  position: fixed; z-index: 90;
   background: #fff; border: 1px solid var(--sim-line); border-radius: 8px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
-  min-width: 96px; padding: 4px; overflow: hidden;
+  min-width: 132px; padding: 4px;
+  max-height: calc(100vh - 16px); overflow-x: hidden; overflow-y: auto;
 }
 .panel-accounts .sim-scope .kebab-item {
-  display: block; width: 100%; text-align: left; cursor: pointer;
-  border: none; background: transparent; padding: 6px 10px;
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
+  border: none; background: transparent; padding: 7px 10px;
   font-size: 12.5px; font-weight: 500; border-radius: 5px;
   letter-spacing: 0; line-height: 1.2; white-space: nowrap; font-family: inherit; color: var(--sim-ink);
 }
+.panel-accounts .sim-scope .kebab-item svg { flex: 0 0 auto; opacity: .7; }
 .panel-accounts .sim-scope .kebab-item:hover { background: var(--sim-gray-soft); }
+.panel-accounts .sim-scope .kebab-item:hover svg { opacity: 1; }
 
 .panel-accounts .sim-scope .exp-banner {
   background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius);

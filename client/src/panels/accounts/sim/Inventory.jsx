@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useState, useEffect } from 'react';
+import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { MoreHorizontal, Plus, Eye, PencilLine, RefreshCw, History, Trash2 } from 'lucide-react';
 import { useSim } from './store';
 import { Icon } from './components';
 import { effectiveStatus, dayClass, daysLeft, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES } from './helpers';
@@ -70,6 +71,61 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
   const [perPage, setPerPage] = useState(25);
   const [selected, setSelected] = useState({});
   const [showActions, setShowActions] = useState(null);
+  const kebabRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // The table sits inside overflow:auto / overflow:hidden boxes, so a normally
+  // positioned menu gets clipped - on the lower rows it ran off the bottom of
+  // the card and the last items were cut off. position:fixed escapes all of
+  // them, which means the coordinates have to be worked out here: below the
+  // button when there is room, above it when there is not, always inside the
+  // viewport, and re-placed if the page scrolls while it is open.
+  useLayoutEffect(() => {
+    if (showActions === null) return undefined;
+    const btn = kebabRef.current;
+    const menu = menuRef.current;
+    if (!btn || !menu) return undefined;
+    const place = () => {
+      const b = btn.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      const GAP = 6;
+      const PAD = 8;
+      const roomBelow = window.innerHeight - b.bottom - GAP - PAD;
+      const roomAbove = b.top - GAP - PAD;
+      let top;
+      if (m.height <= roomBelow) top = b.bottom + GAP;
+      else if (m.height <= roomAbove) top = b.top - GAP - m.height;
+      else top = Math.max(PAD, Math.min(b.bottom + GAP, window.innerHeight - PAD - m.height));
+      // Right-aligned with the button, which keeps it on screen in the last column.
+      const left = Math.max(PAD, Math.min(b.right - m.width, window.innerWidth - PAD - m.width));
+      menu.style.top = `${Math.round(top)}px`;
+      menu.style.left = `${Math.round(left)}px`;
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [showActions]);
+
+  // The menu is no longer inside the cell, so clicking elsewhere has to close it.
+  useEffect(() => {
+    if (showActions === null) return undefined;
+    const onDown = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (kebabRef.current && kebabRef.current.contains(e.target)) return;
+      setShowActions(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setShowActions(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showActions]);
 
   const whatsappMerge = useMemo(() => {
     const map = {};
@@ -347,15 +403,31 @@ if (simName === 'Android' && waName !== 'All') {
                           return <td key={col.key} className={hl + pairCls}>{cellVal || '—'}{isNgoName && cellVal ? ' →' : ''}</td>;
                       }
                     })}
-                      <td>
-                        <div className="cell-actions" style={{ gap: 4 }}>
-                          <button className="mini-btn" onClick={() => onEdit(c)}>Edit</button>
-                          <div className="kebab" style={{ position: 'relative' }}>
-                            <button className="mini-btn" onClick={() => setShowActions(showActions === c.id ? null : c.id)}>⋯</button>
+                      <td className="actions-cell">
+                        <div className="cell-actions">
+                          <button className="mini-btn" onClick={() => { setShowActions(null); onEdit(c); }}>Edit</button>
+                          <div className="kebab">
+                            <button
+                              className="mini-btn"
+                              ref={showActions === c.id ? kebabRef : null}
+                              aria-haspopup="true"
+                              aria-expanded={showActions === c.id}
+                              aria-label={`Actions for ${c.mobile_id || 'this SIM card'}`}
+                              title="More actions"
+                              onClick={() => setShowActions(showActions === c.id ? null : c.id)}
+                            ><MoreHorizontal size={16} /></button>
                             {showActions === c.id && (
-                              <div className="kebab-menu">
-                                {[['Add', () => onAdd()], ['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['History', () => onHistory && onHistory(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
+                              <div className="kebab-menu" ref={menuRef} style={{ top: 0, left: 0 }}>
+                                {[
+                                  ['Add', Plus, () => onAdd()],
+                                  ['View', Eye, () => onView(c)],
+                                  ['Edit', PencilLine, () => onEdit(c)],
+                                  ['Replace', RefreshCw, () => onReplace(c)],
+                                  ['History', History, () => onHistory && onHistory(c)],
+                                  ['Delete', Trash2, () => handleDelete(c)],
+                                ].map(([label, MenuIcon, fn]) => (
                                   <button key={label} className="kebab-item" style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }} onClick={() => { setShowActions(null); fn(); }}>
+                                    <MenuIcon size={15} />
                                     {label}
                                   </button>
                                 ))}

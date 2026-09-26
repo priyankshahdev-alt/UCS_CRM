@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { SimProvider, useSim } from '../sim/store'
-import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal } from '../sim/modals'
+import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal, SimBrandHistoryModal } from '../sim/modals'
 import { ImportModal, DeleteConfirmModal } from '../sim/ImportModal'
 import { deleteSimCard } from '../sim/api'
 import { toast } from '../../../components/Toast'
@@ -42,6 +42,7 @@ function SectionInner() {
   const [viewCard, setViewCard] = useState(null)
   const [replaceCard, setReplaceCard] = useState(null)
   const [historyCard, setHistoryCard] = useState(null)
+  const [brandHistoryOpen, setBrandHistoryOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [deleteCard, setDeleteCard] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -97,6 +98,9 @@ function SectionInner() {
   return (
     <div className="sim-scope">
       <div className="sim-actions" style={{ marginBottom: 16, justifyContent: 'flex-end' }}>
+        {!isOwner && <button className="sim-btn" onClick={() => setBrandHistoryOpen(true)}>
+          {simName === 'Nokia' ? 'Nokia History' : simName === 'Android' ? 'Android History' : 'SIM History'}
+        </button>}
         {!isOwner && !isDashboard && <>
           {!isInventory && <button className="sim-btn" onClick={() => setImportOpen(true)}>Import</button>}
           {simName === 'Android' ? (
@@ -136,6 +140,7 @@ function SectionInner() {
       <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
       <SimHistoryModal card={historyCard} open={!!historyCard} onClose={() => setHistoryCard(null)} />
+      <SimBrandHistoryModal open={brandHistoryOpen} initialBrand={simName} onClose={() => setBrandHistoryOpen(false)} />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); sim.refresh() }} />
       <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null) }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>
