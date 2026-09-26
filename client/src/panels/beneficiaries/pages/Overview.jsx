@@ -81,10 +81,18 @@ export default function Overview() {
       </div>
 
       <div style={styles.statsGrid}>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Total Beneficiaries</div>
+        <button
+          type="button"
+          onClick={() => navigate(base + '/all')}
+          title="View all members"
+          style={{ ...styles.statCard, cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', display: 'block', width: '100%' }}
+        >
+          <div style={{ ...styles.statLabel, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Total Members</span>
+            <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--sage)', fontWeight: 600 }}>View all →</span>
+          </div>
           <div style={{ ...styles.statValue, color: 'var(--sage)' }}>{stats?.total_beneficiaries || 0}</div>
-        </div>
+        </button>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Active</div>
           <div style={{ ...styles.statValue, color: '#059669' }}>{stats?.active || 0}</div>
@@ -116,6 +124,7 @@ export default function Overview() {
           <div style={styles.cardTitle}>Quick Actions</div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={() => navigate(base + '/all')} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>View All</button>
+            <button onClick={() => navigate(base + '/import')} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Import Members</button>
           </div>
         </div>
 

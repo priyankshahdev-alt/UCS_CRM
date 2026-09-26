@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { BnfBaseProvider } from './bnfUi'
 import Overview from './pages/Overview'
 import AllBeneficiaries from './pages/AllBeneficiaries'
+import ImportMembers from './pages/ImportMembers'
 import BeneficiaryProfile from './pages/BeneficiaryProfile'
 import Programs from './pages/Programs'
 import ProgramForm from './pages/ProgramForm'
@@ -15,6 +16,7 @@ export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
         <Routes>
           <Route index element={<Overview />} />
           <Route path="all" element={<AllBeneficiaries />} />
+          <Route path="import" element={<ImportMembers />} />
           <Route path="programs" element={<Programs />} />
           <Route path="programs/new" element={<ProgramForm />} />
           <Route path="programs/:id" element={<ProgramDetail />} />

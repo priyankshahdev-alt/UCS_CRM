@@ -323,6 +323,13 @@ export const updateBeneficiaryController = async (req, res) => {
     delete updates.beneficiary_code;
     delete updates.created_at;
     delete updates.created_by;
+    // Sub-resource payloads are applied through their own tables below — they
+    // are not columns of `beneficiaries` and would break the UPDATE.
+    delete updates.disabilities;
+    delete updates.category_ids;
+    delete updates.family_members;
+    delete updates.education;
+    delete updates.employment;
 
     const updated_by = req.user?.name || req.user?.email || 'system';
     updates.updated_by = updated_by;
