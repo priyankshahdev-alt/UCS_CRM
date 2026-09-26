@@ -38,6 +38,8 @@ import { fetchWorkerById } from '../hr/store'
 import AttendancePage from './pages/Attendance'
 import SimSection from './components/SimSection'
 import Certificates from './pages/Certificates'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import BeneficiariesPanel from '../beneficiaries/BeneficiariesPanel'
 import BillReminderPage from './bill-reminder/BillReminderPage'
 import LeadIncentive from '../../components/LeadIncentive'
@@ -116,6 +118,8 @@ const NAV_BOTTOM = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
   { id: 'tickets', path: '/accounts/tickets', label: 'Tickets',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 5H3v14h12"/><path d="M21 12l-6-6v4H9v4h6v4l6-6z"/></svg> },
+  { id: 'chat', path: '/accounts/chat', label: 'Community',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg> },
 ]
 
 const NAV_DATA_GROUP = {
@@ -237,9 +241,10 @@ function Sidebar({ open, onClose }) {
           data-nav-id={n.id}
           className={`snav-item snav-sub${navIsActive(n, location.pathname) ? ' active' : ''}`}>
           <span className="ico">{n.icon}</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{n.label}</span>
-          </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>{n.label}</span>
+        {n.id === 'chat' && <ChatNavBadge />}
+        </span>
         </NavLink>
       ))}
     </NavGroup>
@@ -520,6 +525,7 @@ export default function AccountsPanel() {
             <Route path="volunteers/:id/offboard" element={<VolunteerOffboardPage theme={themes[themeName]} />} />
             <Route path="attendance" element={<AttendancePage />} />
             <Route path="tickets" element={<AccountsTickets />} />
+            <Route path="chat" element={<ChatWorkspace />} />
             <Route path="loans" element={<Loans />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="template-settings" element={<TemplateSettings />} />

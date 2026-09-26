@@ -63,7 +63,9 @@ export async function api(path, options = {}) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
       const msg = String(err.message || `Request failed: ${res.status}`)
       if (msg.toLowerCase().includes('required fields are missing')) return { message: msg }
-      throw new Error(msg)
+      const e = new Error(msg)
+      e.status = res.status
+      throw e
     }
     if (options.raw) return res
     return res.json()

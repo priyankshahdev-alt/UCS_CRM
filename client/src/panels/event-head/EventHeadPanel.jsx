@@ -30,6 +30,9 @@ import MediaManagement from './pages/MediaManagement'
 import TechnicalTickets from '../../components/TechnicalTickets'
 import AllTicketsDashboard from './pages/AllTicketsDashboard'
 import NoticePopup from '../../components/NoticePopup'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import { ChatIcon } from '../../components/chat/chatIcons'
 
 const NAV = [
   { id:'dashboard',      path:'/event-head/dashboard',        label:'Dashboard',             icon:Grid, section:'Overview' },
@@ -48,6 +51,7 @@ const NAV = [
   { id:'notifications',  path:'/event-head/notifications',    label:'Notifications',         icon:Bell, section:'Reporting' },
   { id:'my-tickets',     path:'/event-head/my-tickets',       label:'My Tickets',            icon:Bell, section:'Reporting' },
   { id:'all-tickets',    path:'/event-head/all-tickets',      label:'All Tickets',           icon:FileTxt, section:'Reporting' },
+  { id:'chat',           path:'/event-head/chat',             label:'Community',             icon:ChatIcon, section:'Community' },
 ]
 
 const SECTIONS = [
@@ -55,6 +59,7 @@ const SECTIONS = [
   { id:'Programs', label:'Programs' },
   { id:'Manage', label:'Planning & Manage' },
   { id:'Reporting', label:'Reporting' },
+  { id:'Community', label:'Community' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -79,6 +84,7 @@ function Sidebar({ open, onClose }) {
                     className={`snav-item ${active ? 'active' : ''}`}>
                     <span className="ico"><Icon size={18} /></span>
                     <span>{n.label}</span>
+                    {n.id === 'chat' && <ChatNavBadge quiet />}
                   </NavLink>
                 )
               })}
@@ -331,6 +337,7 @@ export default function EventHeadPanel() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="event_head" />} />
             <Route path="all-tickets" element={<AllTicketsDashboard />} />
+            <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

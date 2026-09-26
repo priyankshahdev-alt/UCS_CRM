@@ -31,6 +31,9 @@ import ToastContainer from '../../components/Toast'
 import SpecialIncentive from '../../components/SpecialIncentive'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
+import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import { ChatIcon } from '../../components/chat/chatIcons'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -46,6 +49,7 @@ const NAV = [
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
+  { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
 const hrSettingsViews = [
@@ -71,6 +75,7 @@ function Sidebar({ open, onClose }) {
             <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
               onClick={() => onClose?.()}>
               <Icon className="ico" /> <span>{n.label}</span>
+              {n.id === 'chat' && <ChatNavBadge quiet />}
             </NavLink>
           )})}
         </nav>
@@ -271,6 +276,7 @@ export default function HRPanel() {
         <Route path="loans" element={<Loans />} />
         <Route path="ngo" element={<NgoSalary />} />
         <Route path="tickets" element={<Tickets />} />
+        <Route path="chat" element={<ChatWorkspace />} />
         <Route path="settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="overview" replace />} />
       </Routes>

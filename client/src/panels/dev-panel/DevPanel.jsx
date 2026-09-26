@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard';
 import TicketList from './pages/TicketList';
 import MyTickets from './pages/MyTickets';
 import TicketDetail from './pages/TicketDetail';
+import ChatWorkspace from '../../components/chat/ChatWorkspace';
+import ChatNavBadge from '../../components/chat/ChatNavBadge';
 
 
 import { ToastProvider } from './components/Toast';
@@ -16,6 +18,7 @@ const NAV = [
   { id: 'tickets', path: '/dev-panel/tickets', label: 'All Tickets', icon: 'confirmation_number' },
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
+  { id: 'chat', path: '/dev-panel/chat', label: 'Community', icon: 'chat' },
 ];
 
 const ICONS = {
@@ -23,6 +26,7 @@ const ICONS = {
   confirmation_number: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 10 3 12 0v-5"/></svg>,
   person: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
   assignment_late: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M12 11v4"/><path d="M9.5 13.5L12 11l2.5 2.5"/></svg>,
+  chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
 };
 
 export default function DevPanel() {
@@ -54,6 +58,7 @@ export default function DevPanel() {
               className={({ isActive }) => isActive ? 'nav-active' : '' }>
               <span style={{ flexShrink: 0, display: 'flex' }}>{ICONS[item.icon]}</span>
               {!collapsed && <span>{item.label}</span>}
+              {item.id === 'chat' && <ChatNavBadge quiet />}
             </NavLink>
           ))}
         </nav>
@@ -85,6 +90,7 @@ export default function DevPanel() {
             <Route path="tickets" element={<TicketList filter="all" />} />
             <Route path="my-tickets" element={<MyTickets />} />
             <Route path="unassigned" element={<TicketList filter="unassigned" />} />
+            <Route path="chat" element={<ChatWorkspace />} />
             <Route path="tickets/:id" element={<TicketDetail />} />
             <Route path="tickets/new" element={<Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}><TechnicalTickets panel="dev_panel" /></Suspense>} />
             <Route path="*" element={<Navigate to="/dev-panel" replace />} />
