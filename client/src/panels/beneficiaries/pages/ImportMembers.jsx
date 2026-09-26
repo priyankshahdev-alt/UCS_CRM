@@ -298,7 +298,7 @@ export default function ImportMembers() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.slice(0, 50).map((r) => (
+                  {rows.map((r) => (
                     <tr key={r._rowNumber} style={!r._valid ? { background: '#fef2f2' } : undefined}>
                       <td style={{ ...styles.td, color: 'var(--ink-soft)' }}>{r._rowNumber}</td>
                       {COLUMNS.map((c) => (
@@ -308,13 +308,6 @@ export default function ImportMembers() {
                       ))}
                     </tr>
                   ))}
-                  {rows.length > 50 && (
-                    <tr>
-                      <td colSpan={COLUMNS.length + 1} style={{ ...styles.td, textAlign: 'center', color: 'var(--ink-soft)' }}>
-                        &hellip;and {rows.length - 50} more rows (the full report is downloadable after import)
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
