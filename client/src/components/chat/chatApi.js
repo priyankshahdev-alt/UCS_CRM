@@ -46,11 +46,24 @@ function statusOf(err) {
  * the response cannot be used to probe which private conversations exist.
  */
 export function isAuthError(err) {
+  // A missing route is not an auth failure. Reporting it as one shows "your
+  // session expired" to a perfectly valid session and hides the real problem
+  // (the /api/chat routes are not deployed on the server being called).
+  if (err?.routeMissing) return false
   const s = Number(err?.status)
   if (s === 401 || s === 403 || s === 404) return true
   return /unauthor|forbidden|not found|no longer|not a member|do not have|does not have/i.test(
     err?.message || ''
   )
+}
+
+/**
+ * True when the server answering this request does not have the route at all.
+ * The chat UI shows an honest "not deployed here" message instead of asking the
+ * user to sign in again, which cannot help when the token is fine.
+ */
+export function isRouteMissing(err) {
+  return !!err?.routeMissing
 }
 
 const http = {

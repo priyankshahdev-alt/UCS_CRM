@@ -59,11 +59,32 @@ function pickName(user) {
   )
 }
 
+/**
+ * Must stay identical to chatUidFor() in backend/src/models/chatModel.js.
+ *
+ * The previous version only looked at id-ish fields and returned a bare id. That
+ * was wrong twice over:
+ *
+ *   - The env-configured Super Admin's session user is
+ *     `{ name, email, role }` with no id at all, so this returned '' and
+ *     ChatWorkspace rendered "Sign in to use Community / Your session has
+ *     expired." for a perfectly valid, logged-in session. No request was ever
+ *     made, so the token and the backend were both innocent.
+ *   - The two shapes disagreed, so any session carrying both an id and an email
+ *     would have produced a different uid in the browser than the server used.
+ *
+ * Email wins over id, exactly as the backend resolves it: a worker's session
+ * payload carries no email (so they get `login:<id>`, matching the uid already
+ * stored in chat_participants), while the Super Admin's carries an email and
+ * their subject_id is the literal '0'.
+ */
 function pickUid(user) {
   if (!user) return ''
-  return String(
-    user.id ?? user.uid ?? user.user_id ?? user.worker_id ?? user.uuid ?? ''
-  )
+  const email = String(user.email || '').trim().toLowerCase()
+  if (email) return `email:${email}`
+  const id = user.id ?? user.uid ?? user.user_id ?? user.worker_id ?? user.uuid ?? null
+  if (id != null && String(id) !== '') return `login:${id}`
+  return ''
 }
 
 /**

@@ -89,5 +89,43 @@ check('undefined is dropped', notifyWorkerId(undefined) === null);
 check('no client-side sentinel uuid is left behind',
   !clientSrc.includes('SUPER_ADMIN_NOTIFY_ID'));
 
+// The uid the browser computes must equal the uid the server computes. These
+// are two hand-written implementations of the same rule in two deployables,
+// and they had already drifted once: the client looked only at id-ish fields,
+// so the Super Admin - whose session user is {name, email, role} with no id -
+// got no uid at all and the UI showed "your session has expired" for a valid
+// session. Running both over the same session shapes is the only guard that
+// catches it, because no HTTP test can: the failure happens before any request.
+console.log('\nchat identity: client uid vs server uid');
+const { chatUidFor } = await import('../src/models/chatModel.js');
+const { resolveChatIdentity: clientIdentity } = await import(
+  '../../client/src/components/chat/chatIdentity.js'
+);
+
+// Shapes taken from the real login responses, not invented.
+const sessions = [
+  ['super admin (no id, env email)', { name: 'Super Admin', email: 'Admin@UFS.com', role: 'super_admin' }],
+  ['super admin, lowercase email', { name: 'Super Admin', email: 'admin@ufs.com', role: 'super_admin' }],
+  ['accounts worker (id, no email)', { id: '61cb3a5f-49c2-4ec5-b565-f7aa7a712e1a', name: 'Vaishali', role: 'accounts' }],
+  ['accounts worker, id 0', { id: 0, name: 'Odd', role: 'accounts' }],
+  ['accounts worker (id and email)', { id: 'abc-123', email: 'v@ufs.com', name: 'Both', role: 'accounts' }],
+  ['fro read-only (id only)', { id: 42, name: 'Sakshi', role: 'fro' }],
+  ['hr with padded email', { name: 'Deepak', email: '  hr@ufs.com  ', role: 'hr' }],
+  ['no user at all', null],
+  ['empty object', {}],
+];
+for (const [label, sess] of sessions) {
+  const server = chatUidFor(sess) ?? '';
+  const client = clientIdentity(sess)?.uid ?? '';
+  check(`agree: ${label}`, server === client, `server=${JSON.stringify(server)} client=${JSON.stringify(client)}`);
+}
+
+// The specific shape that produced the reported bug.
+const sa = clientIdentity({ name: 'Super Admin', email: 'admin@ufs.com', role: 'super_admin' });
+check('super admin gets a usable uid client-side', !!sa?.uid, String(sa?.uid));
+check('and it is the email form the server stores', sa?.uid === 'email:admin@ufs.com', String(sa?.uid));
+check('super admin is a writer', sa?.isWriter === true);
+check('super admin can moderate Community', sa?.canModerate === true);
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

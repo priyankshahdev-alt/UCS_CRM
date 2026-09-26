@@ -57,7 +57,12 @@ export async function api(path, options = {}) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
       clearSession(options._prefix || 'ucs')
       redirectToLogin()
-      throw new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
+      const e = new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
+      // Status must be attached on this path too, not only on !res.ok below.
+      // Without it a 401 reaches callers as an untyped Error and every
+      // `err.status === 401` check silently fails.
+      e.status = 401
+      throw e
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
@@ -65,6 +70,16 @@ export async function api(path, options = {}) {
       if (msg.toLowerCase().includes('required fields are missing')) return { message: msg }
       const e = new Error(msg)
       e.status = res.status
+      // A 404 whose body is not JSON is Express's default "Cannot GET /path":
+      // the route is not mounted on this server. That is a deployment problem,
+      // not a permissions problem, and the two must be distinguishable. A JSON
+      // 404 is a refused or absent conversation; a non-JSON one is a missing
+      // route. Reporting both as "your session expired" sends people to
+      // re-login for no reason and hides the real cause.
+      if (res.status === 404) {
+        const type = res.headers.get('content-type') || ''
+        e.routeMissing = !type.includes('application/json')
+      }
       throw e
     }
     if (options.raw) return res
