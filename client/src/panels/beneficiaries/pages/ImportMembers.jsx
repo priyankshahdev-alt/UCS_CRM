@@ -293,6 +293,9 @@ export default function ImportMembers() {
       'Member Name': r.name || '',
       'Number': r.mobile || '',
       'Beneficiary Code': r.beneficiary_code || '',
+      'Needed Type': r.needed || '',
+      'NGO In Sheet': r.ngo || '',
+      'NGO Assigned': r.ngo_name || '',
       Status: STATUS_LABELS[r.status] || r.status,
       Details: r.message || '',
       Warnings: (r.warnings || []).join('; '),
@@ -448,6 +451,8 @@ export default function ImportMembers() {
                   <th style={styles.th}>Row</th>
                   <th style={styles.th}>Member Name</th>
                   <th style={styles.th}>Number</th>
+                  <th style={styles.th}>NGO</th>
+                  <th style={styles.th}>Needed Type</th>
                   <th style={styles.th}>Code</th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Details</th>
@@ -459,6 +464,10 @@ export default function ImportMembers() {
                     <td style={{ ...styles.td, color: 'var(--ink-soft)' }}>{r.row}</td>
                     <td style={styles.td}>{r.name || '\u2014'}</td>
                     <td style={{ ...styles.td, fontFamily: 'monospace' }}>{r.mobile || '\u2014'}</td>
+                    <td style={styles.td}>
+                      {r.ngo_name || (r.ngo ? <span style={{ color: '#92400e' }}>{r.ngo} (not linked)</span> : '—')}
+                    </td>
+                    <td style={styles.td}>{r.needed || '—'}</td>
                     <td style={styles.td}>{r.beneficiary_code ? <code style={{ fontSize: 11, background: 'var(--bg)', padding: '2px 6px', borderRadius: 4 }}>{r.beneficiary_code}</code> : '\u2014'}</td>
                     <td style={styles.td}>
                       <span style={styles.pill(...(STATUS_STYLES[r.status] || ['var(--bg)', 'var(--ink-soft)']))}>

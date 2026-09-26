@@ -93,8 +93,9 @@ export default function BeneficiaryProfile() {
 
   useEffect(() => { loadBeneficiary() }, [loadBeneficiary])
 
-  // "Needed Type (NGO)" is edited as a dropdown, so the NGO master list is
-  // fetched the first time the form is opened.
+  // The assigned NGO is edited as a dropdown, so the NGO master list is
+  // fetched the first time the form is opened. "Needed Type" is free text
+  // and is unrelated to the NGO.
   useEffect(() => {
     if (!editing || ngoOptions.length > 0) return
     apiGet('/ngos/options')
@@ -261,14 +262,14 @@ export default function BeneficiaryProfile() {
             <E label="District">{Text('district')}</E>
             <E label="State">{Text('state')}</E>
             <E label="Pincode">{Text('pincode')}</E>
-            <E label="Needed Type (NGO)">
+            <E label="NGO">
               <select value={str(form.ngo_id)} onChange={(e) => setField('ngo_id', e.target.value)} style={styles.input}>
                 <option value="">Unassigned</option>
                 {ngoOptions.map((o) => <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>)}
               </select>
             </E>
             <E label="Occupation">{Text('occupation')}</E>
-            <E label="Needed">{Text('needed', { placeholder: 'What this member needs' })}</E>
+            <E label="Needed Type">{Text('needed', { placeholder: 'What this member needs' })}</E>
             <E label="Aadhaar Number">{Text('aadhaar_number')}</E>
             <E label="Address">{Text('address_line_1')}</E>
             <E label="Address Line 2">{Text('address_line_2')}</E>

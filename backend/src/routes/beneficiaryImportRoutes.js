@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -16,7 +16,7 @@ const text = (v) => (v == null ? '' : String(v).trim());
 
 // Sheet cells are messy: one cell can hold two numbers ("8268111557/ 9967777103")
 // or a placeholder ("NA", "-", "0"). Pull the genuine 10-digit numbers out of
-// the cell and ignore placeholders â€” concatenating everything and keeping the
+// the cell and ignore placeholders — concatenating everything and keeping the
 // last 10 digits would silently turn a member's number into their alternate.
 const PHONE_PLACEHOLDERS = new Set(['na', 'n/a', 'nil', 'none', 'null', 'undefined', '-', '--', '---', '0']);
 const phoneList = (v) => {
@@ -78,25 +78,62 @@ const toDob = (v) => {
 const GENDER = { m: 'MALE', male: 'MALE', man: 'MALE', f: 'FEMALE', female: 'FEMALE', woman: 'FEMALE', o: 'OTHER', other: 'OTHER', t: 'TRANSGENDER', transgender: 'TRANSGENDER' };
 const gender = (v) => GENDER[text(v).toLowerCase()] || text(v).toUpperCase() || null;
 
-// "NGO" is free text in the sheet, matched against the NGO
-// master list (name first, then code) so the import lands on a real ngo_id.
+// "NGO" is free text in the sheet, matched against the NGO master list so the
+// import lands on a real ngo_id. Sheets rarely repeat the registered name
+// exactly ("Seva Foundation India" vs "Seva Foundation (Reg.)", "SEVA FOUNDATION",
+// "Seva Foundation - Pune"), so fall back to a containment match and only accept
+// it when exactly one registered NGO qualifies - guessing between two would
+// silently file a member under the wrong organisation.
+const ngoKey = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+const NGO_NOISE = /\b(reg|registered|registration|india|india|trust|foundation|society|association|ngo|ngos|project|pune|mumbai|nagpur|aurangabad|beed|jalna|solapur|osmanabad|latur)\b/g;
+
 const loadNgoLookup = async () => {
-  const lookup = new Map();
+  const exact = new Map();
+  const loose = [];
+  const names = new Map();
   const { data } = await db.from('ngos').select('id, name, code');
-  const add = (key, id) => {
-    const k = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
-    if (k && !lookup.has(k)) lookup.set(k, id);
-  };
   for (const n of data || []) {
-    add(n.name, n.id);
-    add(n.code, n.id);
+    if (n.name && !names.has(n.id)) names.set(n.id, n.name);
+    for (const raw of [n.name, n.code]) {
+      const k = ngoKey(raw);
+      if (!k) continue;
+      if (!exact.has(k)) exact.set(k, n.id);
+      // Also index the name without the noise words so a sheet that drops or
+      // adds them still lines up.
+      const stripped = k.replace(NGO_NOISE, '');
+      if (stripped.length >= 4 && stripped !== k) {
+        const hit = loose.find((e) => e.key === stripped);
+        if (hit) { if (!hit.ids.includes(n.id)) hit.ids.push(n.id) } else loose.push({ key: stripped, ids: [n.id] })
+      }
+    }
   }
-  return lookup;
+  return { exact, loose, names };
 };
 
 const resolveNgo = (lookup, v) => {
-  const k = String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
-  return k ? lookup.get(k) ?? null : null;
+  const k = ngoKey(v);
+  if (!k) return null;
+  const hit = lookup.exact.get(k);
+  if (hit) return hit;
+
+  const stripped = k.replace(NGO_NOISE, '');
+  const candidates = [];
+  for (const entry of lookup.loose) {
+    if (entry.key === stripped || stripped.includes(entry.key) || entry.key.includes(stripped)) {
+      for (const id of entry.ids) if (!candidates.includes(id)) candidates.push(id);
+    }
+  }
+  if (candidates.length === 1) return candidates[0];
+
+  // Last resort: a registered name contained in the sheet value ("Pune Trust"
+  // for "Pune Trust for Rural Development"). Still only when unambiguous.
+  if (candidates.length === 0) {
+    for (const [name, id] of lookup.exact) {
+      if (name.length >= 6 && k.includes(name) && !candidates.includes(id)) candidates.push(id);
+    }
+    if (candidates.length === 1) return candidates[0];
+  }
+  return null;
 };
 
 // Find a member already registered under the same number (either slot) so a
@@ -145,10 +182,10 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
   }
 });
 
-// â”€â”€ Member sheet import (Accounts panel â†’ Beneficiaries â†’ Import Members) â”€â”€
+// ── Member sheet import (Accounts panel → Beneficiaries → Import Members) ──
 // The panel parses the workbook in the browser and posts the mapped rows, so
-// this endpoint only does the parts that need the database: NGO name â†’ ngo_id,
-// Age â†’ date_of_birth, and the create/merge itself.
+// this endpoint only does the parts that need the database: NGO name → ngo_id,
+// Age → date_of_birth, and the create/merge itself.
 //
 // Sheet columns: Member Name, Number, % of Disability, Type of Disability,
 // Alternate Number, Location, Needed Type, NGO, State, Age, DOB, Gender.
@@ -214,11 +251,12 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       const g = gender(row.gender);
 
       const ngoId = resolveNgo(ngoLookup, row.ngo);
+      const ngoName = ngoId ? ngoLookup.names.get(ngoId) || null : null;
       if (text(row.ngo) && !ngoId) {
-        warnings.push(`"${text(row.ngo)}" does not match a registered NGO â€” left unassigned`);
+        warnings.push(`"${text(row.ngo)}" is not a registered NGO, so no NGO was linked. Add it in NGO master, or correct the sheet.`);
       }
       if (disabilityPercentage != null && !disabilityType) {
-        warnings.push('Disability % present without a Type â€” recorded as "General"');
+        warnings.push('Disability % present without a Type — recorded as "General"');
       }
 
       const existing = mobile ? await findByNumber(mobile) : null;
@@ -259,6 +297,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
         results.push({
           row: rowNumber, status: changed ? 'updated' : 'no_change', name,
           mobile, beneficiary_id: existing.id, beneficiary_code: existing.beneficiary_code,
+          needed, ngo: text(row.ngo), ngo_name: ngoName,
           message: changed ? 'Existing member updated with the missing details' : 'Already up to date',
           warnings,
         });
@@ -314,6 +353,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       imported.push(created);
       results.push({
         row: rowNumber, status: 'created', name, mobile,
+        needed, ngo: text(row.ngo), ngo_name: ngoName,
         beneficiary_id: created.id, beneficiary_code, message: 'Member added', warnings,
       });
       staging.push({
