@@ -126,7 +126,7 @@ const getLeadDate = (l) => {
   const st = cleanField(l.status);
   const key = { followed_up:'follow_up', call_back:'call_back', scheduled:'schedule', not_interested:'not_interested', re_scheduled:'re_scheduled' }[st] || st;
   const dedicated = { followed_up:l.follow_up_date, call_back:l.call_back_time, scheduled:l.scheduled_date, re_scheduled:l.re_scheduled_date }[st];
-  return meta[key] || dedicated || '';
+  return meta[key] || dedicated || l.created_at || l.createdAt || l.updated_at || l.updatedAt || '';
 };
 
 const SkeletonRow = ({ cols }) => (
