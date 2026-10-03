@@ -845,13 +845,31 @@ export const getDashboard = async (req, res) => {
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
+    const redis = require('../config/redis.cjs');
+    const ngoHash = redis.hashKey(ngoNames.length ? ngoNames.slice().sort() : ['all']);
+    const donorCountKey = `v1:newdata:distinct_count:${ngoHash}`;
+
     let totalDonorCount = 0;
-    if (ngoNames.length > 0) {
-      const donorCountRows = await sql(
-        'SELECT COUNT(DISTINCT mobile_number) AS c FROM new_data WHERE ngo = ANY($1) AND mobile_number IS NOT NULL',
-        [ngoNames]
-      );
-      totalDonorCount = parseInt(donorCountRows[0] ? donorCountRows[0].c : 0, 10) || 0;
+    try {
+      const cachedCount = await redis.get(donorCountKey);
+      if (cachedCount !== null && !isNaN(Number(cachedCount))) {
+        totalDonorCount = parseInt(cachedCount, 10);
+      } else if (ngoNames.length > 0) {
+        const donorCountRows = await sql(
+          'SELECT COUNT(DISTINCT mobile_number) AS c FROM new_data WHERE ngo = ANY($1) AND mobile_number IS NOT NULL',
+          [ngoNames]
+        );
+        totalDonorCount = parseInt(donorCountRows[0] ? donorCountRows[0].c : 0, 10) || 0;
+        await redis.set(donorCountKey, totalDonorCount, 600);
+      }
+    } catch (e) {
+      if (ngoNames.length > 0) {
+        const donorCountRows = await sql(
+          'SELECT COUNT(DISTINCT mobile_number) AS c FROM new_data WHERE ngo = ANY($1) AND mobile_number IS NOT NULL',
+          [ngoNames]
+        );
+        totalDonorCount = parseInt(donorCountRows[0] ? donorCountRows[0].c : 0, 10) || 0;
+      }
     }
 
     const assignmentAgg = ngoIds.length > 0
