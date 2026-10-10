@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos } from '../store'
+import { useNavigate } from 'react-router-dom'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl } from '../store'
 
 // Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
 // uploaded AFLF/BSCT/MANN report images.
@@ -253,10 +254,109 @@ function ReportCardHeader({ logo, theme, ngoName, monthLabel, yearLabel, eventCo
   )
 }
 
-function ActivityCard({ ev, theme, big, wide, badge = true }) {
+const CARD_INPUT = { width: '100%', padding: '4px 6px', border: '1px solid var(--line, #d1d5db)', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', color: '#1a1a2e', background: '#fff' }
+const CARD_BTN = { padding: '3px 9px', border: '1px solid var(--line, #d1d5db)', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: '#fff', color: '#374151' }
+const CARD_BTN_PRIMARY = { ...CARD_BTN, background: '#2036bd', borderColor: '#2036bd', color: '#fff' }
+const dateInputValue = (d) => (d ? String(d).slice(0, 10) : '')
+const weekdayOf = (d) => { if (!d) return null; const dt = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(dt) ? null : dt.toLocaleDateString('en-US', { weekday: 'long' }) }
+
+function CardMenuItem({ onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', fontSize: 12.5, color: '#1a1a2e', cursor: 'pointer', borderRadius: 6 }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+    >{children}</button>
+  )
+}
+
+function ActivityCard({ ev, theme, big, wide, badge = true, onPatched }) {
+  const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editing, setEditing] = useState('')
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const fileRef = useRef(null)
+  const localUrlRef = useRef('')
+  const [bannerUrl, setBannerUrl] = useState('')
+  const [bannerBust, setBannerBust] = useState(0)
+
+  const evId = ev?.id
+  const evBanner = ev?.banner || ''
+
+  // Resolve the banner through the authenticated proxy (private-bucket S3 URLs
+  // 403 in an <img>), falling back to the raw URL for public/legacy images.
+  useEffect(() => {
+    let cancelled = false
+    let obj = ''
+    if (!evId || !evBanner || !/^https?:/i.test(evBanner)) { setBannerUrl(evBanner); return }
+    ;(async () => {
+      try {
+        obj = await fetchEventBannerObjectUrl(evId, bannerBust || undefined)
+        if (cancelled) { URL.revokeObjectURL(obj); return }
+        setBannerUrl(obj)
+      } catch {
+        if (!cancelled) setBannerUrl(evBanner)
+      }
+    })()
+    return () => { cancelled = true; if (obj) URL.revokeObjectURL(obj) }
+  }, [evId, evBanner, bannerBust])
+
+  useEffect(() => () => { if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current) }, [])
+
   if (!ev) return null
   const imgH = big ? 190 : (wide ? 150 : 132)
   const rounded = theme.name === 'AFLF'
+
+  const closeMenus = () => { setMenuOpen(false) }
+  const startEdit = (field) => {
+    setErr('')
+    setDraft(field === 'name' ? (ev.name || '') : dateInputValue(ev.date))
+    setEditing(field)
+    closeMenus()
+  }
+  const saveField = async (field) => {
+    if (busy) return
+    if (field === 'name' && !draft.trim()) { setErr('Name cannot be empty'); return }
+    setBusy(true); setErr('')
+    try {
+      const payload = field === 'name' ? { name: draft.trim() } : { date: draft || null, day: weekdayOf(draft) }
+      await updateEvent(ev.id, field === 'name' ? payload : { date: payload.date })
+      onPatched && onPatched(ev.id, payload)
+      setEditing('')
+    } catch (e) {
+      setErr(e.message || 'Could not save the change')
+    } finally { setBusy(false) }
+  }
+  const onPickFile = async (file) => {
+    if (!file || busy) return
+    if (!String(file.type || '').startsWith('image/')) { setErr('Please choose a JPG, PNG or WebP image.'); return }
+    setBusy(true); setErr('')
+    try {
+      if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current)
+      const local = URL.createObjectURL(file)
+      localUrlRef.current = local
+      setBannerUrl(local)
+      const fd = new FormData()
+      fd.append('file', file, file.name)
+      const res = await uploadEventBanner(fd)
+      const url = (res && res.url) || ''
+      if (!url) throw new Error('Upload finished but no image URL was returned.')
+      await updateEvent(ev.id, { banner: url })
+      onPatched && onPatched(ev.id, { banner: url })
+      setBannerBust(Date.now())
+    } catch (e) {
+      setErr(e.message || 'Banner upload failed')
+      setBannerUrl(evBanner)
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   return (
     <div className="eh-activity-card" style={{
       display: 'flex', flexDirection: 'column', background: '#fff', height: '100%',
@@ -266,16 +366,49 @@ function ActivityCard({ ev, theme, big, wide, badge = true }) {
     }}>
       <div style={{ position: 'relative', width: '100%', height: imgH, background: '#f1f5f9', overflow: 'hidden', flexShrink: 0, borderRadius: rounded ? 10 : 0 }}>
         {ev.banner ? (
-          <SafeImg src={ev.banner} alt={ev.name} height="100%" radius={rounded ? 10 : 0} />
+          <SafeImg src={bannerUrl || ev.banner} alt={ev.name} height="100%" radius={rounded ? 10 : 0} />
         ) : (
           <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
         )}
         {badge && <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>}
+
+        <button
+          type="button" title="Event actions" className="no-print" data-html2canvas-ignore="true"
+          onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+          style={{ position: 'absolute', top: 8, left: 8, zIndex: 3, width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'rgba(17,24,39,0.62)', color: '#fff', fontSize: 15, fontWeight: 700, lineHeight: '22px', cursor: 'pointer', padding: 0 }}
+        >⋯</button>
+        {menuOpen && (
+          <div className="no-print" data-html2canvas-ignore="true" onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: 36, left: 8, zIndex: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 4, minWidth: 176 }}>
+            <CardMenuItem onClick={() => { closeMenus(); fileRef.current && fileRef.current.click() }}>🖼 Upload / Change Banner</CardMenuItem>
+            <CardMenuItem onClick={() => startEdit('name')}>✏️ Edit Event Name</CardMenuItem>
+            <CardMenuItem onClick={() => startEdit('date')}>📅 Edit Date</CardMenuItem>
+            <CardMenuItem onClick={() => { closeMenus(); navigate('/event-head/events/' + ev.id) }}>👁 View Event Details</CardMenuItem>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={e => onPickFile(e.target.files && e.target.files[0])} />
       </div>
       <div style={{ padding: big ? '12px 14px' : '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-        <div style={{ fontSize: big ? 15 : 13, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name}</div>
+        {editing === 'name' ? (
+          <div className="no-print" data-html2canvas-ignore="true">
+            <input style={CARD_INPUT} value={draft} autoFocus onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveField('name'); if (e.key === 'Escape') setEditing('') }} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 5 }}>
+              <button type="button" style={CARD_BTN_PRIMARY} disabled={busy} onClick={() => saveField('name')}>{busy ? 'Saving…' : 'Save'}</button>
+              <button type="button" style={CARD_BTN} disabled={busy} onClick={() => { setEditing(''); setErr('') }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: big ? 15 : 13, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name}</div>
+        )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
-          <span>📅 {fmtDate(ev.date)}{ev.day ? ` · ${ev.day.split(' ')[0]}` : ''}</span>
+          {editing === 'date' ? (
+            <div className="no-print" data-html2canvas-ignore="true" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" style={{ ...CARD_INPUT, width: 'auto' }} value={draft} autoFocus onChange={e => setDraft(e.target.value)} />
+              <button type="button" style={CARD_BTN_PRIMARY} disabled={busy} onClick={() => saveField('date')}>{busy ? 'Saving…' : 'Save'}</button>
+              <button type="button" style={CARD_BTN} disabled={busy} onClick={() => { setEditing(''); setErr('') }}>Cancel</button>
+            </div>
+          ) : (
+            <span>📅 {fmtDate(ev.date)}{ev.day ? ` · ${ev.day.split(' ')[0]}` : ''}</span>
+          )}
           {ev.venue && <span>📍 {ev.venue}</span>}
         </div>
         {(ev.sector_name || ev.activity_name) && (
@@ -283,12 +416,7 @@ function ActivityCard({ ev, theme, big, wide, badge = true }) {
             🏷 {ev.sector_name && ev.activity_name ? `${ev.sector_name} · ${ev.activity_name}` : (ev.sector_name || ev.activity_name)}
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, borderTop: `1px solid ${theme.colorLight}`, paddingTop: 8, marginTop: 'auto' }}>
-          <span style={{ fontSize: 11, color: '#1a1a2e', fontWeight: 700 }}>
-            👥 {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} families` : 'Expected: —'}
-          </span>
-          <span style={{ fontSize: 11, color: theme.headingColor || theme.color, fontWeight: 700 }}>💰 {money(ev.budget)}</span>
-        </div>
+        {err && <div className="no-print" data-html2canvas-ignore="true" style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>{err}</div>}
       </div>
     </div>
   )
@@ -322,12 +450,12 @@ function ReportCardFooter({ theme, n, monthLabel, yearLabel }) {
 // 3-column impact row. Every event cell shows its banner and
 // all of its information.
 // ─────────────────────────────────────────────────────────────
-function MonthInActionLayout({ n, theme, monthLabel, yearLabel, cardRef }) {
+function MonthInActionLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched }) {
   const events = n.events || []
 
   // Every event renders through the shared ActivityCard so all three NGO
   // variants keep the same date / title / description / impact structure.
-  const Cell = ({ e, big, badge }) => <ActivityCard ev={e} theme={theme} big={big} badge={badge} />
+  const Cell = ({ e, big, badge }) => <ActivityCard ev={e} theme={theme} big={big} badge={badge} onPatched={onPatched} />
 
   return (
     <div ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${theme.color}`, borderRadius: 14, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
@@ -399,10 +527,10 @@ function MonthInActionLayout({ n, theme, monthLabel, yearLabel, cardRef }) {
 // then rows of photo cells. Every event shows its banner and all
 // of its information.
 // ─────────────────────────────────────────────────────────────
-function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef }) {
+function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched }) {
   const events = n.events || []
 
-  const Cell = ({ e, big, wide }) => <ActivityCard ev={e} theme={theme} big={big} wide={wide} />
+  const Cell = ({ e, big, wide }) => <ActivityCard ev={e} theme={theme} big={big} wide={wide} onPatched={onPatched} />
 
   const ev = (i) => events[i]
   const rest = events.slice(11)
@@ -473,6 +601,43 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef }) {
   )
 }
 
+/* Page-break planner for the monthly PDF. Given the raster y-ranges that must
+   stay intact (event cards, header, footer) it returns the offsets at which a
+   tall NGO card is cut into pages WITHOUT splitting any of those blocks. Every
+   break lands in a gap between blocks; only a single block taller than a whole
+   page is force-split, and even then it starts on a fresh page first. */
+function computePageBreaks(intervals, totalPx, pagePx) {
+  const total = Math.max(0, Math.round(totalPx))
+  const page = Math.max(1, Math.round(pagePx))
+  if (total <= page) return [0, total]
+  const ranges = (intervals || [])
+    .map(([a, b]) => [Math.max(0, Math.floor(a)), Math.min(total, Math.ceil(b))])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0])
+  const merged = []
+  for (const r of ranges) {
+    const last = merged[merged.length - 1]
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1])
+    else merged.push([r[0], r[1]])
+  }
+  const contains = (p) => merged.find(([a, b]) => p > a && p < b) || null
+  const breaks = [0]
+  let y = 0
+  let guard = 0
+  while (y < total - 1 && guard++ < 10000) {
+    const pageEnd = y + page
+    if (pageEnd >= total) { breaks.push(total); break }
+    let cut = pageEnd
+    const hit = contains(pageEnd)
+    if (hit) cut = hit[0] > y ? hit[0] : pageEnd
+    if (cut <= y) cut = pageEnd
+    breaks.push(cut)
+    y = cut
+  }
+  if (breaks[breaks.length - 1] < total) breaks.push(total)
+  return breaks
+}
+
 export default function EventReports() {
   const [events, setEvents] = useState([])
   const [selectedEvent, setSelectedEvent] = useState('')
@@ -514,6 +679,19 @@ export default function EventReports() {
       setSelectedEvent(prev => prev || (normalized.find(e => e.status === 'Submitted')?.id) || '')
     }).catch(e => console.error('EventReports fetchEvents:', e))
       .finally(() => setRefreshing(false))
+  }
+
+  // Apply an edit made on a monthly card to the loaded report, so the card,
+  // the mosaic layouts and the PDF all reflect it without a full reload.
+  const patchMonthlyEvent = (eventId, patch) => {
+    setMonthlyData(prev => {
+      if (!prev) return prev
+      const ngos = (prev.ngos || []).map(n => ({
+        ...n,
+        events: (n.events || []).map(e => (String(e.id) === String(eventId) ? { ...e, ...patch } : e)),
+      }))
+      return { ...prev, ngos }
+    })
   }
 
   useEffect(() => {
@@ -624,9 +802,9 @@ export default function EventReports() {
       const contentW = pageW - margin * 2
       const contentH = pageH - margin * 2
 
-      // One NGO card per page block. Each card is captured on its own so a
-      // page break only ever falls between NGOs; a card taller than one page
-      // is sliced across as few pages as possible.
+      // One NGO card per page block. Each card is captured on its own; a card
+      // taller than one page is split at the gaps BETWEEN event cards, so no
+      // event card is ever cut in half and pages never overlap.
       let firstPage = true
       for (const n of ngos) {
         const el = ngoCardRefs.current[String(n.ngo_id)]
@@ -649,27 +827,40 @@ export default function EventReports() {
           logging: false,
           imageTimeout: 15000,
         })
-        const imgData = canvas.toDataURL('image/jpeg', 0.95)
         const pxPerMm = canvas.width / contentW
         const pageHeightPx = contentH * pxPerMm
-        const cardHeightMm = canvas.height / pxPerMm
+
+        // Measure the blocks that must stay whole (theme header, footer and
+        // every event card) relative to the NGO card, in raster pixels.
+        const elRect = el.getBoundingClientRect()
+        const sc = canvas.width / (elRect.width || el.offsetWidth || canvas.width)
+        const toPx = (r) => [(r.top - elRect.top) * sc, (r.bottom - elRect.top) * sc]
+        const keepTogether = []
+        try {
+          const kids = el.children
+          if (kids.length) keepTogether.push(toPx(kids[0].getBoundingClientRect()))
+          if (kids.length > 1) keepTogether.push(toPx(kids[kids.length - 1].getBoundingClientRect()))
+          for (const c of el.querySelectorAll('.eh-activity-card')) keepTogether.push(toPx(c.getBoundingClientRect()))
+        } catch { /* measurement is best-effort; slicing still works */ }
+
+        const breaks = computePageBreaks(keepTogether, canvas.height, pageHeightPx)
 
         if (!firstPage) pdf.addPage()
         firstPage = false
 
-        if (cardHeightMm <= contentH) {
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, 0)
-        } else {
-          let heightLeft = canvas.height
-          let position = 0
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, 0)
-          heightLeft -= pageHeightPx
-          while (heightLeft > 0) {
-            position = heightLeft - canvas.height
-            pdf.addPage()
-            pdf.addImage(imgData, 'JPEG', margin, margin + position / pxPerMm, contentW, 0)
-            heightLeft -= pageHeightPx
-          }
+        for (let i = 0; i < breaks.length - 1; i++) {
+          const start = Math.round(breaks[i])
+          const end = Math.round(breaks[i + 1])
+          if (end <= start) continue
+          const slice = document.createElement('canvas')
+          slice.width = canvas.width
+          slice.height = end - start
+          const ctx = slice.getContext('2d')
+          ctx.drawImage(canvas, 0, start, canvas.width, end - start, 0, 0, canvas.width, end - start)
+          const sliceData = slice.toDataURL('image/jpeg', 0.95)
+          const sliceHeightMm = (end - start) / pxPerMm
+          if (i > 0) pdf.addPage()
+          pdf.addImage(sliceData, 'JPEG', margin, margin, contentW, sliceHeightMm)
         }
       }
       pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`)
@@ -902,8 +1093,8 @@ export default function EventReports() {
                   const logo = n.logo || theme.logo
                   const bannerSrc = n.banner || theme.banner
                   const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
-                  if (code === 'mann') return <MonthInActionLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
-                  if (code === 'aflf') return <GlimpsesLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
+                  if (code === 'mann') return <MonthInActionLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onPatched={patchMonthlyEvent} />
+                  if (code === 'aflf') return <GlimpsesLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onPatched={patchMonthlyEvent} />
                   return (
                     <div key={String(n.ngo_id)} ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
                       <ReportCardHeader logo={logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} eventCount={n.events_count} />
@@ -919,7 +1110,7 @@ export default function EventReports() {
                       <div style={{ padding: '14px 16px' }}>
                         {n.events.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No events for this month.</div>}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
-                          {n.events.map((ev, i) => <ActivityCard key={ev.id ?? i} ev={ev} theme={theme} />)}
+                          {n.events.map((ev, i) => <ActivityCard key={ev.id ?? i} ev={ev} theme={theme} onPatched={patchMonthlyEvent} />)}
                         </div>
                       </div>
 
@@ -1070,11 +1261,14 @@ export default function EventReports() {
           .eh-report-body, .eh-print-brand, .eh-print-footer {
             page-break-inside:avoid; break-inside:avoid;
           }
-          /* Each NGO report card starts on its own page and never splits an
-             activity card across a page boundary. */
-          .eh-ngo-card { page-break-inside: avoid; break-inside: avoid; }
+          /* Each NGO report card starts on its own page. The NGO card may flow
+             across pages (it can be taller than one), but an individual event
+             card is never split and the header/footer are never orphaned. */
+          .eh-ngo-card { page-break-inside: auto; break-inside: auto; }
           .eh-ngo-card + .eh-ngo-card { page-break-before: always; break-before: page; }
           .eh-activity-card { page-break-inside: avoid; break-inside: avoid; }
+          .eh-ngo-card > *:first-child { page-break-after: avoid; break-after: avoid; }
+          .eh-ngo-card > *:last-child { page-break-before: avoid; break-before: avoid; }
         }
       `}</style>
     </>

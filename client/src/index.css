@@ -3175,6 +3175,39 @@
 .eh-section-body { padding:18px 20px; }
 .eh-section-body.flush { padding:0; }
 
+/* -- Create Event: 4-step wizard -- */
+.eh-wizard-head { padding:16px 20px 0; }
+.eh-wizard-steps { display:flex; align-items:center; gap:8px; }
+.eh-wizard-step { display:flex; align-items:center; gap:9px; flex:1; min-width:0; background:transparent; border:none; padding:4px 0; cursor:pointer; font-family:inherit; text-align:left; }
+.eh-wizard-dot { width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; border:2px solid var(--eh-line,#e8e6f2); background:var(--eh-surface-2,#fff); color:var(--eh-ink-soft,#6a6f8f); transition:all .15s; }
+.eh-wizard-label { font-size:12.5px; font-weight:600; color:var(--eh-ink-soft,#6a6f8f); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:color .15s; }
+.eh-wizard-step:not(:last-child)::after { content:''; flex:1; height:2px; min-width:12px; background:var(--eh-line,#e8e6f2); border-radius:2px; }
+.eh-wizard-step.active .eh-wizard-dot { border-color:transparent; background:linear-gradient(135deg,var(--eh-primary,#2036bd),var(--eh-secondary,#6b38d4)); color:#fff; box-shadow:0 4px 12px rgba(32,54,189,.3); }
+.eh-wizard-step.active .eh-wizard-label { color:var(--eh-ink,#0f1128); }
+.eh-wizard-step.done .eh-wizard-dot { border-color:transparent; background:var(--eh-primary-soft,#e8ecfb); color:var(--eh-primary,#2036bd); }
+.eh-wizard-step.done .eh-wizard-label { color:var(--eh-ink,#0f1128); }
+.eh-wizard-step.done:not(:last-child)::after { background:var(--eh-primary-soft,#e8ecfb); }
+.eh-wizard-step.todo:hover .eh-wizard-dot { border-color:var(--eh-line-strong,#d9d6ea); }
+.eh-wizard-step:focus-visible { outline:2px solid var(--eh-primary,#2036bd); outline-offset:3px; border-radius:8px; }
+.eh-wizard-mobile { display:none; }
+.eh-wizard-bar { height:4px; margin:14px 0 0; border-radius:999px; background:var(--eh-line,#e8e6f2); overflow:hidden; }
+.eh-wizard-bar > span { display:block; height:100%; border-radius:999px; background:linear-gradient(135deg,var(--eh-primary,#2036bd),var(--eh-secondary,#6b38d4)); transition:width .25s ease; }
+.eh-wizard-foot { margin-top:24px; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.eh-wizard-hint { margin-right:auto; font-size:12px; color:var(--eh-ink-soft,#6a6f8f); }
+.eh-wizard-hint b { color:var(--eh-ink,#0f1128); }
+.eh-wizard-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+@media (max-width:640px) {
+  .eh-wizard-head { padding:14px 14px 0; }
+  .eh-wizard-label { display:none; }
+  .eh-wizard-steps { justify-content:space-between; }
+  .eh-wizard-step { flex:0 0 auto; }
+  .eh-wizard-step:not(:last-child)::after { display:none; }
+  .eh-wizard-mobile { display:block; margin-top:10px; font-size:12.5px; font-weight:600; color:var(--eh-ink,#0f1128); }
+  .eh-wizard-hint { display:none; }
+  .eh-wizard-actions { width:100%; }
+  .eh-wizard-actions .eh-btn { flex:1; }
+}
+
 /* -- Re-skin .card / .card-head to match (so un-migrated pages still look cohesive) -- */
 .panel-event-head .card { background:var(--eh-surface-2,#fff); border:1px solid var(--eh-line,#e8e6f2); border-radius:16px; box-shadow:0 1px 2px rgba(15,17,40,.03); }
 .panel-event-head .card-head { padding:16px 20px; border-bottom:1px solid var(--eh-line,#e8e6f2); }

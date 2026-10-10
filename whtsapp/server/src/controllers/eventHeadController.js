@@ -564,6 +564,7 @@ export const getEventHeadCalendar = async (req, res) => {
           date: e.date || null,
           startTime: e.start_time || null,
           endTime: e.end_time || null,
+          banner: e.banner || null,
         },
       };
     }));

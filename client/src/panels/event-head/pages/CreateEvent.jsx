@@ -89,6 +89,14 @@ export default function CreateEvent() {
   const [aiDismissed, setAiDismissed] = useState({})
   const [aiRan, setAiRan] = useState(false)
 
+  /* 4-step wizard. Only the active step's fields are mounted; every value still
+     lives in `form` / `planning` / `checklist`, so switching steps loses nothing. */
+  const [step, setStep] = useState(1)
+  const STEP_LABELS = ['Program', 'Volunteers', 'Distribution', 'Checklist']
+  const STEP_COUNT = STEP_LABELS.length
+  const FIELD_STEP = { name: 1, ngo_id: 1, sector_id: 1, date: 1 }
+  const cardRef = useRef(null)
+
   /* ── Festival / day programme suggestions ──────────────────────────────────
      A separate concern from the spelling hints above and deliberately NOT
      auto-fired: it is one AI call that can take 10-60s, so it runs on an explicit
@@ -454,6 +462,10 @@ export default function CreateEvent() {
 
   useEffect(() => {
     if (!error || !errorField) return
+    // The field may live on another step; move there first so it mounts, then
+    // this effect runs again and can scroll/focus it.
+    const targetStep = FIELD_STEP[errorField]
+    if (targetStep && step !== targetStep) { setStep(targetStep); return }
     const el = fieldRefs.current[errorField]
     if (!el) return
     const t = setTimeout(() => {
@@ -463,7 +475,7 @@ export default function CreateEvent() {
       } catch { /* older browsers ignore smooth scrolling */ }
     }, 60)
     return () => clearTimeout(t)
-  }, [error, errorField])
+  }, [error, errorField, step])
 
   // The notice is a nudge, not a blocker: it clears itself after 4 seconds so it
   // never sits on top of the form. Pressing the button again re-reports it.
@@ -555,7 +567,43 @@ export default function CreateEvent() {
     finally { setSaving(false); setSavingDraft(false) }
   }
 
-  const handleSubmit = (e) => { e.preventDefault(); persist(false) }
+  /* ── Wizard navigation ──────────────────────────────────────────────────────
+     Step 1 is the only step with required fields, so "Next"/forward clicks are
+     gated on it; Steps 2–4 gate nothing. Enter (implicit form submit) advances a
+     step instead of skipping straight to Create Event. */
+  const scrollToCard = () => {
+    const el = cardRef.current
+    try {
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      else window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch { window.scrollTo(0, 0) }
+  }
+  const goToStep = (n) => {
+    setStep(Math.max(1, Math.min(STEP_COUNT, n)))
+    clearError()
+    scrollToCard()
+  }
+  const step1Valid = () => Boolean(form.name.trim() && form.ngo_id && form.sector_id && form.date)
+  const validateStep1 = () => {
+    if (!form.name.trim()) { fail('Please enter an Event Name', 'name'); return false }
+    if (!form.ngo_id) { fail('Please choose an NGO', 'ngo_id'); return false }
+    if (!form.sector_id) { fail('Please choose a Sector', 'sector_id'); return false }
+    if (!form.date) { fail('Please choose an Event Date, or pick the day from Monthly Planner', 'date'); return false }
+    return true
+  }
+  const next = () => {
+    if (step === 1 && !validateStep1()) return
+    if (step >= STEP_COUNT) { persist(false); return }
+    goToStep(step + 1)
+  }
+  const prev = () => goToStep(step - 1)
+  const onStepperClick = (n) => {
+    if (n === step) return
+    if (n > step && !step1Valid()) { validateStep1(); return }
+    goToStep(n)
+  }
+
+  const handleSubmit = (e) => { e.preventDefault(); next() }
 
   const section = (t) => <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--eh-primary)', margin: '20px 0 12px' }}>{t}</div>
 
@@ -662,15 +710,40 @@ export default function CreateEvent() {
           </div>
         )}
 
-        <div className="eh-section">
+        <div className="eh-section" ref={cardRef}>
           <div className="eh-section-head">
             <div>
               <h3>Daily Event Planning Form</h3>
-              <div className="eh-sub" style={{ fontSize: 12 }}>Programme, volunteers, beneficiaries, distribution and requirements</div>
             </div>
           </div>
+
+          <div className="eh-wizard-head">
+            <div className="eh-wizard-steps" role="tablist" aria-label="Event planning steps">
+              {STEP_LABELS.map((label, i) => {
+                const n = i + 1
+                const state = step === n ? 'active' : step > n ? 'done' : 'todo'
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    role="tab"
+                    aria-selected={step === n}
+                    className={`eh-wizard-step ${state}`}
+                    onClick={() => onStepperClick(n)}
+                  >
+                    <span className="eh-wizard-dot">{step > n ? '✓' : n}</span>
+                    <span className="eh-wizard-label">{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="eh-wizard-mobile">Step {step} of {STEP_COUNT} · {STEP_LABELS[step - 1]}</div>
+            <div className="eh-wizard-bar"><span style={{ width: `${(step / STEP_COUNT) * 100}%` }} /></div>
+          </div>
+
           <div className="eh-section-body">
-            {section('1 · Program Details')}
+            {step === 1 && (
+              <>
             {/* Field order follows the order the form is actually filled in: pick the
                 NGO, then the month, then jump to the Monthly Planner to click the real
                 day on the grid. The exact date input lives in Event Details below, for
@@ -875,36 +948,30 @@ export default function CreateEvent() {
                 <input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />
                 {fieldError('date')}
               </div>
-              <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
-              <div className="field"><label>End Time</label><input type="time" name="end_time" value={form.end_time} onChange={handleChange} /></div>
               <div className="field"><label>Priority</label><select name="priority" value={form.priority} onChange={handleChange}>
                 {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
               </select></div>
             </div>
             <div className="form-row">
-              <div className="field" style={{ flex: '1 1 100%' }}>
-                <label>Description</label>
-                <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="What is this programme about?" style={taStyle} />
-              </div>
-            </div>
-            <div className="form-row">
               <div className="field"><label>Location Decided</label><input name="venue" value={form.venue} onChange={handleChange} placeholder="Venue / full address" />{inlineSuggestion('venue')}</div>
             </div>
 
-            {section('2 · Volunteer Requirement')}
+              </>
+            )}
+
+            {step === 2 && (
+              <>
+            {section('Volunteer Requirement')}
             <div className="form-row">
               <div className="field"><label>Number of Volunteers Required</label>
                 <input type="number" min="0" name="volunteers_required" value={planning.volunteers_required} onChange={e => updatePlanning({ volunteers_required: e.target.value })} placeholder="e.g. 10" />
-              </div>
-              <div className="field"><label>Volunteer Role</label>
-                <input name="volunteer_role" value={planning.volunteer_role} onChange={e => updatePlanning({ volunteer_role: e.target.value })} placeholder="e.g. Distribution, Registration" />
               </div>
             </div>
             <div style={{ marginTop: 6 }}>
               <VoluntaryPicker ngoId={form.ngo_id} value={volunteers} onChange={setVolunteers} />
             </div>
 
-            {section('3 · Beneficiary Details')}
+            {section('Beneficiary Details')}
             <div className="field" style={{ marginBottom: 12 }}>
               <label>Beneficiary Categories</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
@@ -931,7 +998,12 @@ export default function CreateEvent() {
               </div>
             </div>
 
-            {section('4 · Distribution / Service Details')}
+              </>
+            )}
+
+            {step === 3 && (
+              <>
+            {section('Distribution / Service Details')}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
                 <thead>
@@ -939,7 +1011,6 @@ export default function CreateEvent() {
                     <th style={planTh(52)}>Sr. No</th>
                     <th style={planTh()}>Item / Service</th>
                     <th style={planTh(150)}>Quantity Required</th>
-                    <th style={planTh()}>Remarks</th>
                     <th style={planTh(40)}></th>
                   </tr>
                 </thead>
@@ -949,7 +1020,6 @@ export default function CreateEvent() {
                       <td style={{ ...planTd, textAlign: 'center', color: 'var(--eh-ink-soft,#6a6f8f)', fontWeight: 600 }}>{i + 1}</td>
                       <td style={planTd}><input value={row.item} onChange={e => updateDistributionRow(i, { item: e.target.value })} placeholder="Item or service" style={planCellInput} /></td>
                       <td style={planTd}><input value={row.qty} onChange={e => updateDistributionRow(i, { qty: e.target.value })} placeholder="Qty" style={planCellInput} /></td>
-                      <td style={planTd}><input value={row.remarks} onChange={e => updateDistributionRow(i, { remarks: e.target.value })} placeholder="Remarks" style={planCellInput} /></td>
                       <td style={{ ...planTd, textAlign: 'center' }}>
                         <button type="button" onClick={() => removeDistributionRow(i)} title="Remove row" disabled={planning.distribution_items.length <= 1}
                           style={{ border: 'none', background: 'transparent', color: '#b91c1c', fontSize: 14, cursor: planning.distribution_items.length <= 1 ? 'not-allowed' : 'pointer', opacity: planning.distribution_items.length <= 1 ? 0.4 : 1 }}>✕</button>
@@ -961,7 +1031,7 @@ export default function CreateEvent() {
             </div>
             <button type="button" className="eh-btn" onClick={addDistributionRow} style={{ marginTop: 8 }}>+ Add row</button>
 
-            {section('5 · Additional Requirements')}
+            {section('Additional Requirements')}
             <div className="form-row">
               <div className="field" style={{ flex: '1 1 100%' }}>
                 <label>Special Requirements / Arrangements</label>
@@ -976,6 +1046,11 @@ export default function CreateEvent() {
               <div className="field"><label>Coordinator</label><input name="coordinator" value={form.coordinator} onChange={handleChange} />{inlineSuggestion('coordinator')}</div>
             </div>
 
+              </>
+            )}
+
+            {step === 4 && (
+              <>
             {section('General Checklist')}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {[
@@ -1136,14 +1211,26 @@ export default function CreateEvent() {
               </div>
             )}
 
-            <div className="eh-toolbar" style={{ marginTop: 24, justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ marginRight: 'auto', fontSize: 12, color: 'var(--eh-ink-soft,#6a6f8f)' }}>
-                Not finished yet? <b style={{ color: 'var(--eh-ink,#0f1128)' }}>Save Draft</b> keeps everything you have typed and opens the event so you can complete it later.
+              </>
+            )}
+
+            <div className="eh-toolbar eh-wizard-foot">
+              <span className="eh-wizard-hint">
+                Not finished yet? <b>Save Draft</b> keeps everything you have typed and opens the event so you can complete it later.
               </span>
-              <button type="button" className="eh-btn" disabled={saving || savingDraft} onClick={() => persist(true)}>
-                {savingDraft ? 'Saving draft…' : 'Save Draft'}
-              </button>
-              <button type="submit" className="eh-btn eh-btn-primary" disabled={saving || savingDraft}>{saving ? 'Creating…' : 'Create Event'}</button>
+              <div className="eh-wizard-actions">
+                {step > 1 && (
+                  <button type="button" className="eh-btn" disabled={saving || savingDraft} onClick={prev}>← Back</button>
+                )}
+                <button type="button" className="eh-btn" disabled={saving || savingDraft} onClick={() => persist(true)}>
+                  {savingDraft ? 'Saving draft…' : 'Save Draft'}
+                </button>
+                {step < STEP_COUNT ? (
+                  <button type="button" className="eh-btn eh-btn-primary" disabled={saving || savingDraft} onClick={next}>Next →</button>
+                ) : (
+                  <button type="submit" className="eh-btn eh-btn-primary" disabled={saving || savingDraft}>{saving ? 'Creating…' : 'Create Event'}</button>
+                )}
+              </div>
             </div>
           </div>
         </div>

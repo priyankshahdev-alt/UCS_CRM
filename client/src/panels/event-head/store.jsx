@@ -810,6 +810,19 @@ export const downloadMediaBlob = async (eventId, id, _prefix = 'ucs') => {
   return res.blob()
 }
 
+export const fetchEventBannerObjectUrl = async (eventId, cacheBust) => {
+  const q = cacheBust ? '?t=' + encodeURIComponent(cacheBust) : ''
+  const res = await api('/event-head/events/' + eventId + '/banner' + q, { method: 'GET', raw: true, _prefix: 'ucs' })
+  if (!res.ok) throw new Error('Failed to load the event banner')
+  return URL.createObjectURL(await res.blob())
+}
+
+export const fetchMediaViewObjectUrl = async (eventId, id) => {
+  const res = await api('/event-head/events/' + eventId + '/media/' + id + '/view', { method: 'GET', raw: true, _prefix: 'ucs' })
+  if (!res.ok) throw new Error('Failed to load the media file')
+  return URL.createObjectURL(await res.blob())
+}
+
 /* ── Attendance ── */
 export const fetchEventAttendance = (eventId) => apiGet('/event-head/events/' + eventId + '/attendance')
 export const markAttendance = (eventId, data) => apiPost('/event-head/events/' + eventId + '/attendance', data)
@@ -936,7 +949,7 @@ export const EVENT_STATUSES = ['Draft','Submitted','Approved','Rejected','Comple
 
 export const CHECKLIST_ITEMS = [
   'Permission received','Material Ready','Volunteers Assigned','Vehicle Booked',
-  'Photographer Assigned','Vendor Confirmed','Beneficiary List Ready','Donation Material Ready'
+  'Photographer Assigned','Vendor Confirmed','Beneficiary List Ready'
 ]
 
 // Physical material to tick off for the event, shown as its own group under the
