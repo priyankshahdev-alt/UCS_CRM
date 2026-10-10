@@ -93,6 +93,14 @@ const STATUS_META = {
   not_started: { label: 'Not Started', color: C.ns, bg: C.nsBg, accent: C.ns },
 }
 
+// Bronze/Silver/Gold milestone tiers (per range). Colors match the leaderboard.
+const TIER_META = {
+  bronze: { key: 'bronze', label: 'Bronze', medal: '🥉', color: '#9A5A22', bg: '#FBEDDE', ring: '#E8C9A8' },
+  silver: { key: 'silver', label: 'Silver', medal: '🥈', color: '#5E6B7E', bg: '#EEF2F6', ring: '#CBD4E0' },
+  gold: { key: 'gold', label: 'Gold', medal: '🥇', color: '#A9760C', bg: '#FDF1D6', ring: '#EFD9A0' },
+}
+const tierMeta = (key) => TIER_META[String(key || '').toLowerCase()] || TIER_META.bronze
+
 // Range status: Running only while its live window is open. The moment the
 // live is over (end time passed, or never started), it goes back to
 // Not Started so it can be started fresh again.
@@ -187,6 +195,61 @@ function StatusPill({ status }) {
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.color, display: 'inline-block' }} />
       {m.label}
     </span>
+  )
+}
+
+// ─── Tier badge (Bronze/Silver/Gold) ──────────────────────
+function TierBadge({ tierKey, label, size = 11 }) {
+  const m = tierMeta(tierKey)
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 999,
+      background: m.bg, color: m.color, fontSize: size, fontWeight: 700, whiteSpace: 'nowrap',
+    }}>
+      <span>{m.medal}</span>{label || m.label}
+    </span>
+  )
+}
+
+// Live per-tier standings for a range (the leaderboard for tier mode). Each row
+// shows the tier target, its prize, and who is currently winning that tier.
+// is_final marks the window closed → those names are the confirmed winners.
+function TierLeadersStrip({ tiers, leaders, isFinal, onSelectFro }) {
+  if (!tiers || tiers.length === 0) return null
+  const leaderByKey = {}
+  for (const l of leaders || []) leaderByKey[l.tier_key] = l
+  return (
+    <div style={{ padding: '6px 12px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {tiers.map(t => {
+        const info = leaderByKey[t.tier_key]
+        const leader = info?.leader || null
+        const m = tierMeta(t.tier_key)
+        return (
+          <div key={t.tier_key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TierBadge tierKey={t.tier_key} label={t.label} />
+            <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>
+              ₹{fmt(t.target_amount)} → <b style={{ color: C.dark }}>₹{fmt(t.prize_amount)}</b>
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }} />
+            {leader ? (
+              <button type="button" onClick={() => onSelectFro && onSelectFro(leader.fro_id)}
+                title={isFinal ? `${leader.fro_name} won ${t.label}` : `${leader.fro_name} is leading ${t.label}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '52%', padding: 0 }}>
+                <span style={{ fontSize: 12, fontWeight: isFinal ? 700 : 600, color: isFinal ? '#168A4E' : C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {leader.fro_name}{isFinal ? ' 🏆' : ''}
+                </span>
+                <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>₹{fmt(leader.amount)}</span>
+              </button>
+            ) : (
+              <span style={{ fontSize: 11, color: '#B9C8DC', whiteSpace: 'nowrap' }}>no one yet</span>
+            )}
+          </div>
+        )
+      })}
+      <div style={{ fontSize: 10, color: isFinal ? '#168A4E' : C.muted, marginTop: 1 }}>
+        {isFinal ? '🏆 Final results — window closed' : '⏳ Live — race runs till the window ends'}
+      </div>
+    </div>
   )
 }
 
@@ -316,16 +379,41 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
           <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {r.slab_label}
           </span>
+          {r.tierMode && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999, background: r.tiersFinal ? C.greenBg : '#EEF2F6', color: r.tiersFinal ? C.green : C.muted, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {r.tiersFinal ? 'FINAL' : 'PROVISIONAL'}
+            </span>
+          )}
           <StatusPill status={r.status} />
         </div>
-        <div style={{ marginTop: 6, fontSize: 11.5, color: C.muted }}>
-          Win On <b style={{ color: C.dark, fontWeight: 600 }}>₹{fmt(r.winOn)}</b>
-          <span style={{ margin: '0 5px', color: '#B9C8DC' }}>|</span>
-          Prize <b style={{ color: C.dark, fontWeight: 600 }}>₹{fmt(r.prize)}</b>
-        </div>
+        {r.tierMode ? (
+          <div style={{ marginTop: 6, fontSize: 11.5, color: C.muted }}>
+            {r.tiers.length} milestone {r.tiers.length === 1 ? 'tier' : 'tiers'}
+            <span style={{ margin: '0 5px', color: '#B9C8DC' }}>|</span>
+            Race continues till window ends — highest collection wins each tier
+          </div>
+        ) : (
+          <div style={{ marginTop: 6, fontSize: 11.5, color: C.muted }}>
+            Win On <b style={{ color: C.dark, fontWeight: 600 }}>₹{fmt(r.winOn)}</b>
+            <span style={{ margin: '0 5px', color: '#B9C8DC' }}>|</span>
+            Prize <b style={{ color: C.dark, fontWeight: 600 }}>₹{fmt(r.prize)}</b>
+          </div>
+        )}
       </div>
 
-      {r.top3.length > 0 ? (
+      {r.tierMode ? (
+        <>
+          <TierLeadersStrip tiers={r.tiers} leaders={r.tierLeaders} isFinal={r.tiersFinal} onSelectFro={onSelectFro} />
+          {r.totalCount > 0 && (
+            <div style={{ padding: '4px 12px 10px', textAlign: 'right', borderTop: '1px solid #F2F6FB' }}>
+              <button type="button" onClick={() => onViewAll && onViewAll(r)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', padding: 0, color: C.primary, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                View All ({r.totalCount}) <CaretRight size={12} weight="bold" />
+              </button>
+            </div>
+          )}
+        </>
+      ) : r.top3.length > 0 ? (
         <>
           <div style={{ padding: '6px 0' }}>
             {r.top3.map((f, i) => <MemberRow key={`${r.slab_id}-${f.fro_id}`} f={f} i={i} r={r} onSelect={onSelectFro} />)}
@@ -428,6 +516,13 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
                     <td style={{ color: C.muted, fontWeight: 600 }}>{r.idx}</td>
                     <td style={{ minWidth: 0 }}>
                       <RangeArrow min={r.slab.min_amount} max={r.slab.max_amount} minW={arrowW.minW} maxW={arrowW.maxW} />
+                      {r.tierMode && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                          {r.tiers.map(t => (
+                            <TierBadge key={t.tier_key} tierKey={t.tier_key} label={`${t.label} ₹${fmt(t.target_amount)}`} size={10} />
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {r.starts_in
@@ -511,21 +606,61 @@ function LiveLeaderboardPanel({ ranges, totalRanges, loading, error, onRefresh, 
 }
 
 // ─── Configure Range modal ────────────────────────────────
-function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
+function ConfigureRangeModal({ slab, saving, onSave, onSaveTiers, onClose }) {
   const [form, setForm] = useState(() => ({
     amount_to_win: slab.amount_to_win ?? '',
     incentive_amount: slab.incentive_amount ?? '',
     ended_at: slab.ended_at ? toTimeInput(slab.ended_at) : '',
   }))
+  const [configTiers, setConfigTiers] = useState(() => {
+    const byKey = {}
+    for (const t of slab.tiers || []) byKey[String(t.tier_key).toLowerCase()] = t
+    return ['bronze', 'silver', 'gold'].map(k => ({
+      tier_key: k,
+      label: TIER_META[k].label,
+      target_amount: byKey[k]?.target_amount ?? '',
+      prize_amount: byKey[k]?.prize_amount ?? '',
+    }))
+  })
+  const [useTiers, setUseTiers] = useState(() => (slab.tiers || []).some(t => t.is_active !== false))
   const [error, setError] = useState('')
+
+  const setTier = (key, field, value) => setConfigTiers(prev =>
+    prev.map(t => (t.tier_key === key ? { ...t, [field]: value } : t)))
 
   const submit = async () => {
     setError('')
-    const amount_to_win = Number(form.amount_to_win)
-    if (!(amount_to_win > 0)) { setError('Enter a valid Win On amount (must be more than ₹0)'); return }
-    const incentive_amount = Number(form.incentive_amount)
-    if (!(incentive_amount > 0)) { setError('Enter a valid Prize amount (must be more than ₹0)'); return }
+    const amount_to_win = Number(form.amount_to_win) || Number(slab.amount_to_win) || 1500
+    const incentive_amount = Number(form.incentive_amount) || Number(slab.incentive_amount) || 0
+
+    let tierPayload = []
+    if (useTiers) {
+      const active = configTiers.filter(t => Number(t.target_amount) > 0)
+      if (active.length === 0) {
+        setError('Add at least one tier target, or turn milestone tiers off')
+        return
+      }
+      const sorted = [...active].sort((a, b) => Number(a.target_amount) - Number(b.target_amount))
+      for (let i = 1; i < sorted.length; i++) {
+        if (Number(sorted[i].target_amount) <= Number(sorted[i - 1].target_amount)) {
+          setError('Tier targets must increase (Bronze < Silver < Gold)')
+          return
+        }
+      }
+      tierPayload = active.map(t => ({
+        tier_key: t.tier_key,
+        label: t.label,
+        target_amount: Number(t.target_amount),
+        prize_amount: Number(t.prize_amount) || 0,
+        is_active: true,
+      }))
+    } else {
+      if (!(Number(form.amount_to_win) > 0)) { setError('Enter a valid Win On amount (must be more than ₹0)'); return }
+      if (!(Number(form.incentive_amount) > 0)) { setError('Enter a valid Prize amount (must be more than ₹0)'); return }
+    }
+
     try {
+      if (onSaveTiers) await onSaveTiers(tierPayload)
       await onSave({ amount_to_win, incentive_amount, ended_time: form.ended_at })
       onClose()
     } catch (e) {
@@ -567,7 +702,7 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99992, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 'min(500px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ width: 32, height: 32, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><GearSix size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -577,7 +712,7 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
           <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><X size={14} weight="bold" /></button>
         </div>
 
-        <div style={{ padding: '18px 20px 0' }}>
+        <div style={{ padding: '18px 20px 0', overflowY: 'auto' }}>
           {error && (
             <div style={{ padding: '9px 12px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 12, fontWeight: 600, marginBottom: 14 }}>{error}</div>
           )}
@@ -589,13 +724,57 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
             </div>
           </div>
 
-          {field('Win On Target', '(₹) — total verified collection to win', inputBox(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), true, '1500'))}
-          {field('Prize', '(₹) — flat payout to the winner', inputBox(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), true, '0'))}
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: `1px solid ${useTiers ? '#CDE4FF' : C.line}`, background: useTiers ? '#F4F9FF' : '#F8FAFD' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
+              <input type="checkbox" checked={useTiers} onChange={e => setUseTiers(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.primary, cursor: 'pointer' }} />
+              <span style={{ flex: 1 }}>
+                <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: C.dark }}>🏆 Bronze / Silver / Gold milestone tiers</span>
+                <span style={{ display: 'block', fontSize: 11, color: C.muted, marginTop: 2 }}>The race doesn't stop at a tier. Highest collection at window end wins each tier.</span>
+              </span>
+            </label>
+
+            {useTiers && (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {configTiers.map(t => {
+                  const m = TIER_META[t.tier_key]
+                  return (
+                    <div key={t.tier_key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 74, flexShrink: 0 }}><TierBadge tierKey={t.tier_key} label={t.label} /></span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <input type="number" value={t.target_amount} onChange={e => setTier(t.tier_key, 'target_amount', e.target.value)} placeholder="Target ₹"
+                          style={{ width: '100%', height: 38, padding: '0 10px', border: '1px solid #DCE7F5', borderRadius: 9, background: '#fff', fontSize: 13, fontWeight: 700, color: C.dark, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <input type="number" value={t.prize_amount} onChange={e => setTier(t.tier_key, 'prize_amount', e.target.value)} placeholder="Prize ₹"
+                          style={{ width: '100%', height: 38, padding: '0 10px', border: '1px solid #DCE7F5', borderRadius: 9, background: '#fff', fontSize: 13, fontWeight: 700, color: m.color, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  )
+                })}
+                <div style={{ fontSize: 10.5, color: C.muted }}>Target = verified collection to reach · Prize = payout to that tier's winner. Leave a row blank to skip it.</div>
+              </div>
+            )}
+          </div>
+
+          {!useTiers && (
+            <>
+              {field('Win On Target', '(₹) — total verified collection to win', inputBox(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), true, '1500'))}
+              {field('Prize', '(₹) — flat payout to the winner', inputBox(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), true, '0'))}
+            </>
+          )}
+
+          {useTiers && (
+            <div style={{ marginBottom: 14, padding: '9px 12px', borderRadius: 9, background: '#F8FAFD', border: '1px dashed #E5EDF7', fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
+              Milestone mode is on — the single-prize fields are hidden. Remove all tier targets to switch back to the first-to-cross mode.
+            </div>
+          )}
 
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>End Time <span style={{ fontWeight: 500, color: C.muted }}>(optional — defaults to 7:00 PM today)</span></label>
             {timeInput(form.ended_at, v => setForm(p => ({ ...p, ended_at: v })))}
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>This range starts 3 minutes after you click start and counts until this time.</div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>
+              This range starts 3 minutes after you click start and counts until this time. {useTiers ? 'Tier winners are decided when this time arrives.' : ''}
+            </div>
           </div>
         </div>
 
@@ -643,6 +822,7 @@ function ViewAllModal({ range, onSelectFro, onClose }) {
               <span style={{ flex: 1, minWidth: 0, fontWeight: f.is_winner ? 700 : 600, color: f.is_winner ? '#168A4E' : C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {f.fro_name}
                 {f.is_winner ? ' 🏆' : ''}
+                {f.won_tier_label && <span style={{ marginLeft: 6 }}><TierBadge tierKey={String(f.won_tier_label).toLowerCase()} label={f.won_tier_label} size={9} /></span>}
               </span>
               <span style={{ flexShrink: 0, fontSize: 12, color: C.muted, whiteSpace: 'nowrap' }}>₹{fmt(f.total_amount)} <span style={{ color: '#B9C8DC' }}>/ ₹{fmt(range.winOn)}</span></span>
               <div style={{ flex: '0 1 80px', minWidth: 48 }}>
@@ -840,7 +1020,16 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
                 </tr>
               ) : (
                 <tr key={slab.id} style={{ borderTop: '1px solid #F2F6FB' }}>
-                  <td style={{ padding: '8px 10px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>{rangeLabel}</td>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
+                    {rangeLabel}
+                    {(slab.tiers || []).filter(t => t.is_active !== false).length > 0 && (
+                      <div style={{ display: 'flex', gap: 3, marginTop: 3, flexWrap: 'wrap' }}>
+                        {(slab.tiers || []).filter(t => t.is_active !== false).map(t => (
+                          <TierBadge key={t.tier_key} tierKey={t.tier_key} label={`${t.label} ₹${fmt(t.target_amount)}`} size={9} />
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '8px 10px' }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                       <button type="button" onClick={() => startEdit(slab)} title="Edit range"
@@ -926,6 +1115,10 @@ function FroDetailModal({ froId, date, champions, onClose }) {
   const slabLabel = detail.slab ? `₹${fmt(detail.slab.min_amount)} – ₹${fmt(detail.slab.max_amount)}` : '—'
   const winOn = detail.amount_to_win ?? detail.slab?.amount_to_win ?? 1500
   const prize = detail.incentive_amount ?? detail.slab?.incentive_amount ?? 0
+  const tierMode = !!detail.tier_mode
+  const reachedTier = tierMode
+    ? (detail.tiers || []).find(t => t.tier_key === detail.reached_tier) || null
+    : null
 
   const stat = (label, value, color) => (
     <div style={{ borderRadius: 12, padding: '12px 14px', background: '#F8FAFD', border: '1.5px solid #E5EDF7', textAlign: 'center', minWidth: 110, flex: 1 }}>
@@ -955,10 +1148,30 @@ function FroDetailModal({ froId, date, champions, onClose }) {
             {stat('Slab', slabLabel)}
             {stat('Leads', detail.total_leads)}
             {stat('Amount', `₹${fmt(detail.total_amount)}`)}
-            {stat('Win On', `🎯 ₹${fmt(winOn)}`, '#B45309')}
-            {stat('Prize', `₹${fmt(prize)}`, '#1677E8')}
-            {isChampion && stat('Won', '✓ Champion', '#18A957')}
+            {tierMode
+              ? stat('Reached Tier', reachedTier ? `${tierMeta(reachedTier.tier_key).medal} ${reachedTier.label}` : '—', reachedTier ? tierMeta(reachedTier.tier_key).color : undefined)
+              : stat('Win On', `🎯 ₹${fmt(winOn)}`, '#B45309')}
+            {isChampion && stat('Won', tierMode ? `✓ Tier${detail.reached_tier ? ' ' + (reachedTier?.label || '') : ''}` : '✓ Champion', '#18A957')}
           </div>
+
+          {tierMode && (detail.tiers || []).length > 0 && (
+            <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: '1.5px solid #E5EDF7', background: '#F8FAFD' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: C.dark, marginBottom: 8 }}>Milestone tiers this range</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(detail.tiers || []).map(t => {
+                  const reached = Number(detail.total_amount) >= Number(t.target_amount)
+                  return (
+                    <div key={t.tier_key} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: reached ? 1 : 0.6 }}>
+                      <TierBadge tierKey={t.tier_key} label={t.label} />
+                      <span style={{ fontSize: 11.5, color: C.muted }}>₹{fmt(t.target_amount)} → <b style={{ color: C.dark }}>₹{fmt(t.prize_amount)}</b></span>
+                      <span style={{ flex: 1 }} />
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: reached ? '#168A4E' : '#B9C8DC' }}>{reached ? '✓ reached' : 'not yet'}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div style={{ fontSize: 12, fontWeight: 800, color: '#12233F', marginBottom: 8 }}>
             Individual Leads ({detail.leads?.length || 0})
@@ -1115,14 +1328,14 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
     for (const s of slabs || []) m[String(s.id)] = s
     return m
   }, [slabs])
-  const announcedSlabIds = useMemo(
-    () => new Set((announcements || []).map(a => String(a.slab_id))),
+  const announcedKeys = useMemo(
+    () => new Set((announcements || []).map(a => `${a.slab_id}|${a.tier_key || ''}`)),
     [announcements]
   )
   const dayKey = String(date).slice(0, 10)
   const pending = useMemo(
-    () => (champions || []).filter(c => !announcedSlabIds.has(String(c.slab_id))),
-    [champions, announcedSlabIds]
+    () => (champions || []).filter(c => !announcedKeys.has(`${c.slab_id}|${c.tier_key || ''}`)),
+    [champions, announcedKeys]
   )
   const dayRows = useMemo(
     () => (announcements || [])
@@ -1197,12 +1410,15 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
         )}
 
         {pending.map(c => (
-          <div key={`pending-${c.slab_id}-${c.fro_id}`} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: '#fff', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div key={`pending-${c.slab_id}-${c.tier_key || 'none'}-${c.fro_id}`} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: '#fff', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
             <Avatar url={c.photo_url} name={c.fro_name} size={32} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.fro_name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.fro_name}</span>
+                {c.tier_key && <TierBadge tierKey={c.tier_key} label={c.tier_label} size={10} />}
+              </div>
               <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {c.slab_label} · ₹{fmt(c.total_amount)} collected
+                {c.slab_label} · ₹{fmt(c.total_amount)} collected{c.tier_key ? ` · target ₹${fmt(c.tier_target)}` : ''}
               </div>
               <TimeRange started_at={c.started_at} ended_at={c.ended_at} slab={slabById[String(c.slab_id)]} />
             </div>
@@ -1217,11 +1433,14 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Avatar url={a.winner_photo_url} name={a.fro_name} size={32} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {a.fro_name}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.fro_name}
+                  </span>
+                  {a.tier_key && <TierBadge tierKey={a.tier_key} label={a.tier_label} size={10} />}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {a.slab_label} · ₹{fmt(a.total_amount)} · Prize ₹{fmt(a.slab_bonus || a.total_incentive)}
+                  {a.slab_label} · ₹{fmt(a.total_amount)} · Prize ₹{fmt(a.slab_bonus || a.total_incentive)}{a.tier_key ? ` · target ₹${fmt(a.tier_target)}` : ''}
                 </div>
                 <TimeRange started_at={a.started_at} ended_at={a.ended_at} slab={slabById[String(a.slab_id)]} />
               </div>
@@ -1256,7 +1475,10 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #EEF2F8', borderRadius: 10, background: '#fff' }}>
                   <Avatar url={a.winner_photo_url} name={a.fro_name} size={28} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fro_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fro_name}</span>
+                      {a.tier_key && <TierBadge tierKey={a.tier_key} label={a.tier_label} size={9} />}
+                    </div>
                     <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {a.slab_label} · {String(a.announcement_date).slice(0, 10)}
                     </div>
@@ -1316,6 +1538,7 @@ export default function LeadIncentive() {
   const rangeRows = useMemo(() => {
     const champs = summary?.champions || []
     const fros = summary?.fros || []
+    const tiersBySlab = summary?.tiers || {}
     return (uniqueSlabs || [])
       .filter(s => s.is_active)
       .sort((a, b) => (Number(a.min_amount) || 0) - (Number(b.min_amount) || 0))
@@ -1323,9 +1546,17 @@ export default function LeadIncentive() {
         const members = fros
           .filter(f => f.slab && String(f.slab.id) === String(slab.id))
           .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
-          .map(f => ({ ...f, is_winner: champs.some(c => String(c.fro_id) === String(f.fro_id) && String(c.slab_id) === String(slab.id)) }))
+          .map(f => {
+            const champ = champs.find(c => String(c.fro_id) === String(f.fro_id) && String(c.slab_id) === String(slab.id))
+            return { ...f, is_winner: !!champ, won_tier_label: champ?.tier_label || null }
+          })
         const champion = champs.find(c => String(c.slab_id) === String(slab.id)) || null
-        const winOn = Number(slab.amount_to_win) || 1500
+        const tierInfo = tiersBySlab[String(slab.id)] || tiersBySlab[slab.id] || null
+        const tierMode = !!(tierInfo && (tierInfo.tiers || []).length > 0)
+        const tierMax = tierMode
+          ? Math.max(...tierInfo.tiers.map(t => Number(t.target_amount) || 0))
+          : 0
+        const winOn = tierMode ? tierMax : (Number(slab.amount_to_win) || 1500)
         const prize = Number(slab.incentive_amount) || 0
         const leaderAmount = members.length ? (Number(members[0].total_amount) || 0) : 0
         const progressPct = winOn > 0 ? Math.min(100, Math.round((leaderAmount / winOn) * 100)) : 0
@@ -1351,6 +1582,11 @@ export default function LeadIncentive() {
           leaderAmount,
           progressPct,
           totalCount: members.length,
+          // Bronze/Silver/Gold milestone mode (race continues; settles at end).
+          tierMode,
+          tiers: tierInfo?.tiers || [],
+          tierLeaders: tierInfo?.leaders || [],
+          tiersFinal: !!tierInfo?.is_final,
         }
       })
   }, [uniqueSlabs, summary])
@@ -1506,6 +1742,20 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
+  // Save a range's Bronze/Silver/Gold milestone tiers (empty array clears them,
+  // switching the range back to first-to-cross mode).
+  const saveTiers = async (slabId, tiers) => {
+    setSavingSlab(true)
+    try {
+      await api(`/incentive/lead/slabs/${slabId}/tiers`, {
+        method: 'PUT', _prefix: 'ucs',
+        body: JSON.stringify({ tiers }),
+      })
+      await loadSlabs()
+      loadSummary()
+    } finally { setSavingSlab(false) }
+  }
+
   return (
     <>
       <style>{LI_CSS}</style>
@@ -1556,6 +1806,7 @@ export default function LeadIncentive() {
           slab={configureSlab}
           saving={savingSlab}
           onSave={payload => updateSlabRates(configureSlab, payload)}
+          onSaveTiers={tiers => saveTiers(configureSlab.id, tiers)}
           onClose={() => setConfigureSlab(null)}
         />
       )}

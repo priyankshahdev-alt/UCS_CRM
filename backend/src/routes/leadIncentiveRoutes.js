@@ -22,6 +22,8 @@ import {
   deleteChampionHandler,
   getSlabFrosHandler,
   setSlabFrosHandler,
+  getSlabTiersHandler,
+  setSlabTiersHandler,
 } from '../controllers/leadIncentiveController.js';
 
 const router = Router();
@@ -47,6 +49,9 @@ router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
 // Which FROs compete in a range (⚙️ Configure).
 router.get('/slabs/:id/fros', sirLevel, getSlabFrosHandler);
 router.put('/slabs/:id/fros', sirLevel, setSlabFrosHandler);
+// Bronze/Silver/Gold milestone tiers for a range.
+router.get('/slabs/:id/tiers', sirLevel, getSlabTiersHandler);
+router.put('/slabs/:id/tiers', sirLevel, setSlabTiersHandler);
 
 // Lead incentive summary (FRO self-view for dashboard).
 router.get('/my-summary', authenticateWorker, myLeadSummaryHandler);

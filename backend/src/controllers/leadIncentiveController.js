@@ -33,6 +33,13 @@ import {
   updateAnnouncementCelebration,
   deleteAnnouncement,
 } from '../models/leadChampionModel.js';
+import {
+  getTiersBySlab,
+  getTiersForSlabs,
+  setSlabTiers,
+} from '../models/incentiveSlabTierModel.js';
+
+const TIER_KEYS = ['bronze', 'silver', 'gold'];
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -60,7 +67,78 @@ export async function updateSettingsHandler(req, res) {
 export async function listSlabsHandler(req, res) {
   try {
     const slabs = await getAllSlabs();
-    return res.json(slabs);
+    const tiersBySlab = await getTiersForSlabs((slabs || []).map(s => s.id));
+    const withTiers = (slabs || []).map(s => ({
+      ...s,
+      tiers: (tiersBySlab[s.id] || []).slice().sort(
+        (a, b) => (Number(a.order_index) || 0) - (Number(b.order_index) || 0),
+      ),
+    }));
+    return res.json(withTiers);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ─── Slab milestone tiers (Bronze/Silver/Gold) ─────────────
+
+export async function getSlabTiersHandler(req, res) {
+  try {
+    const tiers = await getTiersBySlab(req.params.id);
+    return res.json({ slab_id: req.params.id, tiers });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function setSlabTiersHandler(req, res) {
+  try {
+    const slab = await getSlabById(req.params.id);
+    if (!slab) return res.status(404).json({ message: 'Slab not found' });
+
+    const raw = Array.isArray(req.body?.tiers) ? req.body.tiers : [];
+    const tiers = [];
+    for (const t of raw) {
+      if (!t) continue;
+      const key = String(t.tier_key || '').toLowerCase();
+      if (!TIER_KEYS.includes(key)) {
+        return res.status(400).json({ message: `tier_key must be one of ${TIER_KEYS.join(', ')}` });
+      }
+      const target = numOr(t.target_amount, 0);
+      const prize = numOr(t.prize_amount, 0);
+      if (target <= 0) continue; // skip empty rows the UI leaves blank
+      tiers.push({
+        tier_key: key,
+        label: t.label ? String(t.label) : (key.charAt(0).toUpperCase() + key.slice(1)),
+        order_index: TIER_KEYS.indexOf(key),
+        target_amount: target,
+        prize_amount: prize >= 0 ? prize : 0,
+        is_active: t.is_active !== false,
+      });
+    }
+
+    // No duplicates per tier.
+    const seen = new Set();
+    for (const t of tiers) {
+      if (seen.has(t.tier_key)) {
+        return res.status(400).json({ message: `Duplicate tier: ${t.tier_key}` });
+      }
+      seen.add(t.tier_key);
+    }
+
+    // Targets must increase Bronze → Silver → Gold, otherwise the tiers are
+    // ambiguous (which one did a collection "reach").
+    const ordered = tiers.slice().sort((a, b) => a.target_amount - b.target_amount);
+    for (let i = 1; i < ordered.length; i++) {
+      if (ordered[i].target_amount <= ordered[i - 1].target_amount) {
+        return res.status(400).json({ message: 'Tier targets must strictly increase (Bronze < Silver < Gold)' });
+      }
+    }
+
+    const saved = await setSlabTiers(req.params.id, tiers);
+    // New/changed milestone prizes for this range → ping only its FROs.
+    try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
+    return res.json({ ok: true, slab_id: req.params.id, tiers: saved });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -306,12 +384,21 @@ export async function myLeadSummaryHandler(req, res) {
 
     // Same daily computation used everywhere → consistent champion/prize figures.
     const summary = await getDailySummary(date);
-    const champ = (summary.champions || []).find(c => String(c.fro_id) === String(froId));
+    const myChamps = (summary.champions || []).filter(c => String(c.fro_id) === String(froId));
+    const champ = myChamps[0] || null;
 
-    const isChampion = !!champ;
+    const isChampion = myChamps.length > 0;
     // Flat model: only the range's flat prize (incentive_amount) is paid, and only
     // to the range's champion. lead_incentive / champion_bonus are always 0.
-    const totalIncentive = isChampion ? Number(champ.total_incentive || 0) : 0;
+    const totalIncentive = myChamps.reduce((sum, c) => sum + Number(c.total_incentive || 0), 0);
+    const wonTiers = myChamps
+      .filter(c => c.tier_mode)
+      .map(c => ({
+        tier_key: c.tier_key,
+        label: c.tier_label,
+        target: c.tier_target,
+        prize: Number(c.total_incentive || 0),
+      }));
 
     // Is this FRO's range competition live right now? Mirrors getFroRanks logic:
     // needs a started_at in the past, an ended_at (if set) still in the future,
@@ -341,6 +428,7 @@ export async function myLeadSummaryHandler(req, res) {
       ...detail,
       is_live: isLive,
       is_champion: isChampion,
+      won_tiers: wonTiers,
       lead_incentive: isChampion ? Number(champ.lead_incentive || 0) : 0,
       slab_bonus: isChampion ? Number(champ.slab_bonus || 0) : 0,
       champion_bonus: isChampion ? Number(champ.champion_bonus || 0) : 0,
