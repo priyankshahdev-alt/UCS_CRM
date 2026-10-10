@@ -28,6 +28,23 @@ const LEAD_CSS = `
 @keyframes lil-bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 `;
 
+// Bronze/Silver/Gold milestone tiers (per range). Same hues as the admin board.
+const T_META = {
+  bronze: { key: 'bronze', label: 'Bronze', medal: '🥉', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' },
+  silver: { key: 'silver', label: 'Silver', medal: '🥈', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
+  gold: { key: 'gold', label: 'Gold', medal: '🥇', color: '#a16207', bg: '#fef3c7', border: '#fcd34d' },
+};
+export const tMeta = (key) => T_META[String(key || '').toLowerCase()] || T_META.bronze;
+
+export function TierPill({ tierKey, label, size = 10.5 }) {
+  const m = tMeta(tierKey);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 999, background: m.bg, border: `1px solid ${m.border}`, fontSize: size, fontWeight: 800, color: m.color, whiteSpace: 'nowrap' }}>
+      {m.medal} {label || m.label}
+    </span>
+  );
+}
+
 function useUser() {
   try {
     const u = useUcs();
@@ -113,13 +130,18 @@ export function RangeLeaderboard({ data, you, spread = false }) {
         const fros = [...(r.fros || [])]
           .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
           .slice(0, 10);
-        const leaderAmount = Math.max(1, ...fros.map(f => Number(f.total_amount) || 0));
+        const tierMode = !!r.tier_mode && (r.tiers || []).length > 0;
+        const tiers = tierMode
+          ? [...r.tiers].sort((a, b) => Number(a.target_amount) - Number(b.target_amount))
+          : [];
+        const maxTierTarget = tiers.length ? Math.max(...tiers.map(t => Number(t.target_amount) || 0)) : 0;
         const winOn = Number(r.amount_to_win) || 1500;
         const prize = Number(r.incentive_amount) || 0;
-        // Target line placement (fractional height of the bar region), clamped
-        // so it never leaves the chart even when nobody has reached win-on yet.
-        const lineFrac = Math.min(1, Math.max(0, winOn / leaderAmount));
-        const lineBottom = FOOT_H + Math.round(BAR_MAX * lineFrac);
+        // Scale so the tallest bar is the leader; tier lines sit proportionally.
+        const leaderAmount = Math.max(1, maxTierTarget, ...fros.map(f => Number(f.total_amount) || 0));
+        const lineBottomFor = (amount) => FOOT_H + Math.round(BAR_MAX * Math.min(1, Math.max(0, (Number(amount) || 0) / leaderAmount)));
+        const leaderByKey = {};
+        for (const l of r.tier_leaders || []) leaderByKey[l.tier_key] = l;
 
         return (
           <div key={r.slab_id} style={{ borderRadius: 14, border: '1.5px solid var(--line)', background: '#fff', overflow: 'hidden' }}>
@@ -127,7 +149,11 @@ export function RangeLeaderboard({ data, you, spread = false }) {
             <div style={{ padding: '10px 12px', background: '#fff3d6', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13.5, fontWeight: 900, color: 'var(--ink)' }}>{r.slab_label}</span>
               <div style={{ flex: 1 }} />
-              {r.champion ? (
+              {tierMode ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: r.tiers_final ? '#22c55e' : '#ffedd5', color: r.tiers_final ? '#fff' : '#c2410c', fontSize: 11, fontWeight: 800 }}>
+                  {r.tiers_final ? '🏆 FINAL winners' : '🥇 Milestone race — running'}
+                </span>
+              ) : r.champion ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: '#22c55e', color: '#fff', fontSize: 11, fontWeight: 800, animation: 'lil-pulse 1.6s ease-in-out infinite' }}>
                   🏆 {r.champion.fro_name} won
                 </span>
@@ -137,33 +163,60 @@ export function RangeLeaderboard({ data, you, spread = false }) {
                 </span>
               )}
               <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, background: '#fff', border: '1px solid #fde68a', fontSize: 11, fontWeight: 800, color: '#92400e' }}>
-                  🎯 Win On ₹{fmt(winOn)} collected
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, background: '#fff', border: '1px solid #86efac', fontSize: 11, fontWeight: 800, color: '#166534' }}>
-                  🏆 Prize ₹{fmt(prize)} · first to cross wins
-                </span>
+                {tierMode ? (
+                  tiers.map(t => (
+                    <TierPill key={t.tier_key} tierKey={t.tier_key} label={`${t.label} · reach ₹${fmt(t.target_amount)} → win ₹${fmt(t.prize_amount)}`} />
+                  ))
+                ) : (
+                  <>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, background: '#fff', border: '1px solid #fde68a', fontSize: 11, fontWeight: 800, color: '#92400e' }}>
+                      🎯 Win On ₹{fmt(winOn)} collected
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, background: '#fff', border: '1px solid #86efac', fontSize: 11, fontWeight: 800, color: '#166534' }}>
+                      🏆 Prize ₹{fmt(prize)} · first to cross wins
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
             {/* Bar chart */}
             <div style={{ padding: '14px 10px 8px' }}>
               <div style={{ position: 'relative', display: 'flex', justifyContent: spread ? 'stretch' : 'center', alignItems: 'stretch', gap: 6, minHeight: BAR_MAX + FOOT_H }}>
-                {/* Win-on target line (absolute across the bar region) */}
-                <div style={{
-                  position: 'absolute', left: 8, right: 8, bottom: lineBottom,
-                  borderTop: '1.5px dashed #16a34a', opacity: .7, pointerEvents: 'none',
-                }}>
-                  <span style={{ position: 'absolute', left: 0, top: -9, fontSize: 9, fontWeight: 800, color: '#15803d', background: '#fff', padding: '0 4px', whiteSpace: 'nowrap' }}>
-                    → Win On ₹{fmt(winOn)}
-                  </span>
-                </div>
+                {/* Target line(s): one per tier in milestone mode, else the Win On line */}
+                {tierMode ? (
+                  tiers.map(t => {
+                    const m = tMeta(t.tier_key);
+                    return (
+                      <div key={t.tier_key} style={{
+                        position: 'absolute', left: 8, right: 8, bottom: lineBottomFor(t.target_amount),
+                        borderTop: `1.5px dashed ${m.color}`, opacity: .75, pointerEvents: 'none',
+                      }}>
+                        <span style={{ position: 'absolute', left: 0, top: -9, fontSize: 9, fontWeight: 800, color: m.color, background: '#fff', padding: '0 4px', whiteSpace: 'nowrap' }}>
+                          {m.medal} {t.label} ₹{fmt(t.target_amount)}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{
+                    position: 'absolute', left: 8, right: 8, bottom: lineBottomFor(winOn),
+                    borderTop: '1.5px dashed #16a34a', opacity: .7, pointerEvents: 'none',
+                  }}>
+                    <span style={{ position: 'absolute', left: 0, top: -9, fontSize: 9, fontWeight: 800, color: '#15803d', background: '#fff', padding: '0 4px', whiteSpace: 'nowrap' }}>
+                      → Win On ₹{fmt(winOn)}
+                    </span>
+                  </div>
+                )}
 
                 {/* Top 10 columns */}
                 {fros.map((f, i) => {
                   const isMe = you && String(f.fro_id) === String(you);
                   const pct = Math.min(100, Math.max(0, (Number(f.total_amount) || 0) / leaderAmount * 100));
-                  const barColor = f.is_winner ? '#16a34a' : (isMe ? '#b45309' : '#f59e0b');
+                  // In milestone mode the winner isn't decided mid-race — only
+                  // mark the bar green once the window is final.
+                  const wonFinal = f.is_winner && (!tierMode || r.tiers_final);
+                  const barColor = wonFinal ? '#16a34a' : (isMe ? '#b45309' : '#f59e0b');
                   return (
                     <div key={f.fro_id} style={{ flex: '1 1 0', maxWidth: spread ? 'none' : 64, minWidth: spread ? 0 : 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       {/* Bar region (bottom-aligned) */}
@@ -182,7 +235,7 @@ export function RangeLeaderboard({ data, you, spread = false }) {
                         <div style={{ position: 'relative' }}>
                           <Avatar url={f.photo_url} name={f.fro_name} size={26} />
                           <span style={{ position: 'absolute', top: -5, right: -6, fontSize: 11 }}>
-                            {f.is_winner ? '🏆' : (['🥇', '🥈', '🥉'][i] && <span>{['🥇', '🥈', '🥉'][i]}</span>)}
+                            {wonFinal ? '🏆' : (['🥇', '🥈', '🥉'][i] && <span>{['🥇', '🥈', '🥉'][i]}</span>)}
                           </span>
                         </div>
                         <span style={{ fontSize: 9.5, fontWeight: isMe ? 900 : 700, color: 'var(--ink)', maxWidth: 62, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1 }}>
@@ -201,9 +254,36 @@ export function RangeLeaderboard({ data, you, spread = false }) {
                 )}
               </div>
 
+              {tierMode && (
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed var(--line)', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {tiers.map(t => {
+                    const info = leaderByKey[t.tier_key];
+                    const ldr = info?.leader;
+                    const m = tMeta(t.tier_key);
+                    const isFinal = r.tiers_final;
+                    return (
+                      <div key={t.tier_key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <TierPill tierKey={t.tier_key} label={t.label} size={10} />
+                        <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹{fmt(t.target_amount)} → <b style={{ color: 'var(--ink)' }}>₹{fmt(t.prize_amount)}</b></span>
+                        <span style={{ flex: 1, borderBottom: '1px dashed #fcd34d', opacity: .4 }} />
+                        {ldr ? (
+                          <span style={{ fontSize: 10.5, fontWeight: isFinal ? 800 : 600, color: isFinal ? '#166534' : (String(ldr.fro_id) === String(you) ? '#b45309' : 'var(--ink)'), whiteSpace: 'nowrap' }}>
+                            {isFinal ? '🏆 ' : '📈 '}{ldr.fro_name}{String(ldr.fro_id) === String(you) ? ' (you)' : ''} · ₹{fmt(ldr.amount)}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#c2410c' }}>no one yet</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {fros.length > 0 && (
                 <div style={{ fontSize: 9.5, color: 'var(--ink-soft)', textAlign: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
-                  Top {fros.length} · bars update live as verified collections come in · first to cross the 🎯 line wins ₹{fmt(prize)}
+                  {tierMode
+                    ? `Top ${fros.length} · bars update live · race runs till the window ends, then each tier's highest collection wins`
+                    : `Top ${fros.length} · bars update live as verified collections come in · first to cross the 🎯 line wins ₹${fmt(prize)}`}
                 </div>
               )}
             </div>
@@ -243,7 +323,7 @@ function LeaderboardModal({ data, you, onClose }) {
             🚨🔥 SIR KA LEAD INCENTIVE – LIMITED TIME ONLY! 🔥🚨
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: '#ffe4b8', lineHeight: 1.5 }}>
-            First FRO to collect the range's Win On amount wins the flat prize! Every verified rupee counts. Let's go!
+            Collect the range's target to win — flat prize for the first to cross, or one prize per Bronze/Silver/Gold milestone. Every verified rupee counts!
           </div>
         </div>
 
@@ -276,7 +356,7 @@ function LeadWinnerCard({ champion, onClose, styleTop }) {
           <img src={url} alt="Winner" onError={() => setErr(true)}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#fde68a' }} />
           <div style={{ position: 'absolute', right: 6, top: 6, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,.92)', fontSize: 10, fontWeight: 800, color: '#b45309', letterSpacing: .4 }}>
-            🏆 Winner · Today
+            🏆 {champion.tier_label ? `${champion.tier_label} Winner` : 'Winner'} · Today
           </div>
           <div style={{ position: 'absolute', left: 10, right: 10, bottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Avatar url={url} name={champion.fro_name} size={30} />
@@ -290,14 +370,16 @@ function LeadWinnerCard({ champion, onClose, styleTop }) {
         <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ position: 'relative', fontSize: 30, animation: 'lil-bounce 1.2s ease-in-out infinite' }}>🏆</div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#b45309', letterSpacing: .5, textTransform: 'uppercase' }}>Today's Winner</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#b45309', letterSpacing: .5, textTransform: 'uppercase' }}>{champion.tier_label ? `${champion.tier_label} Winner` : "Today's Winner"}</div>
             <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{champion.fro_name || 'The Winner'}</div>
             <div style={{ fontSize: 12, fontWeight: 800, color: '#d97706' }}>Won ₹{fmt(prize)} 🎉</div>
           </div>
         </div>
       )}
       <div style={{ padding: '7px 10px', borderTop: '1px dashed #f59e0b88', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)' }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>Lead Incentive · {champion.slab_label}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+          Lead Incentive · {champion.slab_label}{champion.tier_label ? ` · ${champion.tier_label} tier (₹${fmt(champion.tier_target)})` : ''}
+        </span>
       </div>
     </div>
   );
@@ -335,7 +417,8 @@ export default function LeadIncentiveLeaderboard() {
   }, [hasActivity]);
 
   if (!isFro) return null;
-  const winners = (data.champions || []).filter(c => !dismissedWinners[c.slab_id]);
+  const winnerKeyOf = (c) => `${c.slab_id}|${c.tier_key || ''}`;
+  const winners = (data.champions || []).filter(c => !dismissedWinners[winnerKeyOf(c)]);
   const showWidget = !open && !dismissed && competitionLive;
   const showAnything = showWidget || winners.length > 0;
   if (!open && !showAnything) return null;
@@ -350,16 +433,30 @@ export default function LeadIncentiveLeaderboard() {
   const myPrize = me ? (Number(me.range.incentive_amount) || 0) : 0;
   const myPct = me ? pctOf(me.total_amount, myWinOn) : 0;
 
+  // Tier-mode progress for the logged-in FRO: which tier they've reached and how
+  // much more to the next one (so "reached Gold" is never mistaken for "won").
+  const myTiers = me && me.range.tier_mode
+    ? [...(me.range.tiers || [])].sort((a, b) => Number(a.target_amount) - Number(b.target_amount))
+    : [];
+  let myReached = null;
+  let myNext = null;
+  if (me && myTiers.length) {
+    for (const t of myTiers) {
+      if ((Number(me.total_amount) || 0) >= Number(t.target_amount)) myReached = t;
+    }
+    myNext = myTiers.find(t => (Number(me.total_amount) || 0) < Number(t.target_amount)) || null;
+  }
+
   return (
     <>
       <style>{LEAD_CSS}</style>
 
       {winners.map((c, idx) => (
         <LeadWinnerCard
-          key={c.slab_id}
+          key={winnerKeyOf(c)}
           champion={c}
           styleTop={74 + idx * 158}
-          onClose={() => setDismissedWinners(p => ({ ...p, [c.slab_id]: true }))}
+          onClose={() => setDismissedWinners(p => ({ ...p, [winnerKeyOf(c)]: true }))}
         />
       ))}
 
@@ -398,17 +495,35 @@ export default function LeadIncentiveLeaderboard() {
                     <div style={{ animation: 'lil-bounce 2.6s ease-in-out infinite', flexShrink: 0 }}><CoinsBag size={44} /></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        My progress · {me.range.slab_label} · prize ₹{fmt(myPrize)}
+                        My progress · {me.range.slab_label}{me.range.tier_mode ? '' : ` · prize ₹${fmt(myPrize)}`}
                       </div>
-                      <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                        ₹{fmt(me.total_amount)} <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>/ ₹{fmt(myWinOn)} collected → win</span>
-                      </div>
-                      <div style={{ height: 8, borderRadius: 6, background: 'var(--line)', overflow: 'hidden', marginTop: 4 }}>
-                        <div style={{ width: `${myPct}%`, height: '100%', background: '#f59e0b', borderRadius: 6, transition: 'width .5s ease' }} />
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: '#b45309', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <span>{me.qualified_leads} verified ✓</span>
-                      </div>
+                      {me.range.tier_mode ? (
+                        <>
+                          <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                            ₹{fmt(me.total_amount)} <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>collected</span>
+                          </div>
+                          <div style={{ marginTop: 4, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {myReached ? <TierPill tierKey={myReached.tier_key} label={`Reached ${myReached.label}`} size={9.5} /> : <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 700 }}>No tier yet</span>}
+                            {myNext && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#b45309' }}>₹{fmt(Math.max(0, Number(myNext.target_amount) - (Number(me.total_amount) || 0)))} to {myNext.label}</span>}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: '#b45309', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <span>{me.qualified_leads} verified ✓</span>
+                            <span>· highest collection at end wins each tier</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                            ₹{fmt(me.total_amount)} <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>/ ₹{fmt(myWinOn)} collected → win</span>
+                          </div>
+                          <div style={{ height: 8, borderRadius: 6, background: 'var(--line)', overflow: 'hidden', marginTop: 4 }}>
+                            <div style={{ width: `${myPct}%`, height: '100%', background: '#f59e0b', borderRadius: 6, transition: 'width .5s ease' }} />
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: '#b45309', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <span>{me.qualified_leads} verified ✓</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -420,6 +535,24 @@ export default function LeadIncentiveLeaderboard() {
                 {/* Live ranges snapshot */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {ranges.slice(0, 4).map(r => {
+                    if (r.tier_mode) {
+                      const gold = [...(r.tiers || [])].sort((a, b) => Number(b.target_amount) - Number(a.target_amount))[0];
+                      const goldLeader = (r.tier_leaders || []).find(l => l.tier_key === gold?.tier_key)?.leader;
+                      return (
+                        <div key={r.slab_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink)' }}>
+                          <span style={{ fontWeight: 700, color: '#b45309', flexShrink: 0 }}>{r.slab_label}</span>
+                          <TierPill tierKey={gold?.tier_key} label={gold ? `top ${gold.label}` : 'tier'} size={9} />
+                          <span style={{ flex: 1, borderBottom: '1px dashed #fcd34d', opacity: .4 }} />
+                          {goldLeader ? (
+                            <span style={{ fontSize: 11, fontWeight: String(goldLeader.fro_id) === String(you) ? 800 : 600, color: String(goldLeader.fro_id) === String(you) ? '#b45309' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 92 }}>
+                              {goldLeader.fro_name}{String(goldLeader.fro_id) === String(you) ? ' (you)' : ''}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#c2410c', fontWeight: 700 }}>🏁 no lead</span>
+                          )}
+                        </div>
+                      );
+                    }
                     const leader = r.champion
                       ? { name: r.champion.fro_name, won: true }
                       : (r.fros && r.fros.length ? { name: r.fros[0].fro_name, won: false } : null);

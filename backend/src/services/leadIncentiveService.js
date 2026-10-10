@@ -5,6 +5,7 @@ import { getTargetsForWorkersMonth, getLatestTargetsBeforeMonthForWorkers } from
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from './froMonthlyTarget.js';
 import { istMonthBounds, istDateString } from '../utils/ist.js';
+import { getTiersForSlabs } from '../models/incentiveSlabTierModel.js';
 import {
   getAnnouncementByDateAndSlab,
   insertAnnouncement,
@@ -33,6 +34,48 @@ const fmtMoney = (n) => Number(n || 0).toLocaleString('en-IN');
 
 const fmtRange = (slab) =>
   slab ? `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}` : 'Range';
+
+const tierLabelOf = (t) =>
+  t?.label || (t?.tier_key ? String(t.tier_key).charAt(0).toUpperCase() + String(t.tier_key).slice(1) : 'Tier');
+
+// Active tiers for a range, ascending by target amount (ties broken by order).
+function activeTiersFor(slab, tiersBySlab) {
+  const rows = slab ? (tiersBySlab?.[slab.id] || []) : [];
+  return rows
+    .filter(t => t.is_active !== false)
+    .slice()
+    .sort((a, b) =>
+      (Number(a.target_amount) - Number(b.target_amount)) ||
+      ((Number(a.order_index) || 0) - (Number(b.order_index) || 0)));
+}
+
+// A range runs in "tier mode" when it has at least one active tier; otherwise it
+// keeps the legacy single-winner STOP-AFTER-WIN behaviour.
+function isTierMode(slab, tiersBySlab) {
+  return activeTiersFor(slab, tiersBySlab).length > 0;
+}
+
+// Kth-highest target milestone reached + the verified_at at which each tier was
+// first crossed, computed from a FRO's in-window leads (ascending by time).
+function computeTierProgress(leads, tiers) {
+  const sortedTiers = (tiers || []).slice().sort((a, b) => Number(a.target_amount) - Number(b.target_amount));
+  const asc = (leads || []).slice().sort((a, b) => new Date(a.verified_at) - new Date(b.verified_at));
+  let running = 0;
+  let ti = 0;
+  const crossTimes = {};
+  for (const l of asc) {
+    running += Number(l.amount) || 0;
+    while (ti < sortedTiers.length && running >= Number(sortedTiers[ti].target_amount)) {
+      crossTimes[sortedTiers[ti].tier_key] = l.verified_at;
+      ti++;
+    }
+  }
+  let reachedTier = null;
+  for (const t of sortedTiers) {
+    if (running >= Number(t.target_amount)) reachedTier = t;
+  }
+  return { total: running, reachedTier, crossTimes };
+}
 
 // Query: all active FRO workers
 const ACTIVE_FROS_SQL = `
@@ -220,9 +263,11 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
 }
 
 // Get full daily summary for all FROs. Each range runs its own competition:
-// the champion of a range = the FRO (competing in that range) who FIRST gets a
-// verified lead ≥ the range's Minimum Lead Amount, timed by verified_at. Ranges
-// with no qualifying hit that day simply have no champion.
+// - Legacy mode (no active tiers): champion = the FRO (competing in that range)
+//   who FIRST gets a verified lead ≥ amount_to_win → STOP-AFTER-WIN, flat prize.
+// - Tier mode (has active tiers): the race continues through the window; at
+//   window end each tier gets exactly one winner = highest collected amount,
+//   ties broken by whoever crossed that tier's target first.
 export const getDailySummary = async (date) => {
   const [slabs, settings, frosResult, assignments] = await Promise.all([
     getActiveSlabs(),
@@ -237,6 +282,7 @@ export const getDailySummary = async (date) => {
   const assignMap = {};
   for (const a of assignments || []) assignMap[a.fro_worker_id] = a.slab_id;
 
+  const tiersBySlab = await getTiersForSlabs((slabs || []).map(s => s.id));
   const targetMap = await buildFroTargetMap(fros, date);
   const results = [];
   const pool = {}; // slabId -> Set of competing FRO ids
@@ -256,6 +302,9 @@ export const getDailySummary = async (date) => {
       lead_incentive: calc.lead_incentive,
       slab_bonus: calc.slab_bonus,
       champion_bonus: 0,
+      tier_bonus: 0,
+      reached_tier: null,
+      tier_mode: slab ? isTierMode(slab, tiersBySlab) : false,
       total_incentive: calc.lead_incentive + calc.slab_bonus,
       _leads: calc.leads,
       _slab_id: slab ? slab.id : null,
@@ -266,17 +315,16 @@ export const getDailySummary = async (date) => {
     }
   }
 
-  // Per-range winner: the FRO whose CUMULATIVE verified day collection (sum of
-  // every verified lead, by verified_at) first crosses the range's amount_to_win.
-  // A range with no FRO crossing the target that day simply has no champion.
-  const findWinners = () => {
+  const legacySlabs = (slabs || []).filter(s => !isTierMode(s, tiersBySlab));
+  const tierSlabs = (slabs || []).filter(s => isTierMode(s, tiersBySlab));
+
+  // ── Legacy mode: first to cross amount_to_win (STOP-AFTER-WIN) ──
+  const findLegacyWinners = () => {
     const winnersBySlab = {};
-    for (const slab of slabs) {
+    for (const slab of legacySlabs) {
       const competing = pool[slab.id];
       if (!competing || competing.size === 0) continue;
-      const winAt = slab && slab.amount_to_win != null
-        ? Number(slab.amount_to_win)
-        : 1500;
+      const winAt = slab && slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500;
 
       let winner = null;
       for (const r of results) {
@@ -311,12 +359,9 @@ export const getDailySummary = async (date) => {
     return winnersBySlab;
   };
 
-  // STOP-AFTER-WIN: first find the winner of every range, then RE-RUN the
-  // calculation for the ranges that already have a champion with the window
-  // clamped to the winner's hit time. Leads verified after that moment stop
-  // counting for everyone in that range — the competition is over immediately.
-  const winnersBySlab = findWinners();
-  for (const slab of slabs) {
+  // STOP-AFTER-WIN: clamp the window to the legacy winner's hit time, then re-find.
+  const winnersBySlab = findLegacyWinners();
+  for (const slab of legacySlabs) {
     const winner = winnersBySlab[slab.id];
     if (!winner) continue;
     for (const r of results) {
@@ -335,12 +380,10 @@ export const getDailySummary = async (date) => {
       r._leads = calc.leads;
     }
   }
-  const finalWinners = findWinners();
+  const finalWinners = findLegacyWinners();
 
-  // Prize assignment (flat model): the range's incentive_amount is the ONLY
-  // reward and goes onto the range's champion row. Losers get ₹0. lead_incentive
-  // and champion_bonus are always 0.
-  for (const slab of slabs) {
+  // Prize assignment (legacy): the range's incentive_amount goes onto its champion.
+  for (const slab of legacySlabs) {
     const winner = finalWinners[slab.id];
     if (!winner) continue;
     const prize = Number(slab.incentive_amount) || 0;
@@ -354,16 +397,100 @@ export const getDailySummary = async (date) => {
     }
   }
 
+  // ── Tier mode: per-tier winner (highest amount, tie → earliest cross) ──
+  const nowMs = Date.now();
+  const tierWinners = []; // final winners only (once the window has closed)
+  const tierLeadersBySlab = {}; // slabId -> { is_final, leaders[] } (always live)
+  for (const slab of tierSlabs) {
+    const tiers = activeTiersFor(slab, tiersBySlab);
+    const members = results.filter(r => String(r._slab_id) === String(slab.id));
+    let winEnd = new Date(date);
+    winEnd.setHours(23, 59, 59, 999);
+    if (slab.ended_at) {
+      const e = new Date(slab.ended_at);
+      if (e.getTime() < winEnd.getTime()) winEnd = e;
+    }
+    const isFinal = nowMs >= winEnd.getTime();
+
+    const pools = {}; // tier_key -> [{ r, total, crossAt }]
+    for (const r of members) {
+      const prog = computeTierProgress(r._leads, tiers);
+      r.total_amount = prog.total;
+      r.reached_tier = prog.reachedTier ? prog.reachedTier.tier_key : null;
+      if (prog.reachedTier) {
+        const k = prog.reachedTier.tier_key;
+        (pools[k] = pools[k] || []).push({ r, total: prog.total, crossAt: prog.crossTimes[k] || null });
+      }
+    }
+
+    const leaders = [];
+    for (const t of tiers) {
+      const poolt = pools[t.tier_key] || [];
+      let best = null;
+      for (const p of poolt) {
+        if (!best) { best = p; continue; }
+        if (p.total > best.total) { best = p; continue; }
+        if (p.total === best.total) {
+          const ct = p.crossAt ? new Date(p.crossAt).getTime() : Infinity;
+          const cb = best.crossAt ? new Date(best.crossAt).getTime() : Infinity;
+          if (ct < cb) best = p;
+        }
+      }
+      leaders.push({
+        tier_key: t.tier_key,
+        label: tierLabelOf(t),
+        target_amount: Number(t.target_amount) || 0,
+        prize_amount: Number(t.prize_amount) || 0,
+        leader: best ? {
+          fro_id: best.r.fro_id,
+          fro_name: best.r.fro_name,
+          amount: best.total,
+          cross_time: best.crossAt,
+        } : null,
+      });
+      if (best && isFinal) {
+        tierWinners.push({ slab, tier: t, total: best.total, crossAt: best.crossAt, fro: best.r });
+      }
+    }
+    tierLeadersBySlab[slab.id] = { is_final: isFinal, leaders };
+  }
+
+  // Assign tier prizes to the final winner of each tier; all other tier-mode
+  // rows keep ₹0 (reaching a tier ≠ winning it).
+  const winnerKey = new Set(tierWinners.map(w => `${w.slab.id}|${w.tier.tier_key}|${w.fro.fro_id}`));
+  for (const slab of tierSlabs) {
+    const tiers = activeTiersFor(slab, tiersBySlab);
+    for (const r of results) {
+      if (String(r._slab_id) !== String(slab.id)) continue;
+      r.lead_incentive = 0;
+      r.slab_bonus = 0;
+      r.champion_bonus = 0;
+      r.tier_bonus = 0;
+      r.total_incentive = 0;
+      for (const t of tiers) {
+        if (r.reached_tier === t.tier_key && winnerKey.has(`${slab.id}|${t.tier_key}|${r.fro_id}`)) {
+          const prize = Number(t.prize_amount) || 0;
+          r.tier_bonus = prize;
+          r.slab_bonus = prize;
+          r.total_incentive = prize;
+        }
+      }
+    }
+  }
+
   const champions = [];
-  for (const slab of slabs) {
+  for (const slab of legacySlabs) {
     const winner = finalWinners[slab.id];
     if (!winner) continue;
-
     const prize = Number(slab.incentive_amount) || 0;
     champions.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
       amount_to_win: slab && slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
+      tier_key: null,
+      tier_label: null,
+      tier_target: null,
+      tier_mode: false,
       fro_id: winner.fro.fro_id,
       fro_name: winner.fro.fro_name,
       hit_lead_id: winner.leadId,
@@ -378,11 +505,53 @@ export const getDailySummary = async (date) => {
       total_incentive: prize,
     });
   }
-  champions.sort((a, b) => new Date(a.hit_at) - new Date(b.hit_at));
+  for (const w of tierWinners) {
+    const prize = Number(w.tier.prize_amount) || 0;
+    champions.push({
+      slab_id: w.slab.id,
+      slab_label: fmtRange(w.slab),
+      amount_to_win: null,
+      tier_key: w.tier.tier_key,
+      tier_label: tierLabelOf(w.tier),
+      tier_target: Number(w.tier.target_amount) || 0,
+      tier_mode: true,
+      fro_id: w.fro.fro_id,
+      fro_name: w.fro.fro_name,
+      hit_lead_id: null,
+      hit_amount: null,
+      crossing_amount: w.total,
+      hit_at: w.crossAt,
+      qualified_leads: w.fro.qualified_leads,
+      total_amount: w.fro.total_amount,
+      lead_incentive: 0,
+      slab_bonus: prize,
+      champion_bonus: 0,
+      total_incentive: prize,
+    });
+  }
+  champions.sort((a, b) => new Date(a.hit_at || 0) - new Date(b.hit_at || 0));
 
   // Sort final results by total_incentive descending (strip internal fields).
   results.sort((a, b) => b.total_incentive - a.total_incentive);
   const frosOut = results.map(({ _leads, _slab_id, ...rest }) => rest);
+
+  // Tier config + live leaders per range, for the leaderboard (works mid-race).
+  const tiersOut = {};
+  for (const slab of tierSlabs) {
+    const tiers = activeTiersFor(slab, tiersBySlab);
+    const info = tierLeadersBySlab[slab.id] || { is_final: false, leaders: [] };
+    tiersOut[slab.id] = {
+      is_final: info.is_final,
+      tiers: tiers.map(t => ({
+        tier_key: t.tier_key,
+        label: tierLabelOf(t),
+        order_index: Number(t.order_index) || 0,
+        target_amount: Number(t.target_amount) || 0,
+        prize_amount: Number(t.prize_amount) || 0,
+      })),
+      leaders: info.leaders,
+    };
+  }
 
   return {
     date,
@@ -390,6 +559,7 @@ export const getDailySummary = async (date) => {
     settings,
     fros: frosOut,
     champions,
+    tiers: tiersOut,
   };
 };
 
@@ -418,13 +588,20 @@ export const getFroDetail = async (froId, date) => {
   // day's champion of the FRO's range — everything else stays ₹0.
   let slabBonus = 0;
   let totalIncentive = 0;
+  let tierBonus = 0;
+  let reachedTier = null;
+  let tierInfo = null;
   try {
     const summary = await getDailySummary(date);
     const champ = (summary.champions || []).find(c => String(c.fro_id) === String(froId));
-    if (champ) {
+    const myRow = (summary.fros || []).find(f => String(f.fro_id) === String(froId));
+    if (champ && (!slab || String(champ.slab_id) === String(slab.id))) {
       slabBonus = Number(champ.slab_bonus || 0);
       totalIncentive = Number(champ.total_incentive || 0);
     }
+    tierBonus = Number(myRow?.tier_bonus || 0);
+    reachedTier = myRow?.reached_tier || null;
+    tierInfo = slab ? ((summary.tiers || {})[String(slab.id)] || null) : null;
   } catch (e) {
     console.error('[lead fro detail] champion check:', e?.message);
   }
@@ -461,7 +638,13 @@ export const getFroDetail = async (froId, date) => {
     lead_incentive: 0,
     slab_bonus: slabBonus,
     champion_bonus: 0,
+    tier_bonus: tierBonus,
     total_incentive: totalIncentive,
+    tier_mode: !!(tierInfo && tierInfo.tiers.length),
+    reached_tier: reachedTier,
+    tiers_final: tierInfo ? tierInfo.is_final : false,
+    tiers: tierInfo ? tierInfo.tiers : [],
+    tier_leaders: tierInfo ? tierInfo.leaders : [],
     leads: enrichedLeads,
   };
 };
@@ -522,15 +705,21 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
 
   const champBySlab = {};
   for (const c of champions) champBySlab[c.slab_id] = c;
+  const tiersBySlab = summary.tiers || {};
+  const isTierSlab = (slabId) => !!tiersBySlab[slabId];
 
-  // STOP-AFTER-WIN: a range whose competition already produced a winner is
-  // immediately removed from the FRO-facing live leaderboard — the race ends
-  // the moment anyone wins it. Only the winner section (winner card + history)
-  // keeps showing that range; remaining ranges stay live until their own winner.
-  // The admin live strip (includeWon) still sees these ranges so it can manage
-  // their status ("🏆 won") and stop them.
+  // STOP-AFTER-WIN: a LEGACY range whose competition already produced a winner is
+  // immediately removed from the FRO-facing live leaderboard. Tier-mode ranges
+  // never stop mid-race — they keep racing and only settle at window end, so they
+  // stay visible until their own window closes.
   if (!includeWon) {
-    slabs = slabs.filter(s => !champBySlab[s.id]);
+    slabs = slabs.filter(s => isTierSlab(s.id) || !champBySlab[s.id]);
+  }
+
+  // Final tier winners keyed slab|fro -> tier_label (for member badges).
+  const tierWinnerByKey = {};
+  for (const c of champions) {
+    if (c.tier_mode) tierWinnerByKey[`${c.slab_id}|${c.fro_id}`] = c.tier_label;
   }
 
   const ranges = [];
@@ -548,17 +737,26 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
         lead_incentive: f.lead_incentive || 0,
         slab_bonus: f.slab_bonus || 0,
         champion_bonus: f.champion_bonus || 0,
+        tier_bonus: f.tier_bonus || 0,
+        reached_tier: f.reached_tier || null,
         total_incentive: f.total_incentive || 0,
-        is_winner: !!(champBySlab[slab.id] && champBySlab[slab.id].fro_id === f.fro_id),
+        is_winner: !!((champBySlab[slab.id] && champBySlab[slab.id].fro_id === f.fro_id)
+          || tierWinnerByKey[`${slab.id}|${f.fro_id}`]),
+        won_tier_label: tierWinnerByKey[`${slab.id}|${f.fro_id}`] || null,
       }));
     if (members.length === 0) continue;
 
     const champ = champBySlab[slab.id];
+    const tierInfo = tiersBySlab[slab.id] || null;
     ranges.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
       amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
       incentive_amount: Number(slab.incentive_amount) || 0,
+      tier_mode: !!tierInfo,
+      tiers_final: tierInfo ? tierInfo.is_final : false,
+      tiers: tierInfo ? tierInfo.tiers : [],
+      tier_leaders: tierInfo ? tierInfo.leaders : [],
       champion: champ ? {
         ...champ,
         photo_url: photoMap[champ.fro_id] || null,
@@ -703,7 +901,7 @@ export const announceChampion = async ({ date, message, userId }) => {
   const slabById = {};
   for (const s of slabs || []) slabById[String(s.id)] = s;
   for (const w of winners) {
-    const existing = await getAnnouncementByDateAndSlab(targetDate, w.slab_id);
+    const existing = await getAnnouncementByDateAndSlab(targetDate, w.slab_id, w.tier_key || null);
     if (existing) continue;
     const slab = slabById[String(w.slab_id)] || {};
     const row = await insertAnnouncement({
@@ -723,6 +921,9 @@ export const announceChampion = async ({ date, message, userId }) => {
       total_incentive: w.total_incentive || 0,
       message: typeof message === 'string' && message.trim() ? message.trim() : null,
       announced_by: userId || null,
+      tier_key: w.tier_key || null,
+      tier_label: w.tier_label || null,
+      tier_target: w.tier_target != null ? w.tier_target : null,
     });
     inserted.push(row);
   }
@@ -734,10 +935,13 @@ export const announceChampion = async ({ date, message, userId }) => {
       if (recipients && recipients.length > 0) {
         const notifs = [];
         for (const ann of inserted) {
-          const title = `🏆 Champion (${ann.slab_label || 'Range'}): ${ann.fro_name}`;
+          const tierBit = ann.tier_label ? ` · ${ann.tier_label}` : '';
+          const title = `🏆 Champion (${ann.slab_label || 'Range'}${tierBit}): ${ann.fro_name}`;
           const body = message && String(message).trim()
             ? String(message).trim()
-            : `${ann.fro_name} was first to hit the ${ann.slab_label || 'range'} target on ${targetDate}! 🎉`;
+            : (ann.tier_label
+              ? `${ann.fro_name} won the ${ann.tier_label} tier (₹${fmtMoney(ann.tier_target)} target) in ${ann.slab_label || 'range'} on ${targetDate}! 🎉`
+              : `${ann.fro_name} was first to hit the ${ann.slab_label || 'range'} target on ${targetDate}! 🎉`);
           for (const r of recipients) {
             notifs.push({ worker_id: r.id, type: 'lead_champion', title, body, reference_id: String(ann.id) });
           }
@@ -804,8 +1008,18 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
 
   // Apply-all: one combined popup per FRO covering every range.
   if (!slab && activeSlabs.length > 0) {
+    const tiersMap = await getTiersForSlabs(activeSlabs.map(s => s.id));
     const body = activeSlabs
-      .map(s => `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}: Win on ₹${fmtMoney(s.amount_to_win)} collected · Prize ₹${fmtMoney(s.incentive_amount)}`)
+      .map(s => {
+        const base = `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}`;
+        const tiers = (tiersMap[s.id] || [])
+          .filter(t => t.is_active !== false)
+          .sort((a, b) => Number(a.target_amount) - Number(b.target_amount));
+        if (tiers.length > 0) {
+          return `${base}: ${tiers.map(t => `${tierLabelOf(t)} ₹${fmtMoney(t.target_amount)}→₹${fmtMoney(t.prize_amount)}`).join(' · ')}`;
+        }
+        return `${base}: Win on ₹${fmtMoney(s.amount_to_win)} collected · Prize ₹${fmtMoney(s.incentive_amount)}`;
+      })
       .join('\n');
     const rows = fros.map(({ id: worker_id }) => ({
       worker_id,
@@ -823,7 +1037,13 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
   const rangeLabel = `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}`;
   const amountToWin = slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500;
   const prize = Number(slab.incentive_amount) || 0;
-  const body = `${rangeLabel}: Win on ₹${fmtMoney(amountToWin)} collected · Prize ₹${fmtMoney(prize)}\nEvery verified lead counts. First FRO to reach ₹${fmtMoney(amountToWin)} in total today wins this range's prize!`;
+  const tiersMap = await getTiersForSlabs([slab.id]);
+  const activeTiers = (tiersMap[slab.id] || [])
+    .filter(t => t.is_active !== false)
+    .sort((a, b) => Number(a.target_amount) - Number(b.target_amount));
+  const body = activeTiers.length > 0
+    ? `${rangeLabel}: Milestone prizes — ${activeTiers.map(t => `${tierLabelOf(t)}: collect ₹${fmtMoney(t.target_amount)} → win ₹${fmtMoney(t.prize_amount)}`).join(', ')}\nRace runs till the range ends; highest collection wins each tier.`
+    : `${rangeLabel}: Win on ₹${fmtMoney(amountToWin)} collected · Prize ₹${fmtMoney(prize)}\nEvery verified lead counts. First FRO to reach ₹${fmtMoney(amountToWin)} in total today wins this range's prize!`;
 
   const ids = await froIdsInSlab(slab.id, activeSlabs);
   const rows = ids.map(worker_id => ({

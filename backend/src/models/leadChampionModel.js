@@ -21,14 +21,17 @@ export const getAnnouncementsByDate = async (date) => {
   return data || [];
 };
 
-// Does the date+range pair already have an announcement?
-export const getAnnouncementByDateAndSlab = async (date, slabId) => {
-  const { data, error } = await db
+// Does the date+range (+ tier) pair already have an announcement? A null/empty
+// tierKey targets the legacy single-winner row (tier_key IS NULL); a tier key
+// targets the per-tier row.
+export const getAnnouncementByDateAndSlab = async (date, slabId, tierKey = null) => {
+  let q = db
     .from('lead_champion_announcements')
     .select('id')
     .eq('announcement_date', date)
-    .eq('slab_id', slabId)
-    .maybeSingle();
+    .eq('slab_id', slabId);
+  q = tierKey ? q.eq('tier_key', String(tierKey).toLowerCase()) : q.is('tier_key', null);
+  const { data, error } = await q.maybeSingle();
   if (error) throw error;
   return data;
 };
@@ -128,6 +131,9 @@ export const insertAnnouncement = async ({
   total_incentive,
   message,
   announced_by,
+  tier_key,
+  tier_label,
+  tier_target,
 }) => {
   const { data, error } = await db
     .from('lead_champion_announcements')
@@ -148,6 +154,9 @@ export const insertAnnouncement = async ({
       total_incentive,
       message,
       announced_by,
+      tier_key: tier_key || null,
+      tier_label: tier_label || null,
+      tier_target: tier_target != null ? Number(tier_target) : null,
     }])
     .select()
     .single();

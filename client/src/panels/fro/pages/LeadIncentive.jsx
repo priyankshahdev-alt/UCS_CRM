@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../../api/auth';
 import { useUcs } from '../../../store';
 import { useRealtime } from '../../../hooks/useRealtime';
-import { useLeadIncentiveLeaderboard, RangeLeaderboard } from '../../../components/LeadIncentiveLeaderboard';
+import { useLeadIncentiveLeaderboard, RangeLeaderboard, TierPill, tMeta } from '../../../components/LeadIncentiveLeaderboard';
 
 const fmt = (n) => {
   const v = Number(n);
@@ -54,13 +54,20 @@ function WinnerPopup({ champion, onClose }) {
             <Avatar url={champion.photo_url} name={champion.fro_name} size={64} />
           </div>
           <div style={{ fontSize: 18, fontWeight: 900, color: '#78350f' }}>{champion.fro_name}{isMe ? ' (you!)' : ''}</div>
+          {champion.tier_mode && champion.tier_label && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+              <TierPill tierKey={champion.tier_key} label={`${champion.tier_label} tier winner`} size={11} />
+            </div>
+          )}
           <div style={{ fontSize: 12.5, fontWeight: 700, color: '#b45309', margin: '6px 0 2px' }}>
             {isMe
-              ? '🎊 Congratulations! You won the range!'
-              : `Won the ${champion.slab_label || 'range'}!`}
+              ? (champion.tier_mode ? `🎊 Congratulations! You won the ${champion.tier_label || ''} tier!` : '🎊 Congratulations! You won the range!')
+              : (champion.tier_mode ? `Won the ${champion.tier_label || ''} tier in ${champion.slab_label || 'the range'}!` : `Won the ${champion.slab_label || 'range'}!`)}
           </div>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#78350f', marginTop: 8 }}>
-            Crossed <span style={{ color: '#b45309' }}>₹{fmt(champion.crossing_amount ?? champion.hit_amount ?? champion.total_amount)}</span> — flat prize <span style={{ color: '#16a34a' }}>+₹{fmt(champion.slab_bonus ?? champion.total_incentive ?? 0)}</span>
+            {champion.tier_mode
+              ? <>Highest collection at window close — tier prize <span style={{ color: '#16a34a' }}>+₹{fmt(champion.tier_bonus ?? champion.slab_bonus ?? 0)}</span></>
+              : <>Crossed <span style={{ color: '#b45309' }}>₹{fmt(champion.crossing_amount ?? champion.hit_amount ?? champion.total_amount)}</span> — flat prize <span style={{ color: '#16a34a' }}>+₹{fmt(champion.slab_bonus ?? champion.total_incentive ?? 0)}</span></>}
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
             <span style={{ padding: '4px 10px', borderRadius: 999, background: '#dcfce7', border: '1px solid #86efac', fontSize: 11, fontWeight: 800, color: '#166534' }}>{champion.qualified_leads} verified leads ✓</span>
@@ -104,6 +111,21 @@ function HeroLive({ summary }) {
   const prize = Number(summary?.slab?.incentive_amount) || Number(summary?.incentive_amount) || 0;
   const collected = Number(summary?.total_amount) || 0;
   const pct = winOn > 0 ? Math.min(100, Math.max(0, collected / winOn * 100)) : 0;
+
+  const tierMode = !!summary?.tier_mode && (summary?.tiers || []).length > 0;
+  const tiers = tierMode
+    ? [...summary.tiers].sort((a, b) => Number(a.target_amount) - Number(b.target_amount))
+    : [];
+  const maxTarget = tiers.length ? Number(tiers[tiers.length - 1].target_amount) || 0 : 0;
+  let reached = null;
+  let next = null;
+  for (const t of tiers) {
+    if (collected >= (Number(t.target_amount) || 0)) reached = t;
+    else if (!next) next = t;
+  }
+  const tierPct = maxTarget > 0 ? Math.min(100, Math.max(0, collected / maxTarget * 100)) : 0;
+  const toNext = next ? Math.max(0, Number(next.target_amount) - collected) : 0;
+
   return (
     <div style={{ borderRadius: 16, overflow: 'hidden', border: '2px solid #f59e0b', background: '#b45309', boxShadow: '0 14px 34px rgba(180,83,9,.28)', animation: 'lp-rise .35s ease' }}>
       <div style={{ padding: '16px 18px', color: '#fff' }}>
@@ -120,20 +142,57 @@ function HeroLive({ summary }) {
           🚨🔥 SIR KA LEAD INCENTIVE – LIMITED TIME ONLY! 🔥🚨
         </div>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: '#ffe4b8', lineHeight: 1.6 }}>
-          First FRO to collect the 🎯 Win On amount wins the flat prize! Every verified rupee counts. Let's go!
+          {tierMode
+            ? 'Reach each Bronze / Silver / Gold target to race for it. When the window closes, the FRO with the highest collection in each tier wins that tier\u2019s prize!'
+            : 'First FRO to collect the 🎯 Win On amount wins the flat prize! Every verified rupee counts. Let\u2019s go!'}
         </div>
-        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 220px', minWidth: 180 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
-              <span style={{ color: '#ffe4b8' }}>My collection · win at</span>
-              <span style={{ color: '#fff' }}>₹{fmt(collected)} <span style={{ opacity: .75, fontWeight: 600 }}>/ ₹{fmt(winOn)}</span></span>
+
+        {tierMode ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>
+              <span style={{ color: '#ffe4b8' }}>{reached ? `Reached ${reached.label}` : 'My collection'} · ladder to ₹{fmt(maxTarget)}</span>
+              <span style={{ color: '#fff' }}>₹{fmt(collected)}</span>
             </div>
-            <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: '#fde047', borderRadius: 6, transition: 'width .5s ease' }} />
+            <div style={{ position: 'relative', height: 16, borderRadius: 8, background: 'rgba(255,255,255,.2)', overflow: 'hidden' }}>
+              <div style={{ width: `${tierPct}%`, height: '100%', background: '#fde047', borderRadius: 8, transition: 'width .5s ease' }} />
+              {tiers.map(t => {
+                const frac = maxTarget > 0 ? Math.min(100, Number(t.target_amount) / maxTarget * 100) : 0;
+                const m = tMeta(t.tier_key);
+                return (
+                  <div key={t.tier_key} style={{ position: 'absolute', top: 0, bottom: 0, left: `${frac}%`, width: 2, background: '#fff', opacity: .85 }} />
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
+              {tiers.map(t => {
+                const done = collected >= (Number(t.target_amount) || 0);
+                return (
+                  <span key={t.tier_key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 10, background: done ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.16)', color: done ? tMeta(t.tier_key).color : '#fff', fontSize: 11, fontWeight: 800 }}>
+                    {tMeta(t.tier_key).medal} {t.label} · ₹{fmt(t.target_amount)} → ₹{fmt(t.prize_amount)}
+                  </span>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: '#fff' }}>
+              {next
+                ? <>🎯 ₹{fmt(toNext)} more to reach <span style={{ color: '#fde047' }}>{next.label}</span> — highest collection at close wins</>
+                : <>🏁 You've cleared every tier target — hold your lead till the window closes!</>}
             </div>
           </div>
-          <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,255,255,.16)', fontSize: 12, fontWeight: 800 }}>🎯 Win On ₹{fmt(winOn)} · 🏆 Prize ₹{fmt(prize)}</span>
-        </div>
+        ) : (
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px', minWidth: 180 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
+                <span style={{ color: '#ffe4b8' }}>My collection · win at</span>
+                <span style={{ color: '#fff' }}>₹{fmt(collected)} <span style={{ opacity: .75, fontWeight: 600 }}>/ ₹{fmt(winOn)}</span></span>
+              </div>
+              <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: '#fde047', borderRadius: 6, transition: 'width .5s ease' }} />
+              </div>
+            </div>
+            <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,255,255,.16)', fontSize: 12, fontWeight: 800 }}>🎯 Win On ₹{fmt(winOn)} · 🏆 Prize ₹{fmt(prize)}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -166,9 +225,9 @@ export default function LeadIncentive() {
   const seenChipRef = useRef(new Set());
 
   useEffect(() => {
-    const newChamp = (data.champions || []).find(c => !seenChipRef.current.has(String(c.fro_id) + '|' + c.slab_id));
+    const newChamp = (data.champions || []).find(c => !seenChipRef.current.has(String(c.fro_id) + '|' + c.slab_id + '|' + (c.tier_key || '')));
     if (newChamp) {
-      seenChipRef.current.add(String(newChamp.fro_id) + '|' + newChamp.slab_id);
+      seenChipRef.current.add(String(newChamp.fro_id) + '|' + newChamp.slab_id + '|' + (newChamp.tier_key || ''));
       setPopupChamp(newChamp);
     }
   }, [data.champions]);
@@ -211,7 +270,7 @@ export default function LeadIncentive() {
       <div>
         <h3 style={{ margin: 0 }}>🏆 Lead Incentive</h3>
         <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-          First FRO to collect the range's Win On amount (by verified time) wins the flat prize.
+          Win by collecting the most in your range — first to cross the Win On target, or the top collector in each Bronze/Silver/Gold tier when the window closes.
         </p>
       </div>
 
@@ -231,8 +290,14 @@ export default function LeadIncentive() {
           <StatCard label="Target" icon="📈" value={summary.target} unit="₹" />
           <StatCard label="Collected" icon="💰" value={summary.total_amount} unit="₹" color="#16a34a" />
           <StatCard label="Verified Leads" icon="✅" value={summary.qualified_leads} />
-          <StatCard label="Win On" icon="🎯" value={summary.amount_to_win ?? 1500} unit="₹" color="#b45309" />
-          <StatCard label="Prize" icon="🏆" value={summary.slab_bonus} unit="₹" color={isChampion ? '#16a34a' : '#b45309'} />
+          {summary.tier_mode ? (
+            <StatCard label="Tier Won" icon="🏅" value={summary.tier_bonus || 0} unit="₹" color={isChampion ? '#16a34a' : '#b45309'} />
+          ) : (
+            <>
+              <StatCard label="Win On" icon="🎯" value={summary.amount_to_win ?? 1500} unit="₹" color="#b45309" />
+              <StatCard label="Prize" icon="🏆" value={summary.slab_bonus} unit="₹" color={isChampion ? '#16a34a' : '#b45309'} />
+            </>
+          )}
           <StatCard label="Total Incentive" icon="💵" value={summary.total_incentive} unit="₹" color="#b45309" />
         </div>
       )}
@@ -240,11 +305,24 @@ export default function LeadIncentive() {
       {isChampion && (
         <div style={{ borderRadius: 14, padding: '12px 16px', background: '#dcfce7', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', gap: 10, animation: 'lp-rise .35s ease' }}>
           <span style={{ fontSize: 26 }}>🏆</span>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>You are today's range champion!</div>
-            <div style={{ fontSize: 12, color: '#15803d' }}>
-              First to collect the range's Win On amount — flat prize ₹{fmt(summary.slab_bonus)} added.
-            </div>
+          <div style={{ flex: 1 }}>
+            {summary.tier_mode ? (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>You won {(summary.won_tiers || []).length} tier prize{(summary.won_tiers || []).length > 1 ? 's' : ''} today! 🎉</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                  {(summary.won_tiers || []).map(w => (
+                    <TierPill key={w.tier_key} tierKey={w.tier_key} label={`${w.label} · +₹${fmt(w.prize)}`} size={10.5} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>You are today's range champion!</div>
+                <div style={{ fontSize: 12, color: '#15803d' }}>
+                  First to collect the range's Win On amount — flat prize ₹{fmt(summary.slab_bonus)} added.
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -253,7 +331,7 @@ export default function LeadIncentive() {
         <div style={{ padding: '14px 16px 0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)' }}>🏆 Live Ranges</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Range-wise leaderboard — first to collect the Win On amount wins</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Range-wise leaderboard — live standings and per-tier leaders</div>
           </div>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, background: live ? '#dc2626' : 'var(--line)', color: live ? '#fff' : 'var(--ink-soft)', fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase' }}>
             {live ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'lp-pulse 1s linear infinite' }} /> : null}

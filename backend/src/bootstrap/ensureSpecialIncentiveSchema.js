@@ -173,6 +173,11 @@ ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS celebrated_at T
 -- Snapshot the range's competition window so History can show start/end time.
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+-- Bronze/Silver/Gold tier snapshot (tier mode). NULL tier_key = legacy
+-- single-winner announcement (the whole range's flat prize).
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS tier_key TEXT;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS tier_label TEXT;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS tier_target NUMERIC(12,2);
 -- Backfill older announcements (no-op when nothing to fill).
 UPDATE lead_champion_announcements a
 SET started_at = s.started_at, ended_at = s.ended_at
@@ -190,7 +195,13 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_lead_champion_date ON lead_champion_announcements(announcement_date);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_champion_date_slab ON lead_champion_announcements(announcement_date, slab_id);
+-- Uniqueness is now per (date, slab) for legacy rows and per (date, slab, tier)
+-- for tier rows, so a single range can announce one winner PER TIER.
+DROP INDEX IF EXISTS idx_lead_champion_date_slab;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_champion_date_slab_legacy
+  ON lead_champion_announcements(announcement_date, slab_id) WHERE tier_key IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_champion_date_slab_tier
+  ON lead_champion_announcements(announcement_date, slab_id, tier_key) WHERE tier_key IS NOT NULL;
 
 -- Which FROs compete in which range (set from the ⚙️ Configure popup). FROs left
 -- unassigned still fall into a range automatically via their monthly target.
@@ -207,6 +218,27 @@ CREATE INDEX IF NOT EXISTS idx_incentive_slab_fros_fro ON incentive_slab_fros(fr
 export const dedupeIncentiveSlabRanges = async () => {
   await db._pool.query(LEAD_RANGE_DEDUPE_SQL);
 };
+
+// Bronze/Silver/Gold milestone tiers inside a range. When a range has at least
+// one active tier it runs in "tier mode" (race continues through the window and
+// settles per tier at window end); otherwise it keeps the legacy single-winner
+// "first to cross amount_to_win" behaviour.
+const TIER_SQL = `
+CREATE TABLE IF NOT EXISTS incentive_slab_tiers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slab_id UUID NOT NULL REFERENCES incentive_slabs(id) ON DELETE CASCADE,
+  tier_key TEXT NOT NULL,
+  label TEXT,
+  order_index INT NOT NULL DEFAULT 0,
+  target_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  prize_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (slab_id, tier_key)
+);
+CREATE INDEX IF NOT EXISTS idx_incentive_slab_tiers_slab ON incentive_slab_tiers(slab_id);
+`;
 
 export async function ensureSpecialIncentiveSchema() {
   try {
@@ -230,5 +262,11 @@ export async function ensureSpecialIncentiveSchema() {
     console.log('lead_champion_announcements table ready');
   } catch (e) {
     console.warn('[lead champion schema] skip:', e?.message || String(e));
+  }
+  try {
+    await db._pool.query(TIER_SQL);
+    console.log('incentive_slab_tiers table ready');
+  } catch (e) {
+    console.warn('[lead incentive tiers schema] skip:', e?.message || String(e));
   }
 }
