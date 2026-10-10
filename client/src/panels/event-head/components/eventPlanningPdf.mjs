@@ -65,13 +65,6 @@ const dash = (v) => {
   return s || '\u2014'
 }
 
-function timeRange(ev) {
-  const a = String(ev.start_time || '').trim()
-  const b = String(ev.end_time || '').trim()
-  if (a && b) return `${a} \u2013 ${b}`
-  return a || b || '\u2014'
-}
-
 function dateLabel(v) {
   const s = String(v || '').slice(0, 10)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
@@ -95,10 +88,10 @@ function volunteerGroups(volunteers) {
 
 function distributionRows(planning) {
   const items = Array.isArray(planning?.distribution_items) ? planning.distribution_items : []
-  const colW = [14, 72, 28, CONTENT_W - 14 - 72 - 28]
-  const header = ['Sr. No', 'Item / Service', 'Quantity Required', 'Remarks']
+  const colW = [14, 92, CONTENT_W - 14 - 92]
+  const header = ['Sr. No', 'Item / Service', 'Quantity Required']
   const rows = items.map((r, i) => {
-    const cells = [String(i + 1), dash(r.item), dash(r.qty), dash(r.remarks)]
+    const cells = [String(i + 1), dash(r.item), dash(r.qty)]
     const lines = cells.map((c, ci) => wrapText(c, colW[ci] - 6, 8.5))
     const h = Math.max(...lines.map(l => l.length)) * lineH(8.5) + 5
     return { cells, lines, h }
@@ -150,26 +143,6 @@ export function layoutEventPlanningPages(ev) {
     }
   }
 
-  // Flow a full-width paragraph (used for Description) across pages.
-  const addParagraph = (caption, value) => {
-    let lines = wrapText(dash(value), CONTENT_W - 10, 9.5)
-    let first = true
-    if (y > MT) y += GAP
-    while (lines.length) {
-      const capH = first ? lineH(9.5) : 0
-      const maxLines = Math.floor((LIMIT - y - capH - 5) / LY)
-      if (maxLines < 1) { finishPage(); continue }
-      const take = lines.slice(0, maxLines)
-      const h = capH + take.length * LY + 6
-      const e = { kind: 'paragraph', caption: first ? caption : '', lines: take }
-      e.pageNo = page; e.yTop = y; e.yBot = y + h
-      pages[page].push(e); y += h
-      lines = lines.slice(maxLines)
-      first = false
-      if (lines.length) finishPage()
-    }
-  }
-
   // Flow a labelled names row (Volunteer/Management) across pages.
   const addNameRow = (label, value) => {
     let lines = wrapText(dash(value), CONTENT_W - 16, 9.5)
@@ -208,19 +181,15 @@ export function layoutEventPlanningPages(ev) {
   addKvRow('Name of NGO', event.ngo_name || event.ngo, labelW, valueW)
   addKvRow('Title', event.name, labelW, valueW)
   addKvRow('Date', dateLabel(event.date), labelW, valueW)
-  addKvRow('Time', timeRange(event), labelW, valueW)
   addKvRow('Location Decided', event.venue, labelW, valueW)
   addKvRow('Sector', event.sector_name, labelW, valueW)
   addKvRow('Activity', event.activity_name, labelW, valueW)
   addKvRow('Category', event.category, labelW, valueW)
   addKvRow('Priority', event.priority, labelW, valueW)
 
-  addParagraph('Description', event.description)
-
   // 2 · Volunteer Requirement ------------------------------------------------
   secHead('2 \u00b7 VOLUNTEER REQUIREMENT')
   addKvRow('Number Required', planning.volunteers_required, labelW, valueW)
-  addKvRow('Volunteer Role', planning.volunteer_role, labelW, valueW)
 
   secHead('Assigned Volunteers')
   for (const g of volunteerGroups(event.volunteers)) addNameRow(g.label, g.value)

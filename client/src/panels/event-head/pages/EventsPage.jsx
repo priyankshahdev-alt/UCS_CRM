@@ -28,15 +28,19 @@ export default function EventsPage({ view } = {}) {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [importError, setImportError] = useState('')
-  const [toast, setToast] = useState(searchParams.get('created') ? 'Event created successfully.' : '')
+  const [toast, setToast] = useState(
+    searchParams.get('created') ? 'Event created successfully.'
+      : searchParams.get('deleted') ? 'Event deleted.' : ''
+  )
   const fileRef = useRef(null)
 
   useEffect(() => {
-    if (!searchParams.get('created')) return
+    if (!searchParams.get('created') && !searchParams.get('deleted')) return
     const t = setTimeout(() => {
       setToast('')
       const params = new URLSearchParams(searchParams)
       params.delete('created')
+      params.delete('deleted')
       navigate('/event-head/events' + (params.toString() ? '?' + params.toString() : ''), { replace: true })
     }, 2600)
     return () => clearTimeout(t)

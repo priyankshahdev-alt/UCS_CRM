@@ -70,11 +70,11 @@ function validate(pages, label, expect = {}) {
   assert(allEntries(pages).some((e) => e.kind === 'secHead' && e.text === 'Assigned Volunteers'), `${label}: Assigned Volunteers heading present`)
 
   const paraCaps = allEntries(pages).filter((e) => e.kind === 'paragraph' && e.caption)
-  assert(paraCaps.length === 1 && paraCaps[0].caption === 'Description', `${label}: description block appears once`)
+  assert(paraCaps.length === 0, `${label}: no description block`)
 
   const kvLabels = allEntries(pages).filter((e) => e.kind === 'kvRow' && e.label).map((e) => e.label)
   assert(
-    kvLabels.join('|') === 'Name of NGO|Title|Date|Time|Location Decided|Sector|Activity|Category|Priority|Number Required|Volunteer Role|Categories|Number Required|Special Requirements|Organizer|Event Manager|Coordinator',
+    kvLabels.join('|') === 'Name of NGO|Title|Date|Location Decided|Sector|Activity|Category|Priority|Number Required|Categories|Number Required|Special Requirements|Organizer|Event Manager|Coordinator',
     `${label}: key/value rows correct (got ${kvLabels.join(', ')})`
   )
 

@@ -107,6 +107,18 @@ const ngoCodeKey = (n) => String(n?.code || '').trim().toLowerCase()
 
 const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MONTHLY_TARGET
 
+/* Per-NGO brand used by the monthly PDF export. Keyed by the same short code
+   the quota table uses, so a report page and its quota can never disagree.
+   Logos live in /public/logo (same files Event Reports uses); the colours match
+   each NGO's letter-head so the printed page reads as that NGO's report. */
+const NGO_BRAND = {
+  bsct: { name: 'BSCT', fullName: 'Being Sevak Charitable Trust', logo: '/logo/beingsevak-logo.png', color: '#204E8C', headingColor: '#204E8C', accent: '#FFC72C', colorLight: '#EAF1FB' },
+  mann: { name: 'MANN', fullName: 'Mann Care Foundation', logo: '/logo/mann-logo.png', color: '#F42D92', headingColor: '#C23875', accent: '#F42D92', colorLight: '#FDE7F3' },
+  aflf: { name: 'AFLF', fullName: 'Ashray For Life Foundation', logo: '/logo/aflf-logo.png', color: '#0E6BA8', headingColor: '#DC2626', accent: '#22D3EE', colorLight: '#E6F4FB' },
+}
+const DEFAULT_BRAND = { name: 'NGO', fullName: 'NGO', logo: '', color: '#2036bd', headingColor: '#2036bd', accent: '#2036bd', colorLight: '#eef0ff' }
+const ngoBrandFor = (n) => NGO_BRAND[ngoCodeKey(n)] || { ...DEFAULT_BRAND, name: ngoShortLabel(n), fullName: n?.name || 'NGO' }
+
 const capFirst = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
 
 /* Card order follows the target table, so BSCT's bigger quota is read first and
@@ -1933,6 +1945,15 @@ const pendingAll = scopedSuggestions
     }
   }, [month, ngo])
 
+  /* The three planning NGOs, always in the same order, for the monthly PDF:
+     one page each regardless of the NGO picked on screen — the file is the
+     month's report for the whole team, not just the current filter. Any
+     workspace NGO without a quota entry is not a planning NGO and is left out. */
+  const reportNgos = useMemo(() => ngos
+    .filter((n) => !!NGO_MONTHLY_TARGET[ngoCodeKey(n)])
+    .sort((a, b) => targetOrderFor(a) - targetOrderFor(b) || ngoShortLabel(a).localeCompare(ngoShortLabel(b))),
+  [ngos])
+
   /* The off-screen preview the PDF captures, and the row cache both downloads
      render from. Set together by prepareFestivalExport so the Excel file, the
      PDF and the counter describe the same selection. */
@@ -2010,6 +2031,98 @@ const pendingAll = scopedSuggestions
       .map((r) => ({ ...r, title: r.programme }))
     return merged
   }, [festivalSuggestions, ngos, scopedManual, festivalSuggestionsByKey, festBenef, festLoc, ngo])
+
+  /* ── Monthly PDF: one branded page per NGO ──────────────────────────────────
+     The PDF is a report for the whole team, so unlike the on-screen grid it is
+     NOT limited to the picked NGO. It reads every NGO's SELECTED programmes for
+     the month straight from the server (selected_only), which is where a tick
+     is persisted the moment it is made — so a page carries BSCT's, MANN's and
+     AFLF's programmes even while the screen shows one of them. A typed manual
+     programme (session-only, tied to the NGO in scope) replaces that festival's
+     selected AI idea on its NGO's page, exactly as the grid shows it. */
+  const [reportPages, setReportPages] = useState([])
+  const [reportStamp, setReportStamp] = useState('')
+  const ngoPageRefs = useRef({})
+
+  const buildNgoReportPages = useCallback(async () => {
+    const [y, m] = month.split('-').map(Number)
+    let stored = []
+    try {
+      const res = await getFestivalSuggestions({ month: m, year: y, selected_only: true })
+      stored = (Array.isArray(res) ? res : []).filter((s) => s.is_selected)
+    } catch { stored = [] }
+
+    const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
+    const bannerByEvent = new Map(
+      monthEvents.map((ev) => [String(ev?.id), ev?.extendedProps?.banner || null])
+    )
+    const manualText = (k) => {
+      const e = scopedManual[k]
+      return e?.selected ? String(e?.text || '').trim() : ''
+    }
+
+    const rows = []
+    for (const s of stored) {
+      const key = festivalKeyOf(s)
+      const ownNgo = ngo && String(s.ngo_id) === String(ngo.id)
+      // A typed programme for the NGO in scope wins over that festival's AI idea.
+      if (ownNgo && manualText(key)) continue
+      const observed = String(s.observance_date || '').slice(0, 10)
+      const evId = Number(s.suggested_event_id)
+      rows.push({
+        ngoId: s.ngo_id,
+        ngoLabel: ngoShortLabel(ngoById.get(String(s.ngo_id))),
+        date: observed,
+        dateLabel: shortDate(observed),
+        weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
+        festival: s.festival || '—',
+        beneficiary: s.beneficiary || '—',
+        location: s.location || '—',
+        programme: s.title || '—',
+        status: s.suggested_event_id ? 'Scheduled' : 'Draft',
+        image: Number.isFinite(evId) ? (bannerByEvent.get(String(evId)) || null) : null,
+      })
+    }
+    for (const k of Object.keys(scopedManual)) {
+      const e = scopedManual[k]
+      const text = manualText(k)
+      if (!text) continue
+      const d = k.slice(0, 10)
+      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '') || e?.name || 'No important day'
+      rows.push({
+        ngoId: ngo ? ngo.id : null,
+        ngoLabel: ngo ? ngoShortLabel(ngo) : '—',
+        date: d,
+        dateLabel: shortDate(d),
+        weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
+        festival: festival || '—',
+        beneficiary: (festivalSuggestionsByKey[k] || []).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
+        location: (festivalSuggestionsByKey[k] || []).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
+        programme: text,
+        status: 'Draft',
+        image: null,
+      })
+    }
+    rows.sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1
+      return String(a.festival || '').localeCompare(String(b.festival || ''))
+    })
+    // Deduplicate within each NGO: several programmes of one festival collapse
+    // onto that festival's single row; ngoId is part of the key so pages never
+    // borrow another NGO's programmes.
+    const merged = mergeProgrammeRows(rows, ['ngoId', 'date', 'festival', 'beneficiary', 'location'])
+
+    return reportNgos.map((n) => {
+      const ngoRows = merged.filter((r) => String(r.ngoId) === String(n.id))
+      return {
+        ngo: n,
+        brand: ngoBrandFor(n),
+        target: monthlyTargetFor(n),
+        count: ngoRows.length,
+        rows: ngoRows,
+      }
+    })
+  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos])
 
   /* The calendar overlay reuses the exact chosen rows the grid and the
      Excel/PDF downloads render (manual replaces AI, one row per festival), so
@@ -2101,38 +2214,72 @@ const pendingAll = scopedSuggestions
     }
   }
 
-  /* The PDF is a capture of the off-screen festival preview below, so the file
-     and the screen are the same document by construction. */
+  /* Mirrors the three NGO pages into state (which the off-screen preview below
+     renders and the PDF captures), and waits two frames so the freshly committed
+     DOM is what html2canvas sees. */
+  const prepareNgoReportPages = async () => {
+    const pages = await buildNgoReportPages()
+    setReportPages(pages)
+    setReportStamp(new Date().toLocaleString('en-IN'))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    return pages
+  }
+
+  /* The PDF is one A4 LANDSCAPE page per NGO (BSCT, MANN, AFLF), each captured
+     from its own off-screen card so a page break only ever falls between NGOs.
+     A card taller than one page is sliced across as few pages as possible. */
   const downloadPdf = async () => {
-    const el = reportRef.current
-    if (!el) return
     setDownloading('pdf')
     try {
-      const rows = await prepareFestivalExport()
-      if (!rows.length) {
+      const pages = await prepareNgoReportPages()
+      if (!pages.some((p) => p.rows.length)) {
         setToast('Nothing to export — select a suggestion or write a programme first.')
         setDownloading('')
         return
       }
       const { default: html2canvas } = await import('html2canvas')
       const { default: jsPDF } = await import('jspdf')
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false })
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      const pageW = 210, pageH = 297, margin = 6
+      const pdf = new jsPDF('l', 'mm', 'a4')
+      const pageW = 297, pageH = 210, margin = 8
       const contentW = pageW - margin * 2
       const contentH = pageH - margin * 2
-      const pxPerMm = canvas.width / contentW
-      const pageHeightPx = contentH * pxPerMm
-      let heightLeft = canvas.height
-      let position = 0
-      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, 0)
-      heightLeft -= pageHeightPx
-      while (heightLeft > 0) {
-        position = heightLeft - pageHeightPx
-        pdf.addPage()
-        pdf.addImage(imgData, 'JPEG', margin, position * -1 + margin, contentW, 0)
-        heightLeft -= pageHeightPx
+
+      let firstPage = true
+      for (const p of pages) {
+        const el = ngoPageRefs.current[String(p.ngo.id)]
+        if (!el) continue
+        // Wait for logos/banners and webfonts, or the capture misses them.
+        await Promise.all(
+          [...el.querySelectorAll('img')].map((img) =>
+            img.complete ? null : new Promise((resolve) => { img.onload = resolve; img.onerror = resolve })
+          )
+        )
+        await (document.fonts && document.fonts.ready)
+        const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
+        const imgData = canvas.toDataURL('image/jpeg', 0.95)
+        const pxPerMm = canvas.width / contentW
+        const pageHeightPx = contentH * pxPerMm
+        const cardHeightMm = canvas.height / pxPerMm
+
+        if (!firstPage) pdf.addPage()
+        firstPage = false
+
+        if (cardHeightMm <= contentH) {
+          // Centre the page on the landscape sheet.
+          const y = margin + (contentH - cardHeightMm) / 2
+          pdf.addImage(imgData, 'JPEG', margin, y, contentW, 0)
+        } else {
+          let heightLeft = canvas.height
+          let position = margin
+          pdf.addImage(imgData, 'JPEG', margin, position, contentW, 0)
+          heightLeft -= pageHeightPx
+          while (heightLeft > 0) {
+            position -= contentH
+            pdf.addPage()
+            pdf.addImage(imgData, 'JPEG', margin, position, contentW, 0)
+            heightLeft -= pageHeightPx
+          }
+        }
       }
       pdf.save(`${reportMeta.base}.pdf`)
     } catch (e) {
@@ -2976,58 +3123,96 @@ const pendingAll = scopedSuggestions
         </div>
       </div>
 
-      {/* Off-screen preview. The Excel sheet, this node and the PDF all read the
-        same festivalRows state (set by prepareFestivalExport before either
-        download starts), so the screen can never promise something the file
-        does not deliver — and the PDF is captured from here. */}
-      <div
-        ref={reportRef}
-        aria-hidden="true"
-        style={{ position: 'absolute', left: '-10000px', top: 0, width: 1100, background: '#fff', padding: 24, fontFamily: 'inherit' }}
-      >
-        <div style={{ fontSize: 17, fontWeight: 800, color: '#1F2430' }}>Monthly Planner — Festival Programmes</div>
-        <div style={{ fontSize: 12, color: '#4A5061', marginTop: 4 }}>NGO: {festivalRowsNgo}</div>
-        <div style={{ fontSize: 12, color: '#4A5061' }}>Month: {festivalRowsLabel}</div>
-        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Generated: {festivalRowsStamp}</div>
+      {/* Off-screen preview. The Excel sheet reads festivalRows (set by
+        prepareFestivalExport); the PDF captures these three NGO pages (set by
+        prepareNgoReportPages). One A4-landscape card per NGO, always all three,
+        so a page break in the PDF only ever falls between NGOs. */}
+      {(() => {
+        const pageHeaders = ['Date', 'Day', 'Festival / Important Day', 'Beneficiary', 'Programme', 'Location', 'Status']
+        const hasImages = reportPages.some((p) => p.rows.some((r) => r.image))
+        return (
+          <div
+            ref={reportRef}
+            aria-hidden="true"
+            style={{ position: 'absolute', left: '-10000px', top: 0, fontFamily: 'inherit' }}
+          >
+            {reportPages.map((p) => {
+              const b = p.brand
+              return (
+                <div
+                  key={String(p.ngo.id)}
+                  ref={(el) => { ngoPageRefs.current[String(p.ngo.id)] = el }}
+                  style={{ width: 1122, boxSizing: 'border-box', background: '#fff', padding: 22, margin: '0 0 24px', color: '#1F2430' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `3px solid ${b.color}`, paddingBottom: 12, marginBottom: 12 }}>
+                    {b.logo && (
+                      <img
+                        src={b.logo}
+                        alt=""
+                        crossOrigin="anonymous"
+                        style={{ height: 60, maxWidth: 150, objectFit: 'contain', flexShrink: 0 }}
+                        onError={(e) => { e.currentTarget.style.display = 'none' }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 19, fontWeight: 800, color: b.headingColor, lineHeight: 1.15 }}>{b.fullName}</div>
+                      <div style={{ fontSize: 12, color: '#6B7280', marginTop: 3 }}>Monthly Planner · {monthLabel(month)}</div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: b.color, lineHeight: 1 }}>
+                        {p.count}<span style={{ fontSize: 13, fontWeight: 700, color: '#6B7280' }}> / {p.target}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 4 }}>Programmes planned</div>
+                    </div>
+                  </div>
 
-        {/* Names the selection before any row is shown, so the reader can tell
-            what the file is from without inferring it. */}
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 14 }}>
-          SELECTED PROGRAMMES — {festivalRows.length}
-        </div>
+                  {p.rows.length ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
+                      <thead>
+                        <tr>
+                          {hasImages && <th style={{ border: '1px solid #D5D9E4', background: b.colorLight, padding: '4px 6px' }} />}
+                          {pageHeaders.map((h) => (
+                            <th key={h} style={{ border: '1px solid #D5D9E4', background: b.colorLight, padding: '5px 7px', textAlign: 'left', fontWeight: 700, color: b.headingColor }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {p.rows.map((r, i) => (
+                          <tr key={`${r.dateLabel}-${r.festival}-${i}`} style={{ background: i % 2 ? '#F7F8FC' : '#fff', breakInside: 'avoid' }}>
+                            {hasImages && (
+                              <td style={{ border: '1px solid #D5D9E4', padding: '3px 6px' }}>
+                                {r.image
+                                  ? <img src={r.image} alt="" crossOrigin="anonymous" style={{ width: 46, height: 32, objectFit: 'contain', display: 'block' }} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                                  : <span style={{ color: '#B7BCCB' }}>—</span>}
+                              </td>
+                            )}
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.dateLabel}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px' }}>{r.weekday}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px' }}>{r.festival}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px' }}>{r.beneficiary}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px', fontWeight: 600 }}>{r.programme}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px' }}>{r.location}</td>
+                            <td style={{ border: '1px solid #D5D9E4', padding: '5px 7px' }}>{r.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#8A5A00', background: '#FFF7E6', border: '1px solid #F0D9A8', borderRadius: 8, padding: '8px 10px' }}>
+                      No programmes planned for {monthLabel(month)}. Choose an AI suggestion or write your own programme in the Activities grid for this NGO, then download again.
+                    </div>
+                  )}
 
-        {festivalRows.length ? (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, fontSize: 11 }}>
-            <thead>
-              <tr>
-                {FESTIVAL_REPORT_HEADERS.map((h) => (
-                  <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {festivalRows.map((r, i) => (
-                <tr key={`${r.dateLabel}-${r.festival}-${i}`} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.dateLabel}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.weekday}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.festival}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.ngoLabel}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.beneficiary}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap', fontWeight: 600 }}>{r.title}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.location}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ fontSize: 11, color: '#8A5A00', background: '#FFF7E6', border: '1px solid #F0D9A8', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
-            No programmes selected. Choose an AI suggestion or tick your own Write
-            Manually programme in the Activities grid, then download again — only
-            the selected programme of each festival is listed.
+                  <div style={{ borderTop: `2px solid ${b.accent}`, marginTop: 12, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6B7280' }}>
+                    <span>{b.fullName} · Monthly Planner</span>
+                    <span>Generated: {reportStamp}</span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        )}
-      </div>
+        )
+      })()}
 
       {calendarOpen && (
         <MonthlyCalendarView

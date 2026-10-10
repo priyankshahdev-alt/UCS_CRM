@@ -577,6 +577,7 @@ export const getEventHeadCalendar = async (req, res) => {
           date: e.date || null,
           startTime: e.start_time || null,
           endTime: e.end_time || null,
+          banner: e.banner || null,
         },
       };
     }));
@@ -1088,6 +1089,31 @@ export const removeMedia = async (req, res) => {
 const asciiSafeFilename = (s) => String(s || '').replace(/[^\x20-\x7e]/g, '_').replace(/["\\\r\n]/g, '_').slice(0, 180) || 'download';
 const utf8Filename = (s) => String(s || '').replace(/["\\\r\n]/g, '_').slice(0, 180) || 'download';
 
+const S3_OBJECT_URL_RE = /^https?:\/\/[^/]*amazonaws\.com\/(.+?)(?:\?.*)?$/i;
+const EXT_MIME = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', pdf: 'application/pdf',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+};
+const mimeForName = (name) => EXT_MIME[String(name || '').split('.').pop().toLowerCase()] || null;
+const s3FileNameFromUrl = (url) => {
+  const m = S3_OBJECT_URL_RE.exec(String(url || ''));
+  if (!m) return null;
+  let key = m[1];
+  try { key = decodeURIComponent(key); } catch { }
+  return key.startsWith('event/') ? key.slice('event/'.length) : null;
+};
+async function readEventObject(url) {
+  const fileName = s3FileNameFromUrl(url);
+  if (fileName) {
+    const { data, error } = await db.storage.from('event').download(fileName);
+    if (!error && data) return { buffer: data, contentType: mimeForName(fileName) };
+  }
+  const remote = await fetch(url, { redirect: 'follow' });
+  if (!remote.ok) throw Object.assign(new Error('Failed to retrieve the file.'), { status: 502 });
+  return { buffer: Buffer.from(await remote.arrayBuffer()), contentType: remote.headers.get('content-type') || mimeForName(url) };
+}
+
 export const downloadMedia = async (req, res) => {
   try {
     const media = await EventHead.getMediaById(req.params.eventId, req.params.id);
@@ -1095,20 +1121,62 @@ export const downloadMedia = async (req, res) => {
     if (!media.url || /^(youtu|instagram|facebook)/i.test(String(media.url)) || String(media.url).indexOf('http') !== 0) {
       return res.status(400).json({ message: 'This media has no downloadable file (it is a social link).' });
     }
-    const remote = await fetch(media.url, { redirect: 'follow' });
-    if (!remote.ok) return res.status(502).json({ message: 'Failed to retrieve the media file.' });
-    const buffer = Buffer.from(await remote.arrayBuffer());
+    const { buffer, contentType } = await readEventObject(media.url);
     const base = asciiSafeFilename(media.title || media.name || media.url.split('/').pop());
-    const ext = media.type ? String(media.type).split('/')[1] : null;
-    const fileName = /^[A-Za-z0-9._-]+$/.test(base) ? base : (base + (ext ? '.' + ext : ''));
-    res.setHeader('Content-Type', media.type || 'application/octet-stream');
+    res.setHeader('Content-Type', contentType || media.type || 'application/octet-stream');
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'no-store, no-cache');
     res.setHeader('Content-Disposition', `attachment; filename="${asciiSafeFilename(base)}"; filename*=UTF-8''${encodeURIComponent(utf8Filename(base))}`);
     return res.send(buffer);
   } catch (error) {
     console.error('eventHeadController downloadMedia error:', error.message || error);
-    return res.status(500).json({ message: error.message });
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+export const viewMedia = async (req, res) => {
+  try {
+    const media = await EventHead.getMediaById(req.params.eventId, req.params.id);
+    if (!media) return res.status(404).json({ message: 'Media not found' });
+    if (!media.url || /^(youtu|instagram|facebook)/i.test(String(media.url)) || String(media.url).indexOf('http') !== 0) {
+      return res.status(400).json({ message: 'This media has no viewable file (it is a social link).' });
+    }
+    const { buffer, contentType } = await readEventObject(media.url);
+    res.setHeader('Content-Type', contentType || media.type || 'application/octet-stream');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('eventHeadController viewMedia error:', error.message || error);
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+export const viewEventBanner = async (req, res) => {
+  try {
+    const event = await EventHead.getEventHeadEventById(req.params.id);
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    let banner = event.banner;
+    // Older events may store the banner only as a media row (media_type
+    // 'Banner'), not in the event's banner column — fall back to that.
+    if (!banner || String(banner).indexOf('http') !== 0) {
+      try {
+        const rows = await EventHead.getBannerMediaByEvents([event.id]);
+        const hit = (rows || []).find(r => r && r.url && String(r.url).indexOf('http') === 0);
+        if (hit) banner = hit.url;
+      } catch { /* ignore fallback errors */ }
+    }
+    if (!banner || String(banner).indexOf('http') !== 0) {
+      return res.status(404).json({ message: 'This event has no banner image.' });
+    }
+    const { buffer, contentType } = await readEventObject(banner);
+    res.setHeader('Content-Type', contentType || 'image/jpeg');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('eventHeadController viewEventBanner error:', error.message || error);
+    return res.status(error.status || 500).json({ message: error.message });
   }
 };
 
