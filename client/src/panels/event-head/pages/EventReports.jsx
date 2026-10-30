@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, createEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
 import EventPosterReport from '../components/EventPosterReport'
 import { exportPosterToPdf } from '../components/eventPosterPdf.jsx'
 
@@ -1171,14 +1171,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   // lives in the database; this is only the arrangement the user has just
   // made, so the cards, the PDF and the Excel / CSV all follow it at once.
   const [cardOrder, setCardOrder] = useState({})
-  // Create Event modal state (Daily Event tab)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createName, setCreateName] = useState('')
-  const [createDate, setCreateDate] = useState('')
-  const [createNgoId, setCreateNgoId] = useState('')
-  const [createVenue, setCreateVenue] = useState('')
-  const [createBusy, setCreateBusy] = useState(false)
-  const [createError, setCreateError] = useState('')
 
   const loadEvents = () => {
     setRefreshing(true)
@@ -1273,37 +1265,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       setMonthlyData(data)
     } catch (err) { alert('Failed to load monthly report') }
     finally { setMonthlyLoading(false) }
-  }
-
-  const openCreateEvent = () => {
-    setCreateName('')
-    setCreateDate('')
-    setCreateNgoId(ngos[0]?.id ? String(ngos[0].id) : '')
-    setCreateVenue('')
-    setCreateError('')
-    setCreateOpen(true)
-  }
-
-  const submitCreateEvent = async () => {
-    if (!createName.trim()) { setCreateError('Event name is required.'); return }
-    if (!createNgoId) { setCreateError('Choose an NGO.'); return }
-    if (!createDate) { setCreateError('Date is required.'); return }
-    setCreateBusy(true); setCreateError('')
-    try {
-      await createEvent({
-        name: createName.trim(),
-        ngo_id: createNgoId,
-        date: createDate,
-        venue: createVenue.trim() || null,
-        status: 'Draft',
-      })
-      setCreateOpen(false)
-      loadEvents()
-    } catch (e) {
-      setCreateError(e?.message || 'Could not create the event.')
-    } finally {
-      setCreateBusy(false)
-    }
   }
 
   // The NGOs of the monthly report, with their programme cards in the order
@@ -1743,35 +1704,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           <span>✓</span>{toast}
         </div>
       )}
-      {createOpen && (
-        <div className="no-print" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 18 }}>Create Event</h3>
-            {createError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{createError}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Event name
-                <input className="eh-input" value={createName} onChange={e => setCreateName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>NGO
-                <select className="eh-select" value={createNgoId} onChange={e => setCreateNgoId(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
-                  <option value="">Select NGO…</option>
-                  {ngos.map(n => <option key={n.id} value={String(n.id)}>{n.name || n.code}</option>)}
-                </select>
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Date
-                <input type="date" className="eh-input" value={createDate} onChange={e => setCreateDate(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Venue
-                <input className="eh-input" value={createVenue} onChange={e => setCreateVenue(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button className="btn btn-sm" onClick={() => setCreateOpen(false)} disabled={createBusy}>Cancel</button>
-              <button className="btn btn-primary btn-sm" onClick={submitCreateEvent} disabled={createBusy}>{createBusy ? 'Creating…' : 'Create Event'}</button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* ── Reporting header: the whole screen is these two report types ── */}
       <div className="eh-report-tabs no-print" style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 18, margin: 0 }}>Reporting — Event Reports</h3>
@@ -1826,7 +1758,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             <button className="btn btn-primary btn-sm" onClick={() => generate()} disabled={!selectedEvent || loading}>
               {loading ? 'Generating...' : 'Generate Report'}
             </button>
-            <button className="btn btn-sm" onClick={openCreateEvent}>+ Create Event</button>
           </div>
         </div>
       )}
