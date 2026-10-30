@@ -1745,36 +1745,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           <span>✓</span>{toast}
         </div>
       )}
-      {mode === 'create-event' && (
-        <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
-          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <h3>Create Event</h3>
-          </div>
-          <div className="card-pad" style={{ paddingTop: 8 }}>
-            {createError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{createError}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Event name
-                <input className="eh-input" value={createName} onChange={e => setCreateName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>NGO
-                <select className="eh-select" value={createNgoId} onChange={e => setCreateNgoId(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
-                  <option value="">Select NGO…</option>
-                  {ngos.map(n => <option key={n.id} value={String(n.id)}>{n.name || n.code}</option>)}
-                </select>
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Date
-                <input type="date" className="eh-input" value={createDate} onChange={e => setCreateDate(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Venue
-                <input className="eh-input" value={createVenue} onChange={e => setCreateVenue(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button className="btn btn-primary btn-sm" onClick={submitCreateEvent} disabled={createBusy}>{createBusy ? 'Creating…' : 'Create Event'}</button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* ── Reporting header: the whole screen is these two report types ── */}
       <div className="eh-report-tabs no-print" style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 18, margin: 0 }}>Reporting — Event Reports</h3>
@@ -1786,7 +1756,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           {/* <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button> */}
           <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
-          <button type="button" onClick={() => setMode('create-event')} style={tabStyle(mode === 'create-event')}>+ Create Event</button>
+          <button type="button" onClick={() => setMode('create-event')} style={tabStyle(mode === 'create-event')}>+ Daily Report</button>
         </div>
       </div>
 
@@ -1878,7 +1848,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>A� by NGO</span></h3>
-            <button className="btn btn-primary btn-sm" onClick={() => setMode('create-event')} style={{ marginLeft: 'auto' }}>+ Create Event</button>
           </div>
           <div className="card-pad" style={{ paddingTop: 8 }}>
             {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
@@ -1925,6 +1894,37 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {mode === 'create-event' && (
+        <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <h3>Create Event</h3>
+          </div>
+          <div className="card-pad" style={{ paddingTop: 8 }}>
+            {createError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{createError}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Event name
+                <input className="eh-input" value={createName} onChange={e => setCreateName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+              </label>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>NGO
+                <select className="eh-select" value={createNgoId} onChange={e => setCreateNgoId(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+                  <option value="">Select NGO…</option>
+                  {ngos.map(n => <option key={n.id} value={String(n.id)}>{n.name || n.code}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Date
+                <input type="date" className="eh-input" value={createDate} onChange={e => setCreateDate(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+              </label>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Venue
+                <input className="eh-input" value={createVenue} onChange={e => setCreateVenue(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+              <button className="btn btn-primary btn-sm" onClick={submitCreateEvent} disabled={createBusy}>{createBusy ? 'Creating…' : 'Create Event'}</button>
+            </div>
           </div>
         </div>
       )}
