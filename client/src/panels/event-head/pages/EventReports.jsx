@@ -1275,14 +1275,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     finally { setMonthlyLoading(false) }
   }
 
-  const openCreateEvent = () => {
-    setCreateName('')
-    setCreateDate('')
-    setCreateNgoId(monthlyNgo || (ngos[0]?.id ? String(ngos[0].id) : ''))
-    setCreateVenue('')
-    setCreateError('')
-    setCreateOpen(true)
-  }
+  useEffect(() => {
+    if (mode === 'create-event') {
+      setCreateName('')
+      setCreateDate('')
+      setCreateNgoId(monthlyNgo || (ngos[0]?.id ? String(ngos[0].id) : ''))
+      setCreateVenue('')
+      setCreateError('')
+    }
+  }, [mode, monthlyNgo, ngos])
 
   const submitCreateEvent = async () => {
     if (!createName.trim()) { setCreateError('Event name is required.'); return }
@@ -1297,9 +1298,9 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         venue: createVenue.trim() || null,
         status: 'Draft',
       })
-      setCreateOpen(false)
       loadEvents()
       generateMonthly()
+      setMode('monthly')
     } catch (e) {
       setCreateError(e?.message || 'Could not create the event.')
     } finally {
@@ -1744,12 +1745,14 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           <span>✓</span>{toast}
         </div>
       )}
-      {createOpen && (
-        <div className="no-print" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 18 }}>Create Event</h3>
+      {mode === 'create-event' && (
+        <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <h3>Create Event</h3>
+          </div>
+          <div className="card-pad" style={{ paddingTop: 8 }}>
             {createError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{createError}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
               <label style={{ fontSize: 13, fontWeight: 600 }}>Event name
                 <input className="eh-input" value={createName} onChange={e => setCreateName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
               </label>
@@ -1767,7 +1770,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               </label>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button className="btn btn-sm" onClick={() => setCreateOpen(false)} disabled={createBusy}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={submitCreateEvent} disabled={createBusy}>{createBusy ? 'Creating…' : 'Create Event'}</button>
             </div>
           </div>
@@ -1784,6 +1786,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           {/* <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button> */}
           <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
+          <button type="button" onClick={() => setMode('create-event')} style={tabStyle(mode === 'create-event')}>+ Create Event</button>
         </div>
       </div>
 
@@ -1875,7 +1878,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>A� by NGO</span></h3>
-            <button className="btn btn-primary btn-sm" onClick={openCreateEvent} style={{ marginLeft: 'auto' }}>+ Create Event</button>
+            <button className="btn btn-primary btn-sm" onClick={() => setMode('create-event')} style={{ marginLeft: 'auto' }}>+ Create Event</button>
           </div>
           <div className="card-pad" style={{ paddingTop: 8 }}>
             {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
