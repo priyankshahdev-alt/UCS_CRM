@@ -6,12 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../core/constants/indian_locations.dart';
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
-import '../../core/widgets/searchable_dropdown.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/utils/photo_utils.dart';
 import '../../services/api_service.dart';
@@ -65,12 +63,9 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _fullNameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _locationController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
   final _dobController = TextEditingController();
-  // City/State are now dropdowns (like Operator setup) instead of free text.
-  List<Map<String, dynamic>> _states = [];
-  List<String> _cities = [];
-  String? _selectedState;
-  String? _selectedCity;
   final _pincodeController = TextEditingController();
   final _aadhaarController = TextEditingController();
   final _disabilityPctController = TextEditingController();
@@ -177,7 +172,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   void initState() {
     super.initState();
     _loadNgos();
-    _applyOfflineLocations();
     _prefillArea();
   }
 
@@ -188,44 +182,13 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     final area = await ApiService.getOperatorArea();
     if (area == null || !mounted) return;
     if (area.city.isEmpty && area.state.isEmpty) return;
-    _applyOfflineLocations(savedState: area.state, savedCity: area.city);
-  }
-
-  /// Offline state/city list + matching, mirroring Operator setup so the
-  /// dropdowns can show a saved value even when its casing differs.
-  void _applyOfflineLocations({String? savedState, String? savedCity}) {
-    final states = <Map<String, dynamic>>[
-      for (final s in indianStates) {'name': s},
-    ];
-    String? targetState = _selectedState;
-    if ((targetState == null || targetState.isEmpty) &&
-        savedState != null &&
-        savedState.isNotEmpty) {
-      for (final st in states) {
-        if ((st['name'] as String).toLowerCase() ==
-            savedState.toLowerCase()) {
-          targetState = st['name'] as String;
-          break;
-        }
-      }
-    }
-    final cities = citiesForState(targetState);
-    String? targetCity = _selectedCity;
-    if ((targetCity == null || targetCity.isEmpty) &&
-        savedCity != null &&
-        savedCity.isNotEmpty) {
-      for (final c in cities) {
-        if (c.toLowerCase() == savedCity.toLowerCase()) {
-          targetCity = c;
-          break;
-        }
-      }
-    }
     setState(() {
-      _states = states;
-      _selectedState = targetState;
-      _cities = List<String>.from(cities);
-      _selectedCity = targetCity;
+      if (_cityController.text.trim().isEmpty && area.city.isNotEmpty) {
+        _cityController.text = area.city;
+      }
+      if (_stateController.text.trim().isEmpty && area.state.isNotEmpty) {
+        _stateController.text = area.state;
+      }
     });
   }
 
@@ -334,6 +297,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     _mobileController.dispose();
     _occupationDetailController.dispose();
     _locationController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
     _dobController.dispose();
     _pincodeController.dispose();
     _aadhaarController.dispose();
@@ -589,26 +554,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             final cs = _extractCityState(text);
             final city = letter.city ?? cs.city;
             final st = letter.state ?? cs.state;
-            if (st != null) {
-              for (final s in _states) {
-                if ((s['name'] as String).toLowerCase() ==
-                    st.toLowerCase()) {
-                  _selectedState = s['name'] as String;
-                  break;
-                }
-              }
-              if (_selectedState != null) {
-                _cities = List<String>.from(citiesForState(_selectedState));
-              }
-            }
-            if (city != null) {
-              for (final c in _cities) {
-                if (c.toLowerCase() == city.toLowerCase()) {
-                  _selectedCity = c;
-                  break;
-                }
-              }
-            }
+            if (city != null) _cityController.text = city;
+            if (st != null) _stateController.text = st;
             if (letter.pin != null) _pincodeController.text = letter.pin!;
             if (letter.mobile != null &&
                 _mobileController.text.trim().isEmpty) {
@@ -635,26 +582,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if (pin != null && _pincodeController.text.trim().isEmpty) {
             _pincodeController.text = pin;
           }
-          if (cs.state != null) {
-            for (final s in _states) {
-              if ((s['name'] as String).toLowerCase() ==
-                  cs.state!.toLowerCase()) {
-                _selectedState = s['name'] as String;
-                break;
-              }
-            }
-            if (_selectedState != null) {
-              _cities = List<String>.from(citiesForState(_selectedState));
-            }
-          }
-          if (cs.city != null) {
-            for (final c in _cities) {
-              if (c.toLowerCase() == cs.city!.toLowerCase()) {
-                _selectedCity = c;
-                break;
-              }
-            }
-          }
+          if (cs.city != null) _cityController.text = cs.city!;
+          if (cs.state != null) _stateController.text = cs.state!;
         });
         showAppSnackbar(
           context,
@@ -2077,14 +2006,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     // FORM VALIDATION
     // ------------------------------------------------------------
 
-    if (_selectedState == null || _selectedState!.isEmpty) {
-      showAppSnackbar(context, 'Please select your state.', warning: true);
-      return;
-    }
-    if (_selectedCity == null || _selectedCity!.isEmpty) {
-      showAppSnackbar(context, 'Please select your city.', warning: true);
-      return;
-    }
     if (!_formKey.currentState!.validate()) {
       showAppSnackbar(
         context,
@@ -2126,8 +2047,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       final mobile = _mobileController.text.trim();
       final occupation = _occupationValue;
       final address = _locationController.text.trim();
-      final city = (_selectedCity ?? '').trim();
-      final state = (_selectedState ?? '').trim();
+      final city = _cityController.text.trim();
+      final state = _stateController.text.trim();
       final pincode = _pincodeController.text.trim();
       final aadhaarNumber = _aadhaarController.text.replaceAll(
         RegExp(r'\D'),
@@ -2746,34 +2667,72 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             // ------------------------------------------------------------
             // CITY + STATE
             // ------------------------------------------------------------
-            SearchableDropdown(
-              label: 'State *',
-              hint: 'Select state',
-              value: _selectedState,
-              items: _states
-                  .map((state) => state['name'].toString())
-                  .toList(),
-              enabled: !_loading && created == null,
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _selectedState = value;
-                  _selectedCity = null;
-                  _cities = List<String>.from(citiesForState(value));
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-            SearchableDropdown(
-              label: 'City *',
-              hint: _selectedState == null
-                  ? 'Select state first'
-                  : 'Select city',
-              value: _selectedCity,
-              items: _cities,
-              enabled: !_loading && created == null && _selectedState != null,
-              onChanged: (value) =>
-                  setState(() => _selectedCity = value),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _cityController,
+                    decoration: InputDecoration(
+                      label: Text.rich(
+                        TextSpan(
+                          children: [
+                            const TextSpan(
+                              text: 'City',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const TextSpan(
+                              text: ' *',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    textCapitalization: TextCapitalization.words,
+                    validator: (v) => _requiredText(v, 'City'),
+                    enabled: !_loading && created == null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _stateController,
+                    decoration: InputDecoration(
+                      label: Text.rich(
+                        TextSpan(
+                          children: [
+                            const TextSpan(
+                              text: 'State',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const TextSpan(
+                              text: ' *',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    textCapitalization: TextCapitalization.words,
+                    validator: (v) => _requiredText(v, 'State'),
+                    enabled: !_loading && created == null,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 16),

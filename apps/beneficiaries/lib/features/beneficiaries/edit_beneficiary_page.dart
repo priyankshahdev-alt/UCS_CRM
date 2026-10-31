@@ -6,13 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
-import '../../core/constants/indian_locations.dart';
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
-import '../../core/widgets/searchable_dropdown.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/utils/photo_utils.dart';
 import '../../services/api_service.dart';
@@ -60,11 +58,9 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
   final _occupationController = TextEditingController();
   final _neededController = TextEditingController();
   final _locationController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
   final _pincodeController = TextEditingController();
-  List<Map<String, dynamic>> _states = [];
-  List<String> _cities = [];
-  String? _selectedState;
-  String? _selectedCity;
   final _aadhaarController = TextEditingController();
   final _disabilityPctController = TextEditingController();
   final _dobController = TextEditingController();
@@ -185,10 +181,9 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     _occupationController.text = b['occupation']?.toString() ?? '';
     _neededController.text = b['needed']?.toString() ?? '';
     _locationController.text = b['address_line_1']?.toString() ?? '';
+    _cityController.text = b['city']?.toString() ?? '';
+    _stateController.text = b['state']?.toString() ?? '';
     _pincodeController.text = b['pincode']?.toString() ?? '';
-    _selectedState = b['state']?.toString();
-    _selectedCity = b['city']?.toString();
-    _applyOfflineLocations();
     _aadhaarController.text = b['aadhaar_number']?.toString() ?? '';
     _photo = b['photo']?.toString();
     _gender = _normalize(_genders, b['gender']);
@@ -216,71 +211,20 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
   /// choice) whenever the record itself does not have them, so the operator
   /// only types them when the beneficiary is from somewhere else.
   Future<void> _prefillArea() async {
-    if ((_selectedCity ?? '').trim().isNotEmpty &&
-        (_selectedState ?? '').trim().isNotEmpty) {
+    if (_cityController.text.trim().isNotEmpty &&
+        _stateController.text.trim().isNotEmpty) {
       return;
     }
     final area = await ApiService.getOperatorArea();
     if (area == null || !mounted) return;
     if (area.city.isEmpty && area.state.isEmpty) return;
-    _applyOfflineLocations(savedState: area.state, savedCity: area.city);
-  }
-
-  void _applyOfflineLocations({String? savedState, String? savedCity}) {
-    final states = <Map<String, dynamic>>[
-      for (final s in indianStates) {'name': s},
-    ];
-    String? targetState = _selectedState;
-    if ((targetState == null || targetState.isEmpty) &&
-        savedState != null &&
-        savedState.isNotEmpty) {
-      for (final st in states) {
-        if ((st['name'] as String).toLowerCase() ==
-            savedState.toLowerCase()) {
-          targetState = st['name'] as String;
-          break;
-        }
-      }
-    }
-    // also match existing selectedState to a list entry
-    if (targetState != null && targetState.isNotEmpty) {
-      String? matched;
-      for (final st in states) {
-        if ((st['name'] as String).toLowerCase() ==
-            targetState.toLowerCase()) {
-          matched = st['name'] as String;
-          break;
-        }
-      }
-      targetState = matched ?? targetState;
-    }
-    final cities = citiesForState(targetState);
-    String? targetCity = _selectedCity;
-    if ((targetCity == null || targetCity.isEmpty) &&
-        savedCity != null &&
-        savedCity.isNotEmpty) {
-      for (final c in cities) {
-        if (c.toLowerCase() == savedCity.toLowerCase()) {
-          targetCity = c;
-          break;
-        }
-      }
-    }
-    if (targetCity != null && targetCity.isNotEmpty) {
-      String? matchedCity;
-      for (final c in cities) {
-        if (c.toLowerCase() == targetCity.toLowerCase()) {
-          matchedCity = c;
-          break;
-        }
-      }
-      targetCity = matchedCity ?? targetCity;
-    }
     setState(() {
-      _states = states;
-      _selectedState = targetState;
-      _cities = List<String>.from(cities);
-      _selectedCity = targetCity;
+      if (_cityController.text.trim().isEmpty && area.city.isNotEmpty) {
+        _cityController.text = area.city;
+      }
+      if (_stateController.text.trim().isEmpty && area.state.isNotEmpty) {
+        _stateController.text = area.state;
+      }
     });
   }
 
@@ -291,6 +235,8 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     _occupationController.dispose();
     _neededController.dispose();
     _locationController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
     _pincodeController.dispose();
     _aadhaarController.dispose();
     _disabilityPctController.dispose();
@@ -533,36 +479,8 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
         fillIfEmpty('name', _fullNameController, fields['name']?.toString());
         fillIfEmpty('location', _locationController,
             fields['address_line_1']?.toString());
-        final ocrCity = fields['city']?.toString();
-        final ocrState = fields['state']?.toString();
-        if ((_selectedCity ?? '').trim().isEmpty &&
-            ocrCity != null &&
-            ocrCity.trim().isNotEmpty) {
-          for (final c in _cities.isEmpty
-              ? citiesForState(_selectedState)
-              : _cities) {
-            if (c.toLowerCase() == ocrCity.trim().toLowerCase()) {
-              _selectedCity = c;
-              break;
-            }
-          }
-          _selectedCity ??= ocrCity.trim();
-        }
-        if ((_selectedState ?? '').trim().isEmpty &&
-            ocrState != null &&
-            ocrState.trim().isNotEmpty) {
-          for (final st in _states) {
-            if ((st['name'] as String).toLowerCase() ==
-                ocrState.trim().toLowerCase()) {
-              _selectedState = st['name'] as String;
-              break;
-            }
-          }
-          _selectedState ??= ocrState.trim();
-          if (_selectedState != null) {
-            _cities = List<String>.from(citiesForState(_selectedState));
-          }
-        }
+        fillIfEmpty('city', _cityController, fields['city']?.toString());
+        fillIfEmpty('state', _stateController, fields['state']?.toString());
         fillIfEmpty('aadhaar', _aadhaarController,
             fields['aadhaar_number']?.toString());
         final pin = fields['pincode']?.toString();
@@ -630,11 +548,11 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     if (_locationController.text.trim().isNotEmpty) {
       body['address_line_1'] = _locationController.text.trim();
     }
-    if ((_selectedCity ?? '').trim().isNotEmpty) {
-      body['city'] = _selectedCity!.trim();
+    if (_cityController.text.trim().isNotEmpty) {
+      body['city'] = _cityController.text.trim();
     }
-    if ((_selectedState ?? '').trim().isNotEmpty) {
-      body['state'] = _selectedState!.trim();
+    if (_stateController.text.trim().isNotEmpty) {
+      body['state'] = _stateController.text.trim();
     }
     if (_photo != null && _photo!.isNotEmpty) {
       body['photo'] = _photo;
@@ -887,34 +805,26 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
               enabled: !_loading,
             ),
             const SizedBox(height: 16),
-            SearchableDropdown(
-              label: 'State',
-              hint: 'Select state',
-              value: _selectedState,
-              items: _states
-                  .map((state) => state['name'].toString())
-                  .toList(),
-              enabled: !_loading,
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _selectedState = value;
-                  _selectedCity = null;
-                  _cities = List<String>.from(citiesForState(value));
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-            SearchableDropdown(
-              label: 'City',
-              hint: _selectedState == null
-                  ? 'Select state first'
-                  : 'Select city',
-              value: _selectedCity,
-              items: _cities,
-              enabled: !_loading && _selectedState != null,
-              onChanged: (value) =>
-                  setState(() => _selectedCity = value),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _cityController,
+                    decoration: const InputDecoration(labelText: 'City'),
+                    textCapitalization: TextCapitalization.words,
+                    enabled: !_loading,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _stateController,
+                    decoration: const InputDecoration(labelText: 'State'),
+                    textCapitalization: TextCapitalization.words,
+                    enabled: !_loading,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             TextFormField(
