@@ -1751,6 +1751,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   )
 
   useEffect(() => {
+    console.log('[manual] mount searchParams', searchParams.toString())
     fetchWorkspaceNgos()
       .then((l) => {
         const list = Array.isArray(l) ? l : []
@@ -2040,9 +2041,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const [y, m] = month.split('-').map(Number)
     let cancelled = false
     manualLoadedRef.current = false
+    console.log('[manual] load start', { month: m, year: y, ngoId })
     getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
       .then((rows) => {
         if (cancelled) return
+        console.log('[manual] load rows', rows)
         manualLoadedRef.current = true
         const prefix = `${ngoId || 'all'}|${month}|`
         setFestManual((cur) => {
@@ -2193,8 +2196,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
+      console.log('[manual] delete', { date, festival, scopeNgo })
       return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch((e) => { console.error('deleteManualRow failed', e); return null })
     }
+    console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
     return savePlannerManualRow({
       month: m,
       year: y,
@@ -2209,6 +2214,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       beneficiary,
       location,
     }).then((res) => {
+      console.log('[manual] save result', res)
       if (!res) showToast('Could not save programme. Please try again.')
       return res
     }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
