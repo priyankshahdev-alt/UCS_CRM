@@ -1732,6 +1732,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const next = part === 'year' ? `${value}-${m}` : `${y}-${pad2(Number(value) + 1)}`
     setMonth(next)
     setYear(Number(next.split('-')[0]))
+    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('month', next); return n }, { replace: true })
   }
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2800) }
