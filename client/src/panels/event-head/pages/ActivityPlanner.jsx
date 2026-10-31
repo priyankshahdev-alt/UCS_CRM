@@ -1635,7 +1635,7 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialMonth = searchParams.get('month') || currentMonthYmd()
+  const initialMonth = searchParams.get('month') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_month')) || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
   // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
@@ -1733,6 +1733,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setMonth(next)
     setYear(Number(next.split('-')[0]))
     setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('month', next); return n }, { replace: true })
+    try { localStorage.setItem('ap_month', next) } catch { /* ignore */ }
   }
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2800) }
@@ -1760,7 +1761,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // still matches) is never overridden, so a late response cannot yank
         // the page away from a choice made while it loaded.
         setNgoId((cur) => {
-          const wanted = searchParams.get('ngo')
+          const wanted = searchParams.get('ngo') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_ngo')) || ''
           if (wanted && list.some((n) => String(n.id) === String(wanted))) return String(wanted)
           return (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list)
         })
@@ -1870,6 +1871,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     if (!ngoId && ngos.length === 1) setNgoId(String(ngos[0].id))
   }, [ngos, ngoId])
+  useEffect(() => {
+    if (ngoId) { try { localStorage.setItem('ap_ngo', String(ngoId)) } catch { /* ignore */ } }
+  }, [ngoId])
+  useEffect(() => {
+    if (month) { try { localStorage.setItem('ap_month', String(month)) } catch { /* ignore */ } }
+  }, [month])
 
   /* "All NGOs" is a real choice, not an empty state: with no ngoId both
      endpoints drop the filter and return every row, which is what the
@@ -4171,7 +4178,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     type="button"
                     className="eh-btn eh-btn-sm"
                     aria-pressed={on}
-                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch(''); setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('ngo', String(n.id)); return next }, { replace: true }) }}
+                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch(''); setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('ngo', String(n.id)); return next }, { replace: true }); try { localStorage.setItem('ap_ngo', String(n.id)) } catch { /* ignore */ } }}
                     style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
                   >
                     {ngoShortLabel(n)}
