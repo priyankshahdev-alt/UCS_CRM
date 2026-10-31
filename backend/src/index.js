@@ -1171,6 +1171,18 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/hide-old-donors-auto', requireCronAuth, async (req, res) => {
+      try {
+        const { runOldDonorAutoSchedule } = await import('./services/oldDonorAutoSchedule.js');
+        const force = req.body?.force === true || req.query?.force === 'true';
+        const result = await runOldDonorAutoSchedule({ force });
+        res.json({ success: true, ...result });
+      } catch (error) {
+        console.error('Hide old donors auto schedule cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/cron/fro-month-rollover', requireCronAuth, async (req, res) => {
       try {
         const { runMonthlyRollover } = await import('./services/froMonthlyRollover.js');
@@ -1295,6 +1307,11 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
     import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     import('./services/froIdleReconcileScheduler.js').then((m) => m.start?.());
+    // Daily time window for the Hide Old Donors switch — hides at HH:MM and
+    // shows again at HH:MM (IST). See services/oldDonorAutoSchedule.js.
+    // Boot-time reconcile so the switch is in sync after a restart, even if
+    // the process was down across a boundary.
+    import('./services/oldDonorAutoSchedule.js').then((m) => m.runOldDonorAutoSchedule?.().catch(() => {}));
     // Automatic HR warnings at the board's own idle bands (1:00 / 1:41 / 2:11),
     // once per tier per IST day. See services/froIdleWarningScheduler.js.
     import('./services/froIdleWarningScheduler.js').then((m) => m.start?.());

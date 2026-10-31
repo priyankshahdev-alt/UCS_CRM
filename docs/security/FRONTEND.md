@@ -188,11 +188,10 @@ pastes fail late and expensively (SEC-019).
 
 ## Deployment
 
-`.github/workflows/deploy-frontend.yml` builds on Node 24 and `scp`s
-`client/dist` to `/var/www/crm` on host `13.207.47.116` using
-`secrets.SERVER_SSH_KEY`. Build-time `VITE_*` values come from GitHub secrets
-(SEC-011). The pre-deploy greps for the retired chat mock and layout scripts are
-worth keeping.
+The `deploy-frontend.yml` workflow was removed (no AWS deployment). The bundle is
+built locally and copied to the web root by hand. Build-time `VITE_*` values
+come from GitHub secrets when a workflow is reintroduced (SEC-011). The
+pre-deploy greps for the retired chat mock and layout scripts are worth keeping.
 
 **No security headers are set by the workflow or the bundle** — whatever the app
 serves today is configured only on the host, outside version control (SEC-003).

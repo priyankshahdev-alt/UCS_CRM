@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, ListFilter, X, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
+import { getSocket, onSocketConnect } from '../../../lib/socket';
 import Toast from '../components/Toast';
 import { toast } from '../../../components/Toast';
 import SuspenseToast from '../components/SuspenseToast';
@@ -536,6 +537,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 // ─── Main ──────────────────────────────────────────────────
 export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView,amountFilter='',dateFilter='',listRef,onListScroll,onAmounts,locked=false,refreshKey=0,onAfterAction}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
+  const[wsStatus,setWsStatus]=useState('connecting');
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
@@ -553,6 +555,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const mvFormRef=useRef(null);
   const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
+  useEffect(()=>{const s=getSocket();setWsStatus(s.connected?'live':'connecting');const off=onSocketConnect(()=>setWsStatus('live'));return off},[]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
   const navigate=useNavigate();
   const[suspenseToasts,setSuspenseToasts]=useState([]);
@@ -1006,5 +1009,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
     <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
     <SuspenseToast entries={suspenseToasts} onDismiss={(id)=>setSuspenseToasts(prev=>prev.filter(t=>t._toastId!==id))} onNavigate={()=>{setSuspenseToasts([]);navigate('/accounts/leads')}}/>
+    <span style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: wsStatus === 'live' ? '#dcfce7' : '#fee2e2', color: wsStatus === 'live' ? '#166534' : '#991b1b' }}>
+      {wsStatus === 'live' ? '● Live' : '○ Offline'}
+    </span>
   </div>;
 }

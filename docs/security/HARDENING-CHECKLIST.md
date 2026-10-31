@@ -61,16 +61,13 @@ proxy, or anything handling personal data. Cross-referenced with
 
 ```bash
 # Headers
-curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer-policy'
+curl -sI https://api.beingsevak.org | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer-policy'
 
 # TLS floor
-curl -sI --tls-max 1.1 https://crm.beingsevak.org    # must fail
-
-# Origin must not be directly reachable
-curl -sI https://13.207.47.116 -H 'Host: crm.beingsevak.org'   # must not serve content
+curl -sI --tls-max 1.1 https://api.beingsevak.org    # must fail
 
 # Uploads must not be world readable
-curl -sI https://crm.beingsevak.org/uploads/          # must 401/403/404
+curl -sI https://api.beingsevak.org/uploads/          # must 401/403/404
 
 # Auth throttling
 # 10 rapid POSTs to /api/auth/login must start returning 429
@@ -82,9 +79,8 @@ cd client;  npm run build   # must succeed
 
 ## Deploy gate
 
-`deploy-frontend.yml:104-108` currently only **warns** when
-`curl -sf https://crm.beingsevak.org` fails, so a broken or hijacked deploy is
-reported as success. Promote that to a hard failure before relying on CI as a
+Both AWS deploy workflows were removed; deploys are manual. Add a hard-failing
+HTTP check against whatever host serves the bundle before relying on CI as a
 security control.
 
 ## Incident response

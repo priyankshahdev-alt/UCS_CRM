@@ -48,10 +48,10 @@ cd backend && npm run security:check          # security static checks
 
 | Environment | Host | Edge | Process | Evidence |
 | --- | --- | --- | --- | --- |
-| Production | EC2 `13.207.47.116` | Caddy v2.11.4 | PM2 via `backend/ecosystem.config.cjs` | `infra/caddy/Caddyfile`, `.github/workflows/deploy.yml` |
+| Production | EC2 `13.207.47.116` | Caddy v2.11.4 | PM2 via `backend/ecosystem.config.cjs` | `infra/caddy/Caddyfile` |
 | HEAD/dev | EC2 `52.66.211.205` | nginx (`listen 80`) | PM2 `ucs-backend` | `infra/nginx/head.conf`, `scripts/sync-head.ps1` |
 | Static PWAs | Vercel | — | — | `.github/workflows/deploy-vercel.yml` |
 
-CI: `deploy.yml` (backend → prod, `npm ci`, `pm2 startOrRestart`, health check `https://api.beingsevak.org/api/health`, auto-rollback). `deploy-frontend.yml` (client dist → `/var/www/crm`).
+CI: `deploy.yml` (backend → prod, `npm ci`, `pm2 startOrRestart`, health check `https://api.beingsevak.org/api/health`, auto-rollback). The frontend deploy workflow was removed — `client/dist` is copied to the web root manually.
 
 > Endpoint hostnames above are read from repo config (`infra/`), not from production secrets.

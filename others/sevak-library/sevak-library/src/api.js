@@ -4,8 +4,7 @@
 // the UCS CRM backend API host (api.beingsevak.org) — an absolute URL so the
 // app works from any static host (Vercel, GitHub Pages, or /sevak-library on
 // the API server itself). The backend sends CORS headers with origin '*', so
-// cross-origin browser calls are allowed, and its preflight OPTIONS is handled
-// (crm.beingsevak.org does NOT forward POST/OPTIONS, so it cannot be used).
+// cross-origin browser calls are allowed, and its preflight OPTIONS is handled.
 // Admin endpoints require the CRM session (JWT); the public endpoints (submit,
 // look up by ref, record payment, payment reminder) are open.
 //

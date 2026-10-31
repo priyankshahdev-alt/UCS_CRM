@@ -17,9 +17,28 @@
 // dropped the moment the switch is flipped; the short TTL is what covers the
 // (currently theoretical) multi-process case.
 
+import redis from '../config/redis.cjs';
+import { cacheDelPrefix } from '../utils/ttlCache.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 
 export const HIDE_OLD_DONORS_KEY = 'hide_old_donors';
+
+// Every FRO-facing cached payload is prefixed "fro:" (dash/target/search/
+// donors/receipts), and the only Redis tier under the FRO namespace is the
+// My Leads list. Both are dropped on a flip so nobody keeps looking at a donor
+// list that was built before the switch moved.
+const FRO_CACHE_PREFIX = 'fro:';
+const FRO_DONORS_REDIS_PREFIX = 'v1:fro:donors:';
+
+/**
+ * Drop every cached FRO payload that was built while the switch was in its old
+ * position. Called on a manual flip (controller) and on an automatic one
+ * (services/oldDonorAutoSchedule.js) so both paths behave identically.
+ */
+export const bustFroCaches = () => {
+  cacheDelPrefix(FRO_CACHE_PREFIX);
+  redis.delByPrefix(FRO_DONORS_REDIS_PREFIX).catch(() => { });
+};
 
 // Short enough that a flip is picked up by any process within a couple of
 // seconds, long enough that the hot donor-list path does not hit the DB on

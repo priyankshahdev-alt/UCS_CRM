@@ -15,25 +15,22 @@ api.beingsevak.org, 13-207-47-116.sslip.io {
 	request_body {
 		max_size 12MB
 	}
-	reverse_proxy 127.0.0.1:5000 {
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-		header_up X-Real-IP {remote_host}
+
+	# uWebSockets.js is a plain HTTP/WS listener on 5001 - it has no TLS. Browser
+	# clients on an HTTPS page must use wss://, so terminate TLS here and forward
+	# the upgrade to the internal port. Caddy handles the Upgrade/Connection
+	# headers for reverse_proxy automatically.
+	handle /ws* {
+		reverse_proxy 127.0.0.1:5001
 	}
-}
 
-crm.beingsevak.org, crm.13-207-47-116.sslip.io {
-	import common_security_headers
-	root * /var/www/crm
-	encode gzip
-	try_files {path} /index.html
-	file_server
-
-	@assets path /assets/*
-	header @assets Cache-Control "public, max-age=31536000, immutable"
-
-	@entry path /index.html
-	header @entry Cache-Control "no-store, must-revalidate"
+	handle {
+		reverse_proxy 127.0.0.1:5000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
 }
 
 aflf.ngo, www.aflf.ngo {

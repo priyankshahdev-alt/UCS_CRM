@@ -1,50 +1,55 @@
-import { useState, useEffect } from 'react';
-import WhatsAppMessageList from './WhatsAppMessageList';
+import { useEffect, useState } from 'react';
+import { apiGet } from '../api/auth';
+import WhatsAppThread from './WhatsAppThread';
+import './whatsAppChat.css';
 
+/**
+ * Campaign recipient viewer.
+ *
+ * The old modal only listed messages, so clicking a number in a completed
+ * campaign opened a dead-end. It now renders the same full WhatsApp thread the
+ * Chats tab uses, which means an operator can reply, attach media, or send a
+ * template straight from a campaign recipient row.
+ */
 export default function ConversationViewer({ phone, accountId, onClose }) {
-  const [accounts, setAccounts] = useState([]);
-  const [selectedAccountId, setSelectedAccountId] = useState(accountId ? String(accountId) : 'all');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiGet('/whatsapp/accounts').then(d => setAccounts(Array.isArray(d) ? d : [])).catch(() => {});
-  }, []);
+  const [contactName, setContactName] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        const qs = selectedAccountId && selectedAccountId !== 'all' ? `?accountId=${selectedAccountId}` : '';
-        const d = await apiGet(`/whatsapp/conversations/${phone}${qs}`);
-        if (!cancelled) setData(d);
-      } catch (e) {
-        if (!cancelled) setData({ error: e.message || 'Failed' });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    apiGet('/whatsapp/chats')
+      .then((data) => {
+        if (cancelled) return;
+        const digits = String(phone || '').replace(/\D/g, '');
+        const match = (Array.isArray(data) ? data : []).find((thread) => String(thread.phone || '').replace(/\D/g, '') === digits);
+        if (match?.recipientName) setContactName(match.recipientName);
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [phone, selectedAccountId]);
+  }, [phone]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520, width: '95%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0 }}>Chat — {phone}</h3>
-          <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} style={{ marginLeft: 'auto', height: 30, fontSize: 12, border: '1px solid #cbd0dc', borderRadius: 6 }}>
-            <option value="all">All NGOs</option>
-            {accounts.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-          </select>
-        </div>
-        <div className="modal-body" style={{ padding: 12, overflowY: 'auto', flex: 1, background: '#efeae2' }}>
-          {loading && <p>Loading...</p>}
-          {!loading && data?.error && <p style={{ color: '#dc2626' }}>{data.error}</p>}
-          {!loading && !data?.error && (data?.messages?.length ? <WhatsAppMessageList messages={data.messages} loading={false} error={null} /> : <p style={{ textAlign: 'center', color: '#6b7280' }}>No messages yet.</p>)}
-        </div>
-        <div style={{ padding: 12, borderTop: '1px solid #e5e7eb' }}>
-          <button className="wa-btn wa-btn-outline" onClick={onClose}>Close</button>
+    <div
+      className="wac-modal-overlay"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}
+    >
+      <div className="wac-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="wac-root is-embedded is-chatting">
+          <main className="wac-main">
+            <WhatsAppThread
+              phone={phone}
+              accountId={accountId ? String(accountId) : undefined}
+              contactName={contactName}
+              onClose={onClose}
+            />
+          </main>
         </div>
       </div>
     </div>

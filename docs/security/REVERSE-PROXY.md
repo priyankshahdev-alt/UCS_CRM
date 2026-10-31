@@ -23,21 +23,14 @@ The live production config is:
 api.beingsevak.org, 13-207-47-116.sslip.io {
     reverse_proxy 127.0.0.1:5000
 }
-
-crm.beingsevak.org, crm.13-207-47-116.sslip.io {
-    root * /var/www/crm
-    encode gzip
-    try_files {path} /index.html
-    file_server
-}
 ```
 
-It serves **six domains** from one file (see `infra/README.md`), so a syntax error
+It serves **five domains** from one file (see `infra/README.md`), so a syntax error
 takes down every site on the box. `caddy validate` before every reload.
 
 ### Measured gaps
 
-- **Zero security headers.** `curl -sI https://crm.beingsevak.org` confirms no HSTS,
+- **Zero security headers.** `curl -sI https://api.beingsevak.org` confirms no HSTS,
   no CSP, no `frame-ancestors`, no `nosniff`, no `Referrer-Policy`, no
   `Permissions-Policy`.
 - **`X-Powered-By: Express`** leaks on the API origin. Strip it in `index.js`;
@@ -69,7 +62,7 @@ See `EDGE-HARDENING-PLAN.md` for the phased remediation.
 This is the **proposed** hardened config for `/etc/caddy/Caddyfile`. It is not
 applied yet — the live file is still the plain version captured in
 `infra/caddy/Caddyfile`. Apply per `infra/README.md`: back up, edit,
-`caddy validate`, `systemctl reload caddy`, then verify all six sites.
+`caddy validate`, `systemctl reload caddy`, then verify all five sites.
 
 ```caddy
 # Security headers. 'header' blocks inherit to sub-paths, so one per site
@@ -88,24 +81,6 @@ applied yet — the live file is still the plain version captured in
 		# Caddy ships the 'Server' header; blank it to remove the fingerprint.
 		-Server
 	}
-}
-
-# --- CRM: static SPA ---------------------------------------------------
-crm.beingsevak.org, crm.13-207-47-116.sslip.io {
-	import common_security_headers
-
-	root * /var/www/crm
-	encode gzip
-	try_files {path} /index.html
-	file_server
-
-	# Hashed assets may be cached for a year.
-	@assets path /assets/*
-	header @assets Cache-Control "public, max-age=31536000, immutable"
-
-	# Never cache the entry point, or clients pin an old bundle.
-	@entry path /index.html
-	header @entry Cache-Control "no-store, must-revalidate"
 }
 
 # --- API: proxy to Node ------------------------------------------------
@@ -165,7 +140,6 @@ ultimateconsultancy.services, www.ultimateconsultancy.services {
 | `header` blocks | Caddy omits headers unless asked; there were none. |
 | `-Server` | Suppresses the stack fingerprint. Cosmetic, not a control. |
 | `request_body.max_size 12MB` | Production had no body limit. Bounds memory before Node sees it. |
-| `Cache-Control` on `/assets` and `/index.html` | Correct caching; `index.html` must never be cached. |
 | `X-Forwarded-*` | The backend sets `app.set('trust proxy','loopback')` (`index.js:118`), so these must be right or `req.ip` is wrong. Caddy sets them automatically; stated explicitly to match the nginx equivalent. |
 | Other four sites | **Untouched.** Included only to show the full file that will be written. |
 
@@ -189,7 +163,7 @@ production data is worth revisiting rather than dismissing.
 ## Sample nginx hardening reference (not production)
 
 Retained for the HEAD host and for anyone adding a new nginx front end. **This is not
-the production config** — production is Caddy, above.
+the production config** — production is Caddy, above. Hostnames below are placeholders.
 
 ```nginx
 # Rate limit zones. Tune the numbers to real traffic before enforcing.
@@ -199,7 +173,7 @@ limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 
 server {
     listen 80;
-    server_name crm.beingsevak.org api.beingsevak.org;
+    server_name api.beingsevak.org;
     # Redirect everything except the ACME challenge.
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
     location / { return 301 https://$host$request_uri; }
@@ -208,10 +182,10 @@ server {
 server {
     listen 443 ssl;
     http2 on;
-    server_name crm.beingsevak.org;
+    server_name crm.example.org;
 
-    ssl_certificate     /etc/letsencrypt/live/crm.beingsevak.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/crm.beingsevak.org/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/crm.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.example.org/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
     ssl_session_cache   shared:SSL:10m;
@@ -321,8 +295,8 @@ There is no certbot, no renewal timer, and no reload hook to wire up.
 - Every hostname in `infra/caddy/Caddyfile` gets a certificate automatically. If one
   ever stops resolving, that site's TLS breaks on its own.
 - OCSP stapling is on by default in Caddy. Nothing to configure.
-- Monitor expiry regardless — an expired certificate on this host takes the CRM down
-  entirely, and six domains ride on one file.
+- Monitor expiry regardless — an expired certificate on this host takes every site down,
+  and five domains ride on one file.
 
 The HEAD host is the opposite: plain `listen 80`, no TLS at all. It proxies `/api` to a
 production database. Whether that is acceptable is a question about what HEAD is *for*;
@@ -334,16 +308,16 @@ Run from outside the app network:
 
 ```bash
 # Security headers now present (this is what returns 200 today with none of them)
-curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy'
+curl -sI https://api.beingsevak.org | grep -iE 'strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy'
 
 # TLS floor - must fail
-curl -sI --tls-max 1.1 https://crm.beingsevak.org
+curl -sI --tls-max 1.1 https://api.beingsevak.org
 
 # Path traversal - must be 400/404
-curl -s https://crm.beingsevak.org/uploads/../package.json
+curl -s https://api.beingsevak.org/uploads/../package.json
 
-# All six sites must still respond after any Caddyfile change
-for h in crm.beingsevak.org api.beingsevak.org aflf.ngo \
+# All five sites must still respond after any Caddyfile change
+for h in api.beingsevak.org aflf.ngo \
          manncarefoundation.org beingsevak.org ultimateconsultancy.services; do
   printf "%-36s %s\n" "$h" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://$h)"
 done
@@ -352,5 +326,5 @@ done
 curl -s --max-time 5 http://13.207.47.116:5000/api/db/tables   # expect timeout/refused
 ```
 
-Also confirm `/uploads` no longer serves files anonymously, and that the five
-non-CRM sites are unharmed.
+Also confirm `/uploads` no longer serves files anonymously, and that the remaining
+five sites are unharmed.

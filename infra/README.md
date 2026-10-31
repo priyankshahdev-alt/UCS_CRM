@@ -31,21 +31,20 @@ rewriting one into the other — migrate deliberately, with a rollback path, or 
 Both are verbatim captures. No hardening edits yet — see
 [`../docs/security/EDGE-HARDENING-PLAN.md`](../docs/security/EDGE-HARDENING-PLAN.md).
 
-## Production serves six domains from one file
+## Production serves five domains from one file
 
-`caddy/Caddyfile` is a single file serving six sites. **A syntax error takes all of them
+`caddy/Caddyfile` is a single file serving five sites. **A syntax error takes all of them
 down.** Any edit is a production-wide change.
 
 | Site | Root |
 | --- | --- |
 | `api.beingsevak.org`, `13-207-47-116.sslip.io` | `reverse_proxy 127.0.0.1:5000` |
-| `crm.beingsevak.org`, `crm.13-207-47-116.sslip.io` | `/var/www/crm` |
 | `aflf.ngo`, `www.aflf.ngo` | `/var/www/aflf` |
 | `manncarefoundation.org`, `www.manncarefoundation.org` | `/var/www/mann` |
 | `beingsevak.org`, `www.beingsevak.org` | `/var/www/being` |
 | `ultimateconsultancy.services`, `www.ultimateconsultancy.services` | `/var/www/ucs` |
 
-When editing, verify **all six** respond afterwards, not just `crm`.
+When editing, verify **all five** respond afterwards.
 
 ## Apply procedure — production
 
@@ -57,7 +56,7 @@ caddy validate --config /etc/caddy/Caddyfile        # MUST pass before reload
 sudo systemctl reload caddy                        # reload, not restart
 
 # confirm every site still answers
-for h in crm.beingsevak.org api.beingsevak.org aflf.ngo \
+for h in api.beingsevak.org aflf.ngo \
          manncarefoundation.org beingsevak.org ultimateconsultancy.services; do
   printf "%-36s %s\n" "$h" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://$h)"
 done

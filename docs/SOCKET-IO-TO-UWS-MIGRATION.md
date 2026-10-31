@@ -55,8 +55,17 @@ Backend `.env`:
 Client `.env`:
 - `VITE_API_URL`
 - `VITE_SOCKET_URL` (legacy fallback)
-- `VITE_WS_URL=ws://host:5001` (or `wss://host/ws` behind nginx)
+- `VITE_WS_URL=ws://host:5001` for plain-HTTP dev, or `wss://host/ws` behind the
+  reverse proxy. uWS has no TLS: an HTTPS page must use the proxied `/ws` path,
+  never `wss://host:5001`.
 - `VITE_WS_PORT` (optional)
+
+**LAN development** (backend + realtime on `192.168.1.152`, Vite dev server on
+`192.168.1.154:5173`): the client derives the socket host from `VITE_SOCKET_URL` /
+`VITE_API_URL`, never from `window.location`, so a phone loading the app from
+`.154` still connects to `.152:5001`. `vite.config.js` binds `server.host = true`
+so the dev server is reachable from other devices; the backend already listens on
+`0.0.0.0` for both ports and allows any origin by default.
 
 ## Security
 - Origin validated on upgrade against `WS_ALLOWED_ORIGINS`.

@@ -47,7 +47,7 @@ UCS_CRM/
 | WhatsApp workspace | `whtsapp/` | Node/Express + React + Vite | Vendored | `whtsapp/backend`, `whtsapp/frontend` |
 | Standalone web tools | `others/*` | React 19 + Vite (+ Supabase for sevak-library) | Active | each `others/*/package.json` |
 
-**Verified:** `backend/` and `client/` are the two production deploy targets (see `infra/README.md`, `.github/workflows/deploy.yml`, `.github/workflows/deploy-frontend.yml`).
+**Verified:** `backend/` and `client/` are the two production deploy targets (see `infra/README.md`). No AWS deploy workflows remain; deploys are manual.
 
 ---
 
@@ -208,7 +208,7 @@ The functional modules discovered from routes, controllers, models and panel scr
 | Static PWAs | Vercel | — | — | `.github/workflows/deploy-vercel.yml` |
 | Sevak Library | Vercel + Supabase | — | — | `others/sevak-library/DEPLOY.md` |
 
-CI/CD workflows (`.github/workflows/`): `deploy.yml` (backend → prod EC2 with health check + rollback), `deploy-frontend.yml` (`client/dist` → `/var/www/crm`), `deploy-vercel.yml`, `backup-restore-test.yml`, `inspect-fro-timer.yml`.
+CI/CD workflows (`.github/workflows/`): `deploy-vercel.yml`, `backup-restore-test.yml`, `inspect-fro-timer.yml`. There are no AWS deploy workflows; backend and `client/dist` are published manually.
 
 ---
 

@@ -2,6 +2,7 @@ import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTempl
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
+import { logOutboundMessage } from '../services/whatsappOutboundLog.js';
 import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } from '../services/receiptFileLink.js';
 import db from '../config/db.js';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -1102,7 +1103,7 @@ export async function listChats(req, res) {
     const contactIds = [...new Set((convs || []).map(c => c.contact_id).filter(Boolean))];
     const contactMap = {};
     if (contactIds.length) {
-      const { data: contacts } = await db.from('contacts').select('id,phone,phone_normalized,name').in('id', contactIds);
+      const { data: contacts } = await db.from('contacts').select('id,phone,phone_normalized,name,wa_profile_name').in('id', contactIds);
       for (const c of contacts || []) contactMap[c.id] = c;
     }
     const accountIds = [...new Set((convs || []).map(c => c.whatsapp_account_id).filter(Boolean))];
@@ -1121,7 +1122,7 @@ export async function listChats(req, res) {
         if (!matchAccount && !matchProject) continue;
       }
       const acc = c.whatsapp_account_id ? accountMap[c.whatsapp_account_id] : null;
-      upsert(phone, { phone, lastAt: c.last_message_at || new Date().toISOString(), lastMessage: '', direction: 'inbound', accountId: c.whatsapp_account_id || null, accountName: acc?.name || c.project || '', project: c.project || '', recipientName: contact?.wa_profile_name || '' });
+      upsert(phone, { phone, lastAt: c.last_message_at || new Date().toISOString(), lastMessage: '', direction: 'inbound', accountId: c.whatsapp_account_id || null, accountName: acc?.name || c.project || '', project: c.project || '', recipientName: contact?.name || contact?.wa_profile_name || '' });
     }
     let bulkQ = db.from('whatsapp_bulk_recipients').select('phone,account_id,template_name,status,created_at').order('created_at', { ascending: false }).limit(1000);
     if (accountId) bulkQ = bulkQ.eq('account_id', accountId);
@@ -1179,7 +1180,16 @@ export async function sendText(req, res) {
     const phone = String(to).replace(/[^0-9]/g, '');
     const account = accountId ? await getAccountById(accountId) : await resolveAccount();
     if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
-    const result = await sendTextMessage(phone, String(text).trim(), account);
+    const trimmed = String(text).trim();
+    const result = await sendTextMessage(phone, trimmed, account);
+    await logOutboundMessage({
+      account,
+      phone,
+      messageType: 'text',
+      bodyText: trimmed,
+      waMessageId: whatsappMessageId(result),
+      status: 'sent',
+    });
     return res.json({ success: true, result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1188,12 +1198,22 @@ export async function sendText(req, res) {
 
 export async function sendMedia(req, res) {
   try {
-    const { to, accountId, mediaUrl, mediaType, caption } = req.body || {};
+    const { to, accountId, mediaUrl, mediaType, mediaMimeType, caption } = req.body || {};
     if (!to || !mediaUrl) return res.status(400).json({ message: 'Phone and mediaUrl are required' });
     const phone = String(to).replace(/[^0-9]/g, '');
     const account = accountId ? await getAccountById(accountId) : await resolveAccount();
     if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
     const result = await sendMediaMessage(phone, mediaUrl, mediaType || 'image', caption || '', account);
+    await logOutboundMessage({
+      account,
+      phone,
+      messageType: mediaType || 'image',
+      bodyText: caption || `[${(mediaType || 'image').charAt(0).toUpperCase()}${(mediaType || 'image').slice(1)}]`,
+      waMessageId: whatsappMessageId(result),
+      mediaUrl,
+      mediaMimeType: mediaMimeType || null,
+      status: 'sent',
+    });
     return res.json({ success: true, result });
   } catch (error) {
     return res.status(500).json({ message: error.message });

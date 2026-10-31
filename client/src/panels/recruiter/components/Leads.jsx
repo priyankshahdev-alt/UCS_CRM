@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getSocket, onSocketConnect } from '../../../lib/socket';
 import { useRec, CANDIDATE_STAGES } from '../store';
 import { Plus, Users, Search, RefreshCw, Trash, X, Pencil } from '../icons';
 import { Dropdown, cleanField } from './ui';
@@ -147,6 +148,7 @@ const TABS = [
 
 export default function Leads() {
   const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters, leadScope, setLeadScope, canViewAllLeads, jobs } = useRec();
+  const [wsStatus, setWsStatus] = useState('connecting');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
@@ -174,6 +176,7 @@ export default function Leads() {
   const [deleting, setDeleting] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [jobRoles, setJobRoles] = useList('rec_leads_jobRoles', DEFAULT_JOB_ROLES);
+  useEffect(() => { const s = getSocket(); setWsStatus(s.connected ? 'live' : 'connecting'); const off = onSocketConnect(() => setWsStatus('live')); return off }, []);
   const [sources, setSources] = useList('rec_leads_sources', DEFAULT_SOURCES);
   const [connectedOpts, setConnectedOpts] = useList('rec_leads_connectedOptions', DEFAULT_CONNECTED);
   const [notConnectedOpts, setNotConnectedOpts] = useList('rec_leads_notConnectedOptions', DEFAULT_NOT_CONNECTED);
@@ -452,6 +455,9 @@ export default function Leads() {
 
   return (
     <>
+      <span style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: wsStatus === 'live' ? '#dcfce7' : '#fee2e2', color: wsStatus === 'live' ? '#166534' : '#991b1b' }}>
+        {wsStatus === 'live' ? '● Live' : '○ Offline'}
+      </span>
       <div className="card" style={{marginBottom:20}}>
         <div className="card-head"><h3><Users width={18}/> Add new lead</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
         <form className="card-pad" onSubmit={handleSubmit}>

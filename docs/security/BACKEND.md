@@ -149,9 +149,8 @@ user.
 
 ## Deployment
 
-`.github/workflows/deploy.yml` runs the backend under PM2 on the app host. The
-client bundle is copied by `scp` into a web root
-(`.github/workflows/deploy-frontend.yml:76-100`); its post-deploy check is
-`curl -sf https://crm.beingsevak.org`, which **only warns** and does not fail the
-job (`:104-108`). Promote that to a hard failure, otherwise a broken or hijacked
-deploy is reported as success.
+Both AWS deploy workflows were removed (no AWS deployment). Backend and frontend
+are now shipped manually: backend under PM2 on the app host, and the client
+bundle copied into the web root that serves it. Add a post-deploy HTTP check
+against whatever host serves the bundle, and make it a hard failure, otherwise a
+broken or hijacked deploy is reported as success.

@@ -4,12 +4,16 @@
 // callers (onDbChange, onFroAction, ..., chatApi) keep working unchanged.
 import { API_BASE } from './apiBase'
 
+console.log('[ws-module] loaded')
+alert('[ws-module] loaded - socket module is running')
+
 let socket = null // underlying WebSocket
 let shim = null
 const listeners = new Map() // type -> Set<handler>
 let connected = false
 let authRetries = 0
 let authRetryTimer = null
+let heartbeatTimer = null
 let currentSocket = null
 
 function getToken() {
@@ -19,20 +23,34 @@ function getToken() {
 function getWsUrl() {
   const override = import.meta.env.VITE_WS_URL
   const wsPort = import.meta.env.VITE_WS_PORT || '5001'
-  // Never let a localhost override leak to remote clients: if the configured
-  // URL points at localhost but the page is served from another host, derive
-  // the WebSocket URL from the current host instead.
-  if (override && !( /localhost|127\.0\.0\.1/.test(override) && typeof window !== 'undefined' && window.location && !/localhost|127\.0\.0\.1/.test(window.location.hostname) )) {
+  const page = typeof window !== 'undefined' ? window.location : null
+  const onLocalhost = !!page && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(page.hostname)
+  const pageIsHttps = !!page && page.protocol === 'https:'
+
+  // A localhost override is only meaningful on the machine that runs the
+  // backend; on a LAN/remote client it would point at the phone itself.
+  if (override && !(/localhost|127\.0\.0\.1/.test(override) && !onLocalhost)) {
+    // An HTTPS page cannot open a plain ws:// socket (mixed content). Send it
+    // through the reverse proxy instead, which terminates TLS on 443.
+    if (pageIsHttps && /^ws:\/\//.test(override)) {
+      try { return `wss://${new URL(override).hostname}/ws` } catch { /* fall through */ }
+    }
     return override
   }
-  const base = import.meta.env.VITE_SOCKET_URL || (API_BASE ? API_BASE.replace(/\/api\/?$/, '') : '')
+
+  const apiBase = import.meta.env.VITE_SOCKET_URL || (API_BASE ? API_BASE.replace(/\/api\/?$/, '') : '')
   try {
-    const u = new URL(base || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000'))
-    const proto = u.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = (typeof window !== 'undefined' && window.location && !/localhost|127\.0\.0\.1/.test(window.location.hostname))
-      ? window.location.hostname
-      : u.hostname
-    return `${proto}//${host}:${wsPort}`
+    const u = new URL(apiBase || (page ? page.origin : 'http://localhost:5000'))
+    // uWS runs next to the API, not next to the page. A client served from
+    // 192.168.1.154 must still reach the realtime port on 192.168.1.152, so
+    // take the host from the API base - never from window.location.
+    const host = u.hostname
+    // The uWebSockets.js listener is plain HTTP - it does not terminate TLS.
+    // A wss:// URL must therefore go through the reverse proxy on 443, which
+    // forwards /ws to the internal 5001 port. Connecting wss:// straight to
+    // :5001 fails the TLS handshake even when that port is reachable.
+    if (u.protocol === 'https:') return `wss://${host}/ws`
+    return `ws://${host}:${wsPort}`
   } catch {
     return 'ws://localhost:5001'
   }
@@ -52,6 +70,22 @@ function dispatch(type, payload) {
   for (const h of Array.from(set)) {
     try { h(payload) } catch (e) { console.warn('[ws] handler error:', e?.message || e) }
   }
+}
+
+// The server's uWS listener uses idleTimeout=120s and browsers never send
+// WebSocket pings on their own, so an idle tab was dropped every two minutes
+// and only came back after the reconnect backoff - a gap in which every
+// db:change event was lost. A 30s application-level ping keeps it alive.
+function startHeartbeat(s) {
+  stopHeartbeat()
+  heartbeatTimer = setInterval(() => {
+    if (s.readyState === WebSocket.OPEN) {
+      try { s.send(JSON.stringify({ type: 'ping' })) } catch { /* ignore */ }
+    }
+  }, 30000)
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
 }
 
 function scheduleAuthRetry() {
@@ -86,6 +120,7 @@ function connect() {
 
   s.onopen = () => {
     console.info('[ws] open')
+    startHeartbeat(s)
     const token = getToken()
     if (token) {
       try { s.send(JSON.stringify({ type: 'auth', payload: { token } })) } catch { /* ignore */ }
@@ -96,6 +131,7 @@ function connect() {
   s.onmessage = (ev) => {
     let msg
     try { msg = JSON.parse(ev.data) } catch { return }
+    console.log('[ws] recv', msg?.type, msg?.payload?.table || '')
     if (!msg || typeof msg.type !== 'string') return
     if (msg.type === 'auth:ok') {
       console.info('[ws] authenticated')
@@ -116,6 +152,7 @@ function connect() {
   }
   s.onclose = (ev) => {
     console.info('[ws] closed', ev?.code, ev?.reason || '')
+    stopHeartbeat()
     if (currentSocket !== s) return
     currentSocket = null
     const wasConnected = connected
@@ -148,6 +185,7 @@ shim = {
   connect() { return connect() },
   close() {
     const s = currentSocket
+    stopHeartbeat()
     if (s) {
       try { s.close() } catch { /* ignore */ }
       currentSocket = null
@@ -188,6 +226,7 @@ export function onDbChange({ table, event = '*', filter, onInsert, onUpdate, onD
   const s = getSocket()
   const relatedSet = Array.isArray(related) && related.length ? new Set(related) : null
   const handler = (payload) => {
+    console.log('[ws] db:change', payload?.table, payload?.eventType, payload)
     if (!payload) return
     const exact = !table || payload.table === table
     const implied = !exact && !!relatedSet && relatedSet.has(payload.table)

@@ -1,33 +1,33 @@
 // ─── Hide Old Donors (admin switch) ──────────────────────────────────────────
 //
-// GET /api/ngo-admin/hide-old-donors   → { hidden: boolean }
-// PUT /api/ngo-admin/hide-old-donors   → body { hidden: boolean } → { hidden }
+// GET  /api/ngo-admin/hide-old-donors            → { hidden, auto }
+// PUT  /api/ngo-admin/hide-old-donors            → body { hidden: boolean } → { hidden }
+// PUT  /api/ngo-admin/hide-old-donors/schedule   → body { enabled, hideAt, showAt } → { ...schedule }
 //
 // One global switch that hides every OLD-station donor from the field teams.
 // Enforcement lives in the FRO read paths (see services/oldDonorVisibility.js
 // and the scope filter in controllers/froController.js); this controller only
-// owns the on/off state and the cache invalidation that goes with a flip.
+// owns the on/off state, the optional daily time window
+// (services/oldDonorAutoSchedule.js) and the cache invalidation that goes with
+// a flip.
 
-import redis from '../config/redis.cjs';
-import { cacheDelPrefix } from '../utils/ttlCache.js';
-import { isOldDonorsHidden, setOldDonorsHidden } from '../services/oldDonorVisibility.js';
+import {
+  isOldDonorsHidden,
+  setOldDonorsHidden,
+  bustFroCaches,
+} from '../services/oldDonorVisibility.js';
+import {
+  saveAutoSchedule,
+  isScheduleUsable,
+  getNextChange,
+  getAutoScheduleStatus,
+} from '../services/oldDonorAutoSchedule.js';
 
-// Every FRO-facing cached payload is prefixed "fro:" (dash/target/search/
-// donors/receipts), and the only Redis tier under the FRO namespace is the
-// My Leads list. Both are dropped on a flip so nobody keeps looking at a
-// donor list that was built before the switch moved.
-const FRO_CACHE_PREFIX = 'fro:';
-const FRO_DONORS_REDIS_PREFIX = 'v1:fro:donors:';
-
-const bustFroCaches = () => {
-  cacheDelPrefix(FRO_CACHE_PREFIX);
-  redis.delByPrefix(FRO_DONORS_REDIS_PREFIX).catch(() => { });
-};
-
+// Kept as a named export so older imports keep working.
 export const getHideOldDonors = async (req, res) => {
   try {
-    const hidden = await isOldDonorsHidden();
-    return res.json({ hidden });
+    const auto = await getAutoScheduleStatus();
+    return res.json({ hidden: auto.hidden, auto });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -50,5 +50,45 @@ export const setHideOldDonors = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Daily time window ───────────────────────────────────────────────────────
+// { enabled, hideAt: 'HH:MM', showAt: 'HH:MM', lastWindow, usable, insideWindow }
+export const getHideOldDonorsSchedule = async (req, res) => {
+  try {
+    return res.json(await getAutoScheduleStatus());
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setHideOldDonorsSchedule = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const saved = await saveAutoSchedule({
+      enabled: body.enabled,
+      hideAt: body.hideAt ?? body.hide_at,
+      showAt: body.showAt ?? body.show_at,
+    });
+
+    // Deliberately NO immediate flip here: saving a schedule only schedules it.
+    // Flipping on save is what made "hide at 14:00" hide donors at 13:37.
+    const hidden = await isOldDonorsHidden();
+    const usable = isScheduleUsable(saved);
+    const next = getNextChange(saved);
+
+    return res.json({
+      ...saved,
+      usable,
+      hidden,
+      nextChange: next,
+      message: usable
+        ? `Auto-hide set — next change: ${next?.when === 'tomorrow' ? 'kal' : 'aaj'} ${next?.at} IST pe ${next?.action === 'hide' ? 'hide' : 'show'}.`
+        : 'Auto-hide is OFF — the Hide Old Donors button is manual again.',
+    });
+  } catch (error) {
+    const status = /HH:MM|same/i.test(error.message) ? 400 : 500;
+    return res.status(status).json({ message: error.message });
   }
 };

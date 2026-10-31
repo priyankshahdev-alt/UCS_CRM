@@ -342,7 +342,7 @@ always available. Effort is engineering time for one developer.
 | P1-B | **Stored XSS against HR administrators.** Worker/NGO names interpolated raw into letter HTML, injected via `dangerouslySetInnerHTML` and again via `el.innerHTML` before `html2canvas`. A worker controls their own display name. | `Letters.jsx:88,431,484,566,794,…`, sinks `:1043,1303` | Apply a complete `esc()` (including `"` and `'`) to every field, or render as React elements. Ban the sinks via lint. | 1 d |
 | P1-C | Unsanitised `mammoth` DOCX→HTML into `dangerouslySetInnerHTML`. DOMPurify is in the tree transitively but **never imported**. | `Certificates.jsx:55,79,436,1316` | Add `dompurify` as a direct dependency; sanitise with an allow-list at both sinks. | 0.5 d |
 | P1-D | Shared username/password gates technical tickets in client code and is in the shipped bundle; the server only requires `authenticate`, so **any** token reaches list, bulk-update and approve. | `TicketGate.jsx:4-8,32`; `TechnicalTickets.jsx:8-12,190`; `developerTicketRoutes.js:11,25-27` | Delete the credential comparison. Gate routes on `authenticateRole('super_admin','developer')`. Rotate the credential — it is public. | 0.5 d |
-| P1-E | **No security response headers anywhere.** No CSP, HSTS, frame-ancestors, nosniff, referrer or permissions policy. No `helmet` dependency. Confirmed absent on live production responses 2026-09-30. | `curl -sI https://crm.beingsevak.org` | See [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) Phase 3 — Caddy `header` blocks; strip `X-Powered-By` in `index.js`. | 1 d |
+| P1-E | **No security response headers anywhere.** No CSP, HSTS, frame-ancestors, nosniff, referrer or permissions policy. No `helmet` dependency. Confirmed absent on live production responses 2026-09-30. | `curl -sI https://api.beingsevak.org` | See [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) Phase 3 — Caddy `header` blocks; strip `X-Powered-By` in `index.js`. | 1 d |
 | P1-F | **Wildcard CORS** in Express and in socket.io, with `x-admin-key` in `allowedHeaders`. | `index.js:118-128`; `socket.js:46-49` | Explicit origin allow-list from the environment; drop `x-admin-key`. Never combine wildcard with credentials. | 0.5 d |
 | P1-G | JWT + **pre-impersonation super-admin token** in `localStorage`; role read from `localStorage` drives every guard. | `api/auth.js:5-8,152-153`; `store.jsx:58-59`; `App.jsx:53-63` | Move to `httpOnly; Secure; SameSite=Strict` cookie — **must land with P1-F**. Make role decisions only from the verified token. | 2 d |
 | P1-H | Donor PAN, UPI, address, DOB, screenshot, bank and mobile persisted to `localStorage`; WhatsApp agent session tokens; attendance PIN. | `Dashboard.jsx:207-225`; `MyDonors.jsx:757-764`; `WhatsAppChat.jsx:76-83`; `AdminAttendance.jsx:53` | Keep in memory or `sessionStorage` with explicit expiry. Never persist Aadhaar, PAN, bank or tokens. | 1 d |
@@ -410,14 +410,11 @@ non-exploitable CORS misconfiguration into a CSRF vulnerability.
 
 ```bash
 # Security headers must all be present
-curl -sI https://crm.beingsevak.org \
+curl -sI https://api.beingsevak.org \
   | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy'
 
 # TLS floor — must fail
-curl -sI --tls-max 1.1 https://crm.beingsevak.org
-
-# Origin must not be directly reachable
-curl -sI https://13.207.47.116 -H 'Host: crm.beingsevak.org'   # must not serve content
+curl -sI --tls-max 1.1 https://api.beingsevak.org
 ```
 
 ### Exposure checks — must all fail
@@ -429,7 +426,7 @@ curl -s -X POST https://api.beingsevak.org/api/db/query \
   -d '{"sql":"select 1"}'                                  # must be 401/403
 
 # Uploads must not be world readable
-curl -sI https://crm.beingsevak.org/uploads/                 # must be 401/403/404
+curl -sI https://api.beingsevak.org/uploads/                 # must be 401/403/404
 
 # Beneficiary PII must not be anonymous
 curl -s https://api.beingsevak.org/api/beneficiaries/        # must be 401/403

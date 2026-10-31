@@ -45,7 +45,7 @@ Both boxes run the same Express app, so the findings below are about the edge, n
 
 ### Live header capture — production, 2026-09-30
 
-`https://crm.beingsevak.org`:
+`https://api.beingsevak.org/`:
 
 ```
 HTTP/1.1 200 OK
@@ -75,12 +75,11 @@ live edge**, not merely inferred from source.
 
 ### Other sites sharing the production Caddyfile
 
-One config file serves six domains. Any edit must preserve all six:
+One config file serves five domains. Any edit must preserve all five:
 
 | Site | Root |
 | --- | --- |
 | `api.beingsevak.org`, `13-207-47-116.sslip.io` | `reverse_proxy 127.0.0.1:5000` |
-| `crm.beingsevak.org`, `crm.13-207-47-116.sslip.io` | `/var/www/crm` |
 | `aflf.ngo`, `www.aflf.ngo` | `/var/www/aflf` |
 | `manncarefoundation.org`, `www.manncarefoundation.org` | `/var/www/mann` |
 | `beingsevak.org`, `www.beingsevak.org` | `/var/www/being` |
@@ -158,7 +157,7 @@ sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date +%s)   # backup fir
 # edit
 caddy validate --config /etc/caddy/Caddyfile                        # MUST pass
 sudo systemctl reload caddy
-curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|x-frame|nosniff|referrer'
+curl -sI https://api.beingsevak.org | grep -iE 'strict-transport|x-frame|nosniff|referrer'
 # if anything is wrong:
 sudo cp /etc/caddy/Caddyfile.bak-<ts> /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
@@ -166,8 +165,8 @@ sudo cp /etc/caddy/Caddyfile.bak-<ts> /etc/caddy/Caddyfile && sudo systemctl rel
 - [ ] Back up `Caddyfile` before each change
 - [ ] `caddy validate` passes before every reload
 - [ ] Reload (`reload`, not `restart`) — zero dropped connections
-- [ ] Verify **all six sites** still respond after reload, not just `crm`
-- [ ] Confirm headers present on both `crm` and `api`
+- [ ] Verify **all five sites** still respond after reload
+- [ ] Confirm headers present on the API site
 
 ---
 
@@ -218,25 +217,25 @@ this is safe — but verify before restarting the app.
 
 ```bash
 # Headers present
-curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|x-frame|x-content-type|referrer|permissions'
+curl -sI https://api.beingsevak.org | grep -iE 'strict-transport|x-frame|x-content-type|referrer|permissions'
 
 # TLS floor - must fail
-curl -sI --tls-max 1.2 https://crm.beingsevak.org
+curl -sI --tls-max 1.2 https://api.beingsevak.org
 
-# All six sites respond
-for h in crm.beingsevak.org api.beingsevak.org aflf.ngo manncarefoundation.org beingsevak.org ultimateconsultancy.services; do
+# All five sites respond
+for h in api.beingsevak.org aflf.ngo manncarefoundation.org beingsevak.org ultimateconsultancy.services; do
   printf "%-36s %s\n" "$h" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://$h)"
 done
 
 # Uploads must not be anonymous
-curl -sI https://crm.beingsevak.org/uploads/          # expect 401/403/404
+curl -sI https://api.beingsevak.org/uploads/          # expect 401/403/404
 
 # Node port must not be reachable from outside
 curl -s --max-time 5 http://13.207.47.116:5000/api/db/tables   # expect timeout/refused
 ```
 
 - [ ] All of the above pass
-- [ ] No regression in the five non-CRM sites
+- [ ] No regression in the other sites
 
 ---
 

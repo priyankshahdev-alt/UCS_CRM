@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
-import { lazy, Suspense, Component } from 'react'
+import { lazy, Suspense, Component, useEffect } from 'react'
+import { getSocket } from './lib/socket'
 import Login from './pages/Login'
 import TempPage from './pages/TempPage'
 import NoticesBar from './components/NoticesBar'
@@ -208,6 +209,7 @@ class ErrorBoundary extends Component {
 }
 
 export default function App() {
+  useEffect(() => { getSocket() }, [])
   return (
     <ErrorBoundary>
     <UcsProvider>

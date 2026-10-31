@@ -45,9 +45,16 @@ export async function resolveAccount(project) {
 export async function sendMediaMessage(to, mediaUrl, mediaType = 'image', caption = '', account) {
   const resolved = account || await resolveAccount();
   if (!resolved) throw new Error('WhatsApp not configured');
-  const type = mediaType === 'document' ? 'document' : (mediaType === 'video' ? 'video' : 'image');
+  const type = mediaType === 'document'
+    ? 'document'
+    : mediaType === 'video'
+      ? 'video'
+      : mediaType === 'audio'
+        ? 'audio'
+        : 'image';
   const payload = { [type]: { link: mediaUrl } };
-  if (caption) payload[type].caption = caption;
+  // The Cloud API rejects captions on audio messages.
+  if (caption && type !== 'audio') payload[type].caption = caption;
   return sendViaFacebook(to, type, payload, resolved);
 }
 export async function sendTextMessage(to, text, account) {

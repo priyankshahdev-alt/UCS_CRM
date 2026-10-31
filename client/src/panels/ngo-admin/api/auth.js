@@ -99,4 +99,15 @@ export function setHideOldDonors(hidden) {
   return apiPut('/ngo-admin/hide-old-donors', { hidden: !!hidden })
 }
 
+// Optional daily time window on top of the switch. `hideAt` / `showAt` are
+// 'HH:MM' in IST; at each boundary the switch is flipped automatically, while
+// the manual button above still works in between.
+export function getHideOldDonorsSchedule() {
+  return apiGet('/ngo-admin/hide-old-donors/schedule')
+}
+
+export function setHideOldDonorsSchedule(body) {
+  return apiPut('/ngo-admin/hide-old-donors/schedule', body)
+}
+
 export { setSession, clearSession, getToken, getUser } from '../../../api/auth'

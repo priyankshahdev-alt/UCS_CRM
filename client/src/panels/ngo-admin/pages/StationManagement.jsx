@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Unlink } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors } from '../api/auth';
+import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors, setHideOldDonorsSchedule } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
@@ -1226,6 +1226,112 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
             <button className="btn btn-outline" onClick={onClose}>Cancel</button>
             <button className="btn btn-primary" onClick={() => onCreate(tempFile)} disabled={adding || !newStation.trim()}>
               {adding ? 'Adding...' : 'Create Station'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Auto-hide schedule for the Hide Old Donors switch ───────────────────────
+// Two IST times: at `hideAt` the switch turns ON by itself, at `showAt` it
+// turns OFF again. The manual button still works in between — the next
+// boundary re-asserts the schedule.
+function AutoHideScheduleModal({ value, saving, onSave, onClose }) {
+  const [enabled, setEnabled] = useState(!!value?.enabled);
+  const [hideAt, setHideAt] = useState(value?.hideAt || '10:00');
+  const [showAt, setShowAt] = useState(value?.showAt || '19:00');
+
+  const sameTime = !!hideAt && !!showAt && hideAt === showAt;
+  const invalid = sameTime || !hideAt || !showAt;
+  const overnight = !invalid && hideAt > showAt;
+
+  // Preview of the next automatic flip, computed in IST exactly like the
+  // scheduler does — so the admin never has to guess whether saving will flip
+  // the switch right now (it never does; only boundaries do).
+  const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const istMinutes = (() => {
+    const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    return d.getUTCHours() * 60 + d.getUTCMinutes();
+  })();
+  const untilHide = ((toMin(hideAt) - istMinutes + 1440) % 1440) || 1440;
+  const untilShow = ((toMin(showAt) - istMinutes + 1440) % 1440) || 1440;
+  const nextIsHide = untilHide <= untilShow;
+  const nextAt = nextIsHide ? hideAt : showAt;
+  const nextWhen = (nextIsHide ? untilHide : untilShow) < 1440 ? 'aaj' : 'kal';
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <div className="modal-head">
+          <h3>Auto-hide old donors</h3>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+            Har din fix time pe <strong>Hide Old Donors</strong> switch khud badal jayega.
+            Tab tak manual button normal kaam karega — agla boundary aate hi schedule
+            apna state wapas laga dega.
+          </p>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={e => setEnabled(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--sage)' }}
+            />
+            Auto-hide chalu rakho
+          </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label className="field" style={{ opacity: enabled ? 1 : 0.5 }}>
+              Hide at (IST)
+              <input
+                type="time"
+                value={hideAt}
+                onChange={e => setHideAt(e.target.value)}
+                disabled={!enabled}
+              />
+            </label>
+            <label className="field" style={{ opacity: enabled ? 1 : 0.5 }}>
+              Show at (IST)
+              <input
+                type="time"
+                value={showAt}
+                onChange={e => setShowAt(e.target.value)}
+                disabled={!enabled}
+              />
+            </label>
+          </div>
+
+          {sameTime && (
+            <div style={{ fontSize: 12, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 10px' }}>
+              Hide aur Show ka time same nahi ho sakta.
+            </div>
+          )}
+          {overnight && (
+            <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px' }}>
+              Show time hide time se pehle hai — matlab donors {hideAt} se {showAt} tak (raat bhar) hidden rahenge.
+            </div>
+          )}
+          {!sameTime && !overnight && enabled && (
+            <div style={{ fontSize: 12, color: '#1e3a8a', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 10px', lineHeight: 1.55 }}>
+              Donors roz <strong>{hideAt}</strong> se <strong>{showAt}</strong> IST tak hidden rahenge.
+              <br />
+              <strong>Save karne se abhi switch nahi badlega</strong> — agla change {nextWhen} <strong>{nextAt}</strong> IST pe {nextIsHide ? 'hide' : 'show'} hoga.
+            </div>
+          )}
+
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={saving || (enabled && invalid)}
+              onClick={() => onSave({ enabled, hideAt, showAt })}
+            >
+              {saving ? 'Saving…' : 'Save schedule'}
             </button>
           </div>
         </div>
@@ -2749,11 +2855,47 @@ export default function StationManagement() {
   // on the new data. Turning it off brings the old data straight back.
   const [hideOldDonors, setHideOldDonorsState] = useState(false);
   const [hidingOldDonors, setHidingOldDonors] = useState(false);
+  // Daily time window on top of the manual switch: { enabled, hideAt, showAt,
+  // lastWindow, usable }. Loaded with the switch so the header can say when the
+  // next automatic flip is due.
+  const [autoSchedule, setAutoSchedule] = useState(null);
+  const [autoScheduleOpen, setAutoScheduleOpen] = useState(false);
+  const [savingAutoSchedule, setSavingAutoSchedule] = useState(false);
 
   const loadHideOldDonors = () => {
     getHideOldDonors()
-      .then(r => setHideOldDonorsState(!!r?.hidden))
-      .catch(() => setHideOldDonorsState(false)); // feature unavailable → shown
+      .then(r => {
+        setHideOldDonorsState(!!r?.hidden);
+        // Older backends do not return `auto` — fall back to a disabled schedule
+        // so the button renders as "Auto" instead of blowing up.
+        setAutoSchedule(r?.auto || { enabled: false, hideAt: '10:00', showAt: '19:00', usable: false });
+      })
+      .catch(() => {
+        setHideOldDonorsState(false); // feature unavailable → shown
+        setAutoSchedule(null);
+      });
+  };
+
+  const saveAutoSchedule = async ({ enabled, hideAt, showAt }) => {
+    setSavingAutoSchedule(true);
+    try {
+      const res = await setHideOldDonorsSchedule({ enabled, hideAt, showAt });
+      setAutoSchedule({
+        enabled: !!res?.enabled,
+        hideAt: res?.hideAt || hideAt,
+        showAt: res?.showAt || showAt,
+        lastWindow: res?.lastWindow ?? null,
+        usable: !!res?.usable,
+        nextChange: res?.nextChange || null,
+      });
+      if (typeof res?.hidden === 'boolean') setHideOldDonorsState(res.hidden);
+      setAutoScheduleOpen(false);
+      setMsg(res?.message || 'Auto-hide schedule saved.');
+    } catch (e) {
+      toast(e?.message || 'Could not save the auto-hide schedule', 'error');
+    } finally {
+      setSavingAutoSchedule(false);
+    }
   };
 
   const toggleHideOldDonors = async () => {
@@ -3298,8 +3440,34 @@ export default function StationManagement() {
                   <EyeOff size={12} /> Old donors hidden — FROs see only new data
                 </span>
               )}
+              {autoSchedule?.usable && (
+                <span
+                  title={`Flips itself daily at ${autoSchedule.hideAt} (hide) and ${autoSchedule.showAt} (show), IST.${autoSchedule.nextChange ? ` Next change: ${autoSchedule.nextChange.when === 'tomorrow' ? 'kal' : 'aaj'} ${autoSchedule.nextChange.at} → ${autoSchedule.nextChange.action}.` : ''}`}
+                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <Clock size={12} /> Auto {autoSchedule.hideAt}→{autoSchedule.showAt} IST
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Auto-hide window: opens the daily hide/show schedule. Shown
+                  beside the manual switch because both write the same flag. */}
+              <button
+                onClick={() => setAutoScheduleOpen(true)}
+                title={autoSchedule?.usable
+                  ? `Auto-hide ON — donors stay hidden daily from ${autoSchedule.hideAt} to ${autoSchedule.showAt} IST. Click to change.`
+                  : 'Set a daily window so the Hide Old Donors switch flips itself (e.g. hide 10:00, show 19:00).'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                  borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+                  background: autoSchedule?.usable ? '#eff6ff' : '#f8fafc',
+                  color: autoSchedule?.usable ? '#1d4ed8' : 'var(--ink-soft)',
+                  border: `1px solid ${autoSchedule?.usable ? '#bfdbfe' : 'var(--line, #e5e7eb)'}`,
+                }}>
+                <Clock size={13} />
+                {autoSchedule?.usable
+                  ? `Auto ${autoSchedule.hideAt}→${autoSchedule.showAt}`
+                  : 'Auto hide'}
+              </button>
               {/* Hide Old Donors: one global switch. ON → the field teams are
                   limited to the new (FD) stations; the old stations' donors,
                   follow-ups and history disappear from their panel. OFF → they
@@ -3645,6 +3813,15 @@ export default function StationManagement() {
           adding={adding}
           onCreate={handleAddStation}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+
+      {autoScheduleOpen && (
+        <AutoHideScheduleModal
+          value={autoSchedule || undefined}
+          saving={savingAutoSchedule}
+          onSave={saveAutoSchedule}
+          onClose={() => setAutoScheduleOpen(false)}
         />
       )}
 

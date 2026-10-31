@@ -39,10 +39,8 @@ confirm they are absent from `.env.example` with real values.
 
 ### GitHub Actions
 
-| Secret | Used for |
-| --- | --- |
-| `SERVER_SSH_KEY` | deploy access to the app host (`deploy-frontend.yml:79-97`) |
-| `CRM_WHATSAPP_EMAIL`, `CRM_WHATSAPP_PASSWORD` | injected into the **client** build (`deploy-frontend.yml:43-44`) — SEC-011 |
+Both AWS deploy workflows were removed (`deploy.yml`, `deploy-frontend.yml`); deploys are
+manual. The secrets below are historical references only.
 
 ## Findings
 

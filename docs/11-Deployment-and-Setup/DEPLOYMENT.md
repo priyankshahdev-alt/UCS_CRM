@@ -6,10 +6,9 @@
 
 ## 1. Production (EC2 `13.207.47.116` · Caddy · PM2)
 
-Deployment is automated by GitHub Actions but summarized here:
-
-1. Backend: workflow `deploy.yml` connects via SSH to `ec2-user@13.207.47.116`, runs `git reset --hard origin/master`, `npm ci`, `pm2 startOrRestart ecosystem.config.cjs`, then polls `https://api.beingsevak.org/api/health`. Failure → automatic rollback.
-2. Frontend: workflow `deploy-frontend.yml` builds `client/` and uploads `client/dist/*` to `/var/www/crm` served by the same host; build fails if the removed chat mock reappears.
+Deployment is manual — both AWS deploy workflows (`deploy.yml`,
+`deploy-frontend.yml`) were removed. Backend runs under PM2 on the app host;
+frontend `client/dist` is copied to the web root that serves it.
 
 PM2 ecosystem file: `backend/ecosystem.config.cjs`.
 

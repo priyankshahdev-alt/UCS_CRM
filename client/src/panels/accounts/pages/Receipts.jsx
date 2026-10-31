@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth'
 import { X } from 'lucide-react'
 
 import { useRealtime } from '../../../hooks/useRealtime'
+import { getSocket, onSocketConnect } from '../../../lib/socket'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar'
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray'
@@ -290,6 +291,7 @@ export default function Receipts() {
   const fileRef = useRef(null)
   const namesFileRef = useRef(null)
   const rtTimerRef = useRef(null)
+  const [wsStatus, setWsStatus] = useState('connecting')
   const CHUNK_SIZE = 100
 
   useEffect(() => {
@@ -372,6 +374,13 @@ const agentCell = useCallback((d) => {
   }, [])
 
   useEffect(() => { loadPending() }, [loadPending])
+
+  useEffect(() => {
+    const s = getSocket()
+    setWsStatus(s.connected ? 'live' : 'connecting')
+    const off = onSocketConnect(() => setWsStatus('live'))
+    return off
+  }, [])
 
   useEffect(() => { return () => clearTimeout(rtTimerRef.current) }, [])
 
@@ -831,6 +840,9 @@ const agentCell = useCallback((d) => {
           <div>
             <h2 className="rx-title">Receipts</h2>
             <p className="rx-subtitle">Import, verify &amp; send donation receipts</p>
+            <span style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: wsStatus === 'live' ? '#dcfce7' : '#fee2e2', color: wsStatus === 'live' ? '#166534' : '#991b1b' }}>
+              {wsStatus === 'live' ? '● Live' : '○ Offline'}
+            </span>
           </div>
         </div>
       </div>

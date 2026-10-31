@@ -13,6 +13,8 @@ import {
 import {
   getHideOldDonors,
   setHideOldDonors,
+  getHideOldDonorsSchedule,
+  setHideOldDonorsSchedule,
 } from '../controllers/oldDonorVisibilityController.js';
 import {
   getFroWorkers,
@@ -165,6 +167,11 @@ router.use(authenticateRole('admin', 'super_admin'));
 // every FRO in the system can work on.
 router.get('/hide-old-donors', getHideOldDonors);
 router.put('/hide-old-donors', setHideOldDonors);
+
+// Optional daily time window on top of the switch: hide at HH:MM, show at
+// HH:MM (IST). Boundaries win; the manual button still works in between.
+router.get('/hide-old-donors/schedule', getHideOldDonorsSchedule);
+router.put('/hide-old-donors/schedule', setHideOldDonorsSchedule);
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);

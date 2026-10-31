@@ -5,14 +5,6 @@ import App from './App.jsx'
 import './index.css'
 import './lib/networkDetail'
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      regs.forEach((reg) => reg.unregister())
-    }).catch(() => {})
-  })
-}
-
 // Stale-chunk recovery: each deploy emits new hashed asset filenames. A tab
 // opened before the deploy that lazy-loads a page afterwards requests the OLD
 // filename ("Failed to fetch dynamically imported module" → blank "Something
