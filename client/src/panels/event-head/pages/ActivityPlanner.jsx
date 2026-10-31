@@ -1634,7 +1634,7 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialMonth = searchParams.get('month') || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
@@ -4133,7 +4133,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     type="button"
                     className="eh-btn eh-btn-sm"
                     aria-pressed={on}
-                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
+                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch(''); setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('ngo', String(n.id)); return next }, { replace: true }) }}
                     style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
                   >
                     {ngoShortLabel(n)}
