@@ -2144,30 +2144,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return out
    }, [festManual, scopedManualPrefix])
 
-  /* Best-effort flush of pending manual rows when the tab is closed/refreshed,
-     so a typed value that never blurred still reaches the server. */
-  useEffect(() => {
-    const onBeforeUnload = () => {
-      for (const k of Object.keys(scopedManual || {})) {
-        try { persistManualRow(k) } catch { /* best effort */ }
-      }
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [scopedManual, persistManualRow])
-
-  /* Debounced auto-save: persist manual rows 800ms after the last edit so a
-     refresh never loses typed text, even without an explicit blur. */
-  useEffect(() => {
-    if (!manualLoadedRef.current) return
-    const t = setTimeout(() => {
-      for (const k of Object.keys(scopedManual || {})) {
-        persistManualRow(k).catch(() => {})
-      }
-    }, 800)
-    return () => clearTimeout(t)
-  }, [scopedManual, persistManualRow])
-
   /* The manual row's export value in one place: selected AND actually typed,
      so an emptied textarea can never claim a slot in the download. */
   const manualExportText = useCallback(
@@ -2237,6 +2213,30 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       return res
     }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
   }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
+
+  /* Best-effort flush of pending manual rows when the tab is closed/refreshed,
+     so a typed value that never blurred still reaches the server. */
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      for (const k of Object.keys(scopedManual || {})) {
+        try { persistManualRow(k) } catch { /* best effort */ }
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [scopedManual, persistManualRow])
+
+  /* Debounced auto-save: persist manual rows 800ms after the last edit so a
+     refresh never loses typed text, even without an explicit blur. */
+  useEffect(() => {
+    if (!manualLoadedRef.current) return
+    const t = setTimeout(() => {
+      for (const k of Object.keys(scopedManual || {})) {
+        persistManualRow(k).catch(() => {})
+      }
+    }, 800)
+    return () => clearTimeout(t)
+  }, [scopedManual, persistManualRow])
 
   const deleteManualRow = useCallback((key) => {
     const { date, festival } = manualKeyParts(key)
