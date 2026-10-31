@@ -40,7 +40,7 @@ const NAV = [
   { id: 'tickets', path: '/social/tickets', label: 'Tickets', icon: 'ticket' },
   { id: 'reels-checklist', path: '/social/reels-checklist', label: 'Reels Checklist', icon: 'reels' },
   { id: 'media', path: '/social/media', label: 'Media / Banners', icon: 'media' },
-  { id: 'monthly-report', path: '/social/monthly-report', label: 'Monthly Report', icon: 'report' },
+  { id: 'monthly-report', path: '/social/monthly-report', label: 'Reports & Analytics', icon: 'report' },
   // Acceptance / rejection of the team's daily reports — the head only. Hidden
   // from members because the review is her call (see canAssign below).
   { id: 'approvals', path: '/social/approvals', label: 'Report Approvals', icon: 'approvals', headOnly: true },

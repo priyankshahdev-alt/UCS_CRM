@@ -43,8 +43,12 @@ export const importantDayType = (o) => (o.scope === 'worldwide' ? 'international
 export async function getMergedObservancesInRange(startYmd, endYmd, { holidays = [], scope = 'all' } = {}) {
   // 1 + 2. Curated reference calendar (both scopes) + operator holiday overlay.
   const curated = getObservancesInRange(startYmd, endYmd, { scope: 'all' });
-  const base = Array.isArray(holidays) && holidays.length
-    ? mergeCustomObservances(curated, holidays)
+  const scopedHolidays = (Array.isArray(holidays) ? holidays : []).filter((h) => {
+    const d = String(h?.date || '').slice(0, 10);
+    return d >= startYmd && d < endYmd;
+  });
+  const base = scopedHolidays.length
+    ? mergeCustomObservances(curated, scopedHolidays)
     : curated;
 
   // 3. Fixed international days (deduped — curated wins on exact date+name).

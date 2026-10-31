@@ -450,6 +450,21 @@ const localObservances = (start, end, scope) => {
   }
 }
 
+const fallbackRange = (params = {}) => {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  if (params.start && params.end) return { start: params.start, end: params.end }
+  const year = Number(params.year)
+  const month = Number(params.month)
+  if (Number.isInteger(year) && year >= 1900 && year <= 2200 && Number.isInteger(month) && month >= 1 && month <= 12) {
+    const start = `${year}-${String(month).padStart(2, '0')}-01`
+    const next = new Date(year, month, 1)
+    const end = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`
+    return { start, end }
+  }
+  const today = new Date()
+  return { start: iso(new Date(today.getTime() - 62 * 86400000)), end: iso(today) }
+}
+
 export const fetchCalendarObservances = async (params = {}) => {
   const qs = new URLSearchParams()
   if (params.start) qs.set('start', params.start)
@@ -461,10 +476,7 @@ export const fetchCalendarObservances = async (params = {}) => {
     if (d && Array.isArray(d.observances)) return { ...d, source: 'server' }
     throw new Error('unexpected observance response')
   } catch (err) {
-    const today = new Date()
-    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const end = params.end || iso(today)
-    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const { start, end } = fallbackRange(params)
     const scope = params.scope || 'all'
     console.warn('fetchCalendarObservances: server calendar unavailable, using bundled reference calendar:', err?.message || err)
     return localObservances(start, end, scope)
@@ -510,10 +522,7 @@ export const fetchImportantDays = async (params = {}) => {
     }
     throw new Error('unexpected important-days response')
   } catch (err) {
-    const today = new Date()
-    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const end = params.end || iso(today)
-    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const { start, end } = fallbackRange(params)
     const scope = params.scope || 'all'
     const fallback = localObservances(start, end, scope)
     const reason = err?.message || String(err || '')

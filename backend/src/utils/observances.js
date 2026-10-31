@@ -294,7 +294,7 @@ const BY_YEAR = {
     { date: '2026-09-24', name: 'Anant Chaturdashi',               scope: I, kind: 'religious', themes: ['community'], precision: 'lunar' },
     { date: '2026-10-11', name: 'Sharad Navratri begins',         scope: I, kind: 'festival', themes: ['community', 'sports-culture'], precision: 'lunar' },
     { date: '2026-10-19', name: 'Durga Ashtami',                  scope: I, kind: 'religious', themes: ['community', 'women-children'], precision: 'lunar' },
-    { date: '2026-10-19', name: 'Diwali (Deepavali)',             scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar' },
+    { date: '2026-11-08', name: 'Diwali (Deepavali)',             scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar' },
     { date: '2026-10-20', name: 'Vijayadashami (Dussehra)',       scope: I, kind: 'festival', themes: ['community'], precision: 'lunar' },
     { date: '2026-11-15', name: 'Chhath Puja',                    scope: I, kind: 'religious', themes: ['community', 'health'], precision: 'lunar' },
     { date: '2026-11-24', name: 'Guru Nanak Jayanti',             scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar' },

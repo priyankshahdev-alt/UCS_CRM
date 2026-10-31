@@ -1632,22 +1632,40 @@ const loadPlannerDoneCells = async (month, year) => {
     const monthKey = `${year}-${mm}`;
     const start = `${monthKey}-01`;
     const end = monthEndExclusive(monthKey);
-    const [tasksRes, reportsRes] = await Promise.all([
-      db.from('task_assignments')
-        .select('task_date, title, content_type, assignee_id, completed_date')
-        .eq('panel', 'social')
-        .gte('task_date', start).lt('task_date', end),
-      db.from('daily_reports')
-        .select('reporter_id, report_date')
-        .eq('panel', 'social')
-        .eq('review_status', 'accepted')
-        .gte('report_date', start).lt('report_date', end),
-    ]);
+    const tasksQuery = db.from('task_assignments')
+      .select('task_date, title, content_type, assignee_id, completed_date')
+      .eq('panel', 'social')
+      .gte('task_date', start).lt('task_date', end);
+    const tasksRes = await tasksQuery;
+    const taskDays = [...new Set((tasksRes?.data || [])
+      .map(t => String(t.task_date || '').slice(0, 10))
+      .filter(Boolean))];
+    const completedDays = [...new Set((tasksRes?.data || [])
+      .map(t => String(t.completed_date || '').slice(0, 10))
+      .filter(Boolean))];
+    const reportDays = [...new Set([...taskDays, ...completedDays])];
+    // Accepted reports may land on the completion day, which can sit in a
+    // different month than the task itself. Query those days too, so a
+    // programme finished in another month still counts as done here.
+    let reportsQuery = db.from('daily_reports')
+      .select('reporter_id, report_date')
+      .eq('panel', 'social')
+      .eq('review_status', 'accepted');
+    if (reportDays.length) {
+      reportsQuery = reportsQuery.in('report_date', reportDays);
+    } else {
+      reportsQuery = reportsQuery.gte('report_date', start).lt('report_date', end);
+    }
+    const reportsRes = await reportsQuery;
     if (tasksRes?.error) throw tasksRes.error;
+    if (reportsRes?.error) throw reportsRes.error;
     const accepted = new Set((reportsRes?.data || [])
       .map(r => `${r.reporter_id}::${String(r.report_date || '').slice(0, 10)}`));
+    const TEST_TITLES = new Set(['demo', 'dem0', 'test', 'werwer']);
     const groups = new Map();
     for (const t of (tasksRes?.data || [])) {
+      const title = String(t.title || '').trim().toLowerCase();
+      if (TEST_TITLES.has(title)) continue;
       const day = String(t.task_date || '').slice(0, 10);
       const key = `${day}::${String(t.title || '').trim()}`;
       if (!groups.has(key)) groups.set(key, []);
@@ -1852,6 +1870,65 @@ export const generateNgoMonthlyReport = async (req, res) => {
        return false;
      };
 
+    // Manual ("Write Manually") rows for this month/NGO. They carry their own
+    // programme text and survive a reload, so they belong on the report too.
+    const manualRows = await EventHead.getPlannerManualRows({
+      month, year, ngo_id: ngo_id != null ? String(ngo_id) : '',
+    }).catch(() => []);
+
+    // Merge the report's data sources so the report mirrors the Monthly Planner's
+    // completed/downloadable rows: selected festival suggestions PLUS durable
+    // planner links (rows whose event was created) PLUS manual programmes.
+    // Dedup by ngo_id|date|festival so a row is never listed twice.
+    const coveredKeys = new Set(
+      (Array.isArray(festRows) ? festRows : []).map((f) =>
+        `${f.ngo_id != null ? String(f.ngo_id) : 'unknown'}|${String(f.observance_date || '').slice(0, 10)}|${String(f.festival || '').trim()}`
+      )
+    );
+    const reportRows = [...(Array.isArray(festRows) ? festRows : [])];
+
+    for (const l of (Array.isArray(cleanLinks) ? cleanLinks : [])) {
+      const lk = `${l.ngo_id != null ? String(l.ngo_id) : 'unknown'}|${String(l.observance_date || '').slice(0, 10)}|${String(l.festival || '').trim()}`;
+      if (coveredKeys.has(lk)) continue;
+      coveredKeys.add(lk);
+      const ev = eventById.get(String(l.event_id));
+      reportRows.push({
+        id: `link-${l.id}`,
+        ngo_id: l.ngo_id,
+        observance_date: l.observance_date,
+        festival: l.festival,
+        title: ev?.name || l.festival || null,
+        activity_name: null,
+        sector_name: null,
+        beneficiary: null,
+        location: ev?.venue || null,
+        suggested_event_id: l.event_id,
+        source: 'link',
+      });
+    }
+
+    for (const mr of (Array.isArray(manualRows) ? manualRows : [])) {
+      const mk = `${mr.row_ngo_id != null && mr.row_ngo_id !== '' ? String(mr.row_ngo_id) : (mr.ngo_id != null ? String(mr.ngo_id) : 'unknown')}|${String(mr.observance_date || '').slice(0, 10)}|${String(mr.festival || mr.name || '').trim()}`;
+      if (coveredKeys.has(mk)) continue;
+      const prog = String(mr.body_text || mr.name || '').trim();
+      if (!prog) continue;
+      if (!mr.is_selected) continue;
+      coveredKeys.add(mk);
+      reportRows.push({
+        id: `manual-${mr.id}`,
+        ngo_id: mr.row_ngo_id != null && mr.row_ngo_id !== '' ? mr.row_ngo_id : mr.ngo_id,
+        observance_date: mr.observance_date,
+        festival: mr.festival || mr.name || null,
+        title: prog,
+        activity_name: null,
+        sector_name: null,
+        beneficiary: mr.beneficiary || null,
+        location: mr.location || null,
+        suggested_event_id: null,
+        source: 'manual',
+      });
+    }
+
     const byNgo = new Map();
     // Seed a card for every report NGO (BSCT / MANN / AFLF) up front, so an NGO
     // with no planner-created events this month still shows its (blank) card
@@ -1885,7 +1962,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       if (ngo_id && String(n.id) !== String(ngo_id)) continue;
       seedNgoCard(n.id, n.name, n.code);
     }
-    for (const f of festRows) {
+    for (const f of reportRows) {
       const id = f.ngo_id != null ? String(f.ngo_id) : 'unknown';
       const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[f.ngo_id] || '') : '';
       seedNgoCard(f.ngo_id, ctx.ngoMap[f.ngo_id], code);
@@ -1907,14 +1984,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
       // until it is approved. A row that is only a plan does not belong here
       // either.
       const cellDone = plannerDoneCell(d, f.festival);
-      if (!cellDone) continue;
-      if (!linked) continue;
-      if (String(linked?.name || '').toLowerCase().includes('demo')) continue;
+      // Mirror the Monthly Planner's Download button: a row shows Download when
+      // it owns a durable link (event created for it) OR it is all-done and an
+      // event matches it (name+date+NGO). Keep the two in sync here.
+      const fromLink = f.source === 'link';
+      if (!fromLink && !(cellDone && linked)) continue;
       const img = imageForEvent(linked);
-      // The name the event was SAVED under — the Social head can rename it in
-      // the Create / Edit form, and that is the name the report must carry.
-      // A row whose event has no name (or no event at all) keeps the festival
-      // it was planned for, so the report never shows an empty slot.
       const eventName = String(linked?.name || '').trim();
       row.events_count += 1;
       row.events.push({
@@ -1930,11 +2005,6 @@ export const generateNgoMonthlyReport = async (req, res) => {
         sector_name: f.sector_name || null,
         activity_name: f.activity_name || null,
         venue: f.location || null,
-        // The status of the event this programme became, so the card can say
-        // whether the programme was only planned or actually carried out. A
-        // programme the planner counts as finished is COMPLETED for the report
-        // even while its event record is still a Draft waiting for the head's
-        // approval — the work is what the report is about.
         status: isComplete(linked) ? (linked?.status || null) : 'completed',
         budget: null,
         beneficiaries: 0,
@@ -1944,10 +2014,54 @@ export const generateNgoMonthlyReport = async (req, res) => {
         image_index: img.index || 0,
          banner: null,
        });
-       if (linked?.id != null) includedEventIds.add(String(linked.id));
-     }
+        if (linked?.id != null) includedEventIds.add(String(linked.id));
+      }
 
-     const ngos = [...byNgo.values()]
+      // Final pass: any event for this month/NGO that has not yet been credited
+      // to a row (no planner link / no selected suggestion pointed at it) still
+      // reaches the report when the programme was actually completed — either
+      // the event is approved/completed, or the planner marks the cell done.
+      // This keeps the report in step with the Monthly Planner's Download buttons.
+      for (const ev of (Array.isArray(events) ? events : [])) {
+        if (includedEventIds.has(String(ev.id))) continue;
+        if (String(ev?.name || '').toLowerCase().includes('demo')) continue;
+        const evDate = String(ev?.date || '').slice(0, 10);
+        const cellDone = plannerDoneCell(evDate, ev?.name);
+        if (!isComplete(ev) && !cellDone) continue;
+        const id = ev.ngo_id != null ? String(ev.ngo_id) : 'unknown';
+        const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[ev.ngo_id] || '') : '';
+        seedNgoCard(ev.ngo_id, ctx.ngoMap ? ctx.ngoMap[ev.ngo_id] : null, code);
+        const row = byNgo.get(id);
+        if (!row) continue;
+        const img = imageForEvent(ev);
+        row.events_count += 1;
+        row.events.push({
+          id: `event-${ev.id}`,
+          name: String(ev.name || '').trim() || null,
+          festival: String(ev.name || '').trim() || null,
+          event_name: String(ev.name || '').trim() || null,
+          festival_name: null,
+          programme: String(ev.name || '').trim() || null,
+          beneficiary: null,
+          date: evDate,
+          day: evDate ? new Date(evDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+          sector_name: null,
+          activity_name: null,
+          venue: ev.venue || null,
+          status: isComplete(ev) ? (ev.status || null) : 'completed',
+          budget: null,
+          beneficiaries: 0,
+          image: img.url || null,
+          image_event_id: img.event_id || null,
+          image_kind: img.kind || null,
+          image_index: img.index || 0,
+          banner: null,
+          source: 'event',
+        });
+        includedEventIds.add(String(ev.id));
+      }
+
+      const ngos = [...byNgo.values()]
       .map(n => ({ ...n, budget: Math.round(n.budget) }))
       .sort((a, b) => a.ngo_name.localeCompare(b.ngo_name));
 
@@ -2029,10 +2143,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
     for (const n of ngos) {
       const ngoKey = String(n.ngo_id ?? '');
       const extras = events
-        .filter(e => String(e.ngo_id ?? '') === ngoKey
-           && !includedEventIds.has(String(e.id))
-           && (linkedEventIds.has(String(e.id)) || isComplete(e) || plannerDoneCell(e.date, e.name))
-           && !String(e.name || '').toLowerCase().includes('demo'))
+        .filter(() => false) // report mirrors the planner rows only
         .filter(e => {
           const k = programmeKey(e);
           if (!k) return true;

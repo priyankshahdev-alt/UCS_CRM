@@ -1,8 +1,11 @@
+
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, createEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
+import { lazy, Suspense } from 'react'
+const CreateEventFromProgrammeModal = lazy(() => import('./ActivityPlanner').then(m => ({ default: m.CreateEventFromProgrammeModal })))
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, createEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl, getFestivalSuggestions, getPlannerEventLinks, setPlannerEventLink, getPlannerManualRows, fetchActivities, fetchImportantDays } from '../store'
 import EventPosterReport from '../components/EventPosterReport'
-import { exportPosterToPdf } from '../components/eventPosterPdf.jsx'
+import { exportPosterToPdf, renderPosterCanvas, renderPosterToPdf } from '../components/eventPosterPdf.jsx'
 
 // Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
 // uploaded AFLF/BSCT/MANN report images.
@@ -100,8 +103,6 @@ const codeForName = (name) => {
 const EVENT_PHOTO_PLACEHOLDER = '/event-placeholder.svg'
 
 const REPORT_TYPES = [
-  { id: 'summary', label: 'Event Summary' },
-  { id: 'beneficiary', label: 'Beneficiary Report' },
   { id: 'material', label: 'Material Distribution Report' },
   { id: 'expense', label: 'Expense Report' },
   { id: 'asset', label: 'Asset Utilization Report' },
@@ -761,7 +762,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       className="bsct-page"
       style={{
         position: 'relative', width: '100%', aspectRatio: `${BSCT_W} / ${Hp}`,
-         backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
+        backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
         backgroundColor: '#fff', overflow: 'hidden',
       }}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -769,7 +770,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
     >
       {/* Footer band of the artwork (thanks line + contact bar), pinned to the
           bottom so it follows the last used row. */}
-       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
       {/* Title on the denim ribbon. The ribbon in /bsct-blank.jpg is empty, so
           the month and year come from the report that is being viewed. */}
       <div style={{ position: 'absolute', left: `${(285 / BSCT_W) * 100}%`, width: `${(723 / BSCT_W) * 100}%`, top: `${(80 / Hp) * 100}%`, height: `${(62 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -782,7 +783,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       {/* "HAPPY FAMILY <count>" in the footer, right aligned like the artwork */}
       {countTxt && (
         <div style={{ position: 'absolute', right: `${((BSCT_W - 1108) / BSCT_W) * 100}%`, top: `${((1446 - cut) / Hp) * 100}%`, height: `${(90 / Hp) * 100}%`, display: 'flex', alignItems: 'center', gap: px(14 * footK), whiteSpace: 'nowrap', pointerEvents: 'none' }}>
-          <span style={{ fontFamily: BSCT_HEAD_FONT, fontWeight: 800, fontSize: px(60 * footK), lineHeight: 1.1, color: '#2a6fc0' ,letterSpacing: '4px', }}>HAPPY FAMILY</span>
+          <span style={{ fontFamily: BSCT_HEAD_FONT, fontWeight: 800, fontSize: px(60 * footK), lineHeight: 1.1, color: '#2a6fc0', letterSpacing: '4px', }}>HAPPY FAMILY</span>
           <span style={{ fontFamily: BSCT_NUM_FONT, fontStyle: 'italic', fontWeight: 800, fontSize: px(62 * footK), lineHeight: 1.1, color: '#0f2547' }}>{countTxt}</span>
         </div>
       )}
@@ -814,7 +815,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
               {/* Photo window */}
               <div style={{ position: 'relative', height: px(BSCT_PHOTO_H), background: '#e5eef7', overflow: 'hidden' }}>
                 <ReportCardImage ev={ev} height={px(BSCT_PHOTO_H)} radius={0} fit="cover" />
-                 <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: px(10), right: px(12), fontSize: px(12), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(3)}px ${px(10)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
+                <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: px(10), right: px(12), fontSize: px(12), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(3)}px ${px(10)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
                 <span
                   className="eh-drag-handle no-print"
                   data-html2canvas-ignore="true"
@@ -972,7 +973,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
                 >
                   <div style={{ position: 'relative', height: 110, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
                     <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} fit="cover" />
-                     <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
+                    <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
 
                     <span
                       className="eh-drag-handle no-print"
@@ -1136,7 +1137,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
 
   const [events, setEvents] = useState([])
   const [selectedEvent, setSelectedEvent] = useState('')
-  const [reportType, setReportType] = useState('summary')
+  const [reportType, setReportType] = useState('material')
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('Submitted')
@@ -1160,6 +1161,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const [monthlyNgo, setMonthlyNgo] = useState('')
   const [monthlyData, setMonthlyData] = useState(null)
   const [monthlyLoading, setMonthlyLoading] = useState(false)
+  // ── Daily planner-events card grid (Monthly Planner events for a month) ──
+  const [plannerCardsMonth, setPlannerCardsMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'))
+  const [plannerCardsYear, setPlannerCardsYear] = useState(String(now.getFullYear()))
+  const [plannerCards, setPlannerCards] = useState([])
+  const [plannerCardsLoading, setPlannerCardsLoading] = useState(false)
+  const [plannerCardsReload, setPlannerCardsReload] = useState(0)
+  const [plannerCardsNgo, setPlannerCardsNgo] = useState('')
+  const [plannerCardsWarning, setPlannerCardsWarning] = useState('')
+  const [plannerLinks, setPlannerLinks] = useState([])
   // The number shown after "HAPPY FAMILY" on the BSCT report card. Typed by the
   // user and remembered in this browser; 4290 is the figure the artwork had.
   const [happyFamily, setHappyFamily] = useState(() => {
@@ -1167,6 +1177,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   })
   useEffect(() => { try { localStorage.setItem('bsct_happy_family', happyFamily) } catch { /* storage unavailable */ } }, [happyFamily])
   const [ngos, setNgos] = useState([])
+  // Default the Daily Report planner cards to BSCT so they match the BSCT Monthly
+  // Planner view; the user can still switch to All NGOs or another NGO.
+  useEffect(() => {
+    if (plannerCardsNgo || !Array.isArray(ngos) || ngos.length === 0) return
+    const bsct = ngos.find((n) => /bsct|being\\s*sevak/i.test(String(n?.name || n?.ngo_name || n?.code || '')))
+    const pick = bsct || ngos[0]
+    const id = pick?.id ?? pick?.ngo_id
+    if (id != null && id !== '') setPlannerCardsNgo(String(id))
+  }, [ngos, plannerCardsNgo])
   // The order the programme cards were dragged into, per NGO. The saved order
   // lives in the database; this is only the arrangement the user has just
   // made, so the cards, the PDF and the Excel / CSV all follow it at once.
@@ -1233,6 +1252,136 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
+  // ── Fetch Monthly Planner selected events for the daily-mode card grid ──
+  useEffect(() => {
+    if (mode !== 'daily') return
+    let alive = true
+    setPlannerCardsLoading(true)
+    setPlannerCardsWarning('')
+    const yNum = Number(plannerCardsYear)
+    const mNum = Number(plannerCardsMonth)
+    const mm = String(mNum).padStart(2, '0')
+    const monthKey = `${yNum}-${mm}`
+    const nextM = new Date(yNum, mNum, 1)
+    const start = `${monthKey}-01`
+    const end = `${nextM.getFullYear()}-${String(nextM.getMonth() + 1).padStart(2, '0')}-01`
+    const inMonth = (d) => String(d || '').slice(0, 7) === monthKey
+    // Fetch suggestions, manual rows, and durable links in parallel, then merge + dedup once.
+    Promise.all([
+      getFestivalSuggestions({ month: plannerCardsMonth, year: plannerCardsYear, ngo_id: plannerCardsNgo || undefined, selected_only: true }).catch(() => []),
+      getPlannerManualRows({ month: plannerCardsMonth, year: plannerCardsYear, ngo_id: plannerCardsNgo || undefined }).catch(() => []),
+      getPlannerEventLinks({ start, end, ngo_id: plannerCardsNgo || undefined }).catch(() => []),
+      fetchImportantDays({ year: yNum, month: mNum, start, end, scope: 'india' }).catch(() => ({ observances: [], days: [] })),
+    ]).then(([suggList, manualRows, links, impDaysRes]) => {
+      if (!alive) return
+      if (impDaysRes?.ok === false) setPlannerCardsWarning(impDaysRes.error || 'The live important-days calendar could not be loaded. Showing the built-in reference days.')
+      const rawSuggestions = (Array.isArray(suggList) ? suggList : []).filter(s => inMonth(s?.observance_date || s?.date))
+      const manualSelected = (Array.isArray(manualRows) ? manualRows : []).filter(r =>
+        r &&
+        inMonth(r.observance_date) &&
+        !String(r.festival || '').trim().startsWith('+') &&
+        (String(r.name || '').trim() || String(r.body_text || '').trim())
+      )
+      const mappedManual = manualSelected.map(r => ({
+        id: 'manual-' + r.id,
+        observance_date: r.observance_date,
+        festival: r.name || r.festival || '',
+        title: r.body_text || r.name || '',
+        ngo_id: r.row_ngo_id || r.ngo_id,
+        ngo_name: (ngos.find(n => String(n.id) === String(r.row_ngo_id || r.ngo_id))?.name) || '',
+        is_selected: true,
+        suggested_event_id: null,
+        _manual: true,
+      }))
+      const impList = (Array.isArray(impDaysRes?.observances) ? impDaysRes.observances
+        : Array.isArray(impDaysRes?.days) ? impDaysRes.days : [])
+        .filter(o => inMonth(o?.date) && o?.scope !== 'worldwide' && o?.type !== 'international')
+      // Keep selected suggestions as Monthly Planner does: programme chips can exist
+      // even when their festival is not in the India observance list. Observance
+      // cards below are still restricted to the India scope.
+      const suggestions = rawSuggestions
+      const existingFestKeys = new Set([...suggestions, ...mappedManual].map(s => {
+        const d = String(s.observance_date || s.date || '').slice(0, 10)
+        return `${d}|${String(s.festival || s.title || '').trim().toLowerCase()}`
+      }))
+      const obsCards = []
+      const seenObs = new Set()
+      for (const o of impList) {
+        const d = String(o?.date || o?.observance_date || '').slice(0, 10)
+        const name = String(o?.name || o?.title || '').trim()
+        if (!d || !name) continue
+        const key = `${d}|${name.toLowerCase()}`
+        if (seenObs.has(key) || existingFestKeys.has(key)) continue
+        seenObs.add(key)
+        obsCards.push({
+          id: `obs-${d}-${name}`,
+          observance_date: d,
+          date: d,
+          festival: name,
+          title: name,
+          ngo_id: plannerCardsNgo ? (plannerCardsNgo) : null,
+          ngo_name: plannerCardsNgo ? ((ngos.find(n => String(n.id ?? n.ngo_id) === String(plannerCardsNgo))?.name) || '') : '',
+          is_selected: true,
+          suggested_event_id: null,
+          _obs: true,
+        })
+      }
+      const merged = [...suggestions, ...mappedManual, ...obsCards]
+      // Resolve evId for each card using durable links first
+      const resolveEvId = (s) => {
+        const sDate = s.observance_date || s.date
+        const link = (Array.isArray(links) ? links : []).find(l =>
+          String(l.observance_date || '').slice(0, 10) === String(sDate || '').slice(0, 10) &&
+          (String(l.festival || '').trim() === '' || String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase()) &&
+          (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
+        )
+        if (link && link.event_id) return link.event_id
+        if (s.suggested_event_id) return s.suggested_event_id
+        const match = (events || []).find(e => {
+          if (!e || !sDate) return false
+          const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
+          const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
+          const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
+            String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+          return sameDate && sameNgo && nameMatch
+        })
+        return match ? match.id : null
+      }
+      // Dedup: one card per festival/day (merged across its selected programmes).
+      // Cards resolving to the same event collapse; otherwise (date, festival, ngo)
+      // is the key, so a festival with several selected programmes shows once.
+      const groups = new Map()
+      for (const s of merged) {
+        const evId = resolveEvId(s)
+        const sDate = s.observance_date || s.date
+        const key = `${String(sDate || '').slice(0, 10)}|${String(s.festival || s.title || '').trim().toLowerCase()}|${String(s.ngo_id ?? '')}`
+        const cur = groups.get(key)
+        if (!cur || (!cur.evId && evId)) groups.set(key, { s, evId })
+      }
+      const deduped = [...groups.values()].map(v => v.s)
+      setPlannerCards(deduped)
+      setPlannerLinks(Array.isArray(links) ? links : [])
+    })
+      .catch(() => { if (alive) setPlannerCards([]) })
+      .finally(() => { if (alive) setPlannerCardsLoading(false) })
+    return () => { alive = false }
+  }, [mode, plannerCardsMonth, plannerCardsYear, plannerCardsNgo, plannerCardsReload])
+
+  // Cards are shown date-wise: the festivals/planner rows of one day sit together
+  // under that date, in calendar order, instead of one mixed grid for the month.
+  const plannerCardGroups = useMemo(() => {
+    const byDate = new Map()
+    for (const s of plannerCards) {
+      const d = String(s.observance_date || s.date || '').slice(0, 10)
+      if (!d) continue
+      if (!byDate.has(d)) byDate.set(d, [])
+      byDate.get(d).push(s)
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, cards]) => ({ date, cards }))
+  }, [plannerCards])
+
   const filteredEvents = events.filter(e => !statusFilter || (statusFilter === 'Submitted' ? isSubmitted(e.status) : String(e.status) === statusFilter))
 
   const generate = async (forceId) => {
@@ -1247,8 +1396,11 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     try {
       const data = await generateEventReport(id, reportType)
       setReportData(data)
-    } catch (err) { alert('Failed to generate report: ' + (err?.message || 'Unknown error')) }
-    finally { setLoading(false) }
+      return data
+    } catch (err) {
+      alert('Failed to generate report: ' + (err?.message || 'Unknown error'))
+      return null
+    } finally { setLoading(false) }
   }
 
   const generateAll = async () => {
@@ -1275,15 +1427,17 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     finally { setMonthlyLoading(false) }
   }
 
+  const [editingEventId, setEditingEventId] = useState(null)
+  const [createEntry, setCreateEntry] = useState(null)
+  const [createActivities, setCreateActivities] = useState([])
   useEffect(() => {
-    if (mode === 'create-event') {
-      setCreateName('')
-      setCreateDate('')
-      setCreateNgoId(monthlyNgo || (ngos[0]?.id ? String(ngos[0].id) : ''))
-      setCreateVenue('')
+    if (createOpen) {
       setCreateError('')
+      // load activities for the selected NGO
+      const ngoId = createEntry?.ngoId || createEntry?.suggestion?.ngo_id
+      fetchActivities(ngoId ? { ngo_id: ngoId } : {}).then(list => setCreateActivities(Array.isArray(list) ? list : [])).catch(() => setCreateActivities([]))
     }
-  }, [mode, monthlyNgo, ngos])
+  }, [createOpen, createEntry])
 
   const submitCreateEvent = async () => {
     if (!createName.trim()) { setCreateError('Event name is required.'); return }
@@ -1291,18 +1445,24 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     if (!createDate) { setCreateError('Date is required.'); return }
     setCreateBusy(true); setCreateError('')
     try {
-      await createEvent({
+      const payload = {
         name: createName.trim(),
         ngo_id: createNgoId,
         date: createDate,
         venue: createVenue.trim() || null,
-        status: 'Draft',
-      })
+      }
+      if (editingEventId) {
+        await updateEvent(editingEventId, payload)
+      } else {
+        await createEvent({ ...payload, status: 'Draft' })
+      }
       loadEvents()
-      generateMonthly()
-      setMode('monthly')
+      // refresh planner cards
+      setPlannerCardsMonth(plannerCardsMonth)
+      setCreateOpen(false)
+      setEditingEventId(null)
     } catch (e) {
-      setCreateError(e?.message || 'Could not create the event.')
+      setCreateError(e?.message || 'Could not save the event.')
     } finally {
       setCreateBusy(false)
     }
@@ -1536,10 +1696,134 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     } finally { setPdfBusy('') }
   }
 
+  /* Poster photos for a report. Events created through the Monthly Planner save
+     their uploads on event_head_events.images and never create media rows, so
+     the media list alone left those posters blank. Prefer real media rows, then
+     fall back to the event's own images (read through the proxy so private S3
+     URLs can be painted into the PDF). */
+  const resolvePosterPhotos = async (data) => {
+    const event = data?.event || {}
+    const media = (data?.media || [])
+      .filter(m => isImage(m.url) || /^image/i.test(String(m.type || m.mime_type || '')))
+      .slice(0, 6)
+    if (media.length) {
+      return await Promise.all(media.map(async (m) => {
+        if (m.id && event.id) {
+          try { return await fetchMediaViewObjectUrl(event.id, m.id) } catch { /* keep raw url */ }
+        }
+        return m.url || ''
+      })).then(list => list.filter(Boolean))
+    }
+    const images = Array.isArray(event.images) ? event.images.filter(Boolean).slice(0, 6) : []
+    return await Promise.all(images.map(async (url, index) => {
+      if (!event.id) return url
+      try { return await fetchEventImageDataUrl(event.id, index, true) } catch { return url }
+    }))
+  }
+
+  const posterPropsFor = (data, photos) => {
+    const event = data?.event || {}
+    const code = event.ngo_code || codeForName(event.ngo_name) || (event.ngo_id != null ? String(event.ngo_id) : '')
+    const theme = ngoTheme({ code })
+    const bsct = String(theme.name || '').toUpperCase() === 'BSCT'
+    const teamMembers = (Array.isArray(data?.volunteers) ? data.volunteers : Array.isArray(event.volunteers) ? event.volunteers : [])
+      .map(v => (typeof v === 'string' ? v : v?.name)).filter(Boolean)
+    return {
+      title: event.name || '',
+      headline: event.poster_headline || event.name || '',
+      date: event.date,
+      description: event.description || '',
+      venue: event.venue || '',
+      tagline: event.tagline || event.slogan || '',
+      footerQuote: event.footer_quote || '',
+      reportNo: event.report_no || '',
+      brandName: bsct ? 'Being Sevak' : (theme.fullName || event.ngo_name || 'Report'),
+      brandSub: bsct ? 'Charitable Trust' : '',
+      teamMembers,
+      photos,
+      logoUrl: event.ngo_logo || theme.logo || '',
+      sevakBanoImage: '/logo/sevak-logo.png',
+      brandImage: bsct ? '/logo/bsct-logo.png' : '',
+    }
+  }
+
+  /* The card's Download. Generates the report first, then renders the poster
+     from that exact data (photos included) instead of racing the hidden poster
+     that still belongs to the previously selected event. */
+  const downloadPlannerPoster = async (eventId) => {
+    if (pdfBusy) return
+    setPdfBusy('poster')
+    try {
+      setSelectedEvent(String(eventId))
+      const data = await generate(eventId)
+      if (!data) return
+      const photos = await resolvePosterPhotos(data)
+      await renderPosterToPdf(posterPropsFor(data, photos), `${safeFile(data?.event?.name || 'event')}-poster.pdf`)
+    } catch (err) {
+      console.error('planner poster PDF:', err)
+      alert('Failed to generate poster PDF: ' + (err?.message || 'Unknown error'))
+    } finally { setPdfBusy('') }
+  }
+
+  // ── Download ALL planner-event reports into one combined PDF ──
+  const downloadAllPlannerPdf = async () => {
+    if (pdfBusy) return
+    const ids = plannerCards.map(s => {
+      const sDate = s.observance_date || s.date
+      const link = (plannerLinks || []).find(l =>
+        String(l.observance_date || '').slice(0, 10) === String(sDate || '').slice(0, 10) &&
+        (String(l.festival || '').trim() === '' || String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase()) &&
+        (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
+      )
+      if (link && link.event_id) return link.event_id
+      if (s.suggested_event_id) return s.suggested_event_id
+      const match = (events || []).find(e => {
+        if (!e || !sDate) return false
+        const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
+        const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
+        const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
+          String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+        return sameDate && sameNgo && nameMatch
+      })
+      return match ? match.id : null
+    }).filter(Boolean)
+    if (!ids.length) { alert('No created events to download.'); return }
+    setPdfBusy('all')
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      let first = true
+      for (const id of ids) {
+        const data = await generate(id)
+        if (!data) continue
+        const photos = await resolvePosterPhotos(data)
+        const canvas = await renderPosterCanvas(posterPropsFor(data, photos))
+        if (!first) pdf.addPage()
+        first = false
+        pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
+      }
+      if (first) { alert('No created events to download.'); return }
+      pdf.save(`all-planner-reports-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (err) {
+      console.error('all planner PDF:', err)
+      alert('Failed to generate combined PDF: ' + (err?.message || 'Unknown error'))
+    } finally { setPdfBusy('') }
+  }
+
   // ── Event poster (Being Sevak style one-page sheet) ──
   const posterRef = useRef(null)
   const [posterPhotos, setPosterPhotos] = useState([])
-  const posterMedia = (reportData?.media || []).filter(m => isImage(m.url) || /^image/i.test(String(m.type || m.mime_type || ''))).slice(0, 6)
+  const posterPhotosRef = useRef([])
+  useEffect(() => { posterPhotosRef.current = posterPhotos }, [posterPhotos])
+  const [showPosterImage, setShowPosterImage] = useState(null)
+  const posterMedia = (() => {
+    const media = (reportData?.media || [])
+      .filter(m => isImage(m.url) || /^image/i.test(String(m.type || m.mime_type || '')))
+      .slice(0, 6)
+    if (media.length) return media
+    const images = Array.isArray(ev.images) ? ev.images.filter(Boolean).slice(0, 6) : []
+    return images.map((url, index) => ({ url, index }))
+  })()
   const posterMediaKey = posterMedia.map(m => m.id || m.url).join('|')
   useEffect(() => {
     let live = true
@@ -1550,6 +1834,10 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           let src = m.url || ''
           if (m.id && ev.id) {
             try { src = await fetchMediaViewObjectUrl(ev.id, m.id); made.push(src) } catch { /* fall back to the raw url */ }
+          } else if (m.index != null && ev.id) {
+            // Planner-created events have no media rows; read images[i] through
+            // the proxy so the S3 URL resolves (and the PDF can paint it).
+            try { src = await fetchEventImageDataUrl(ev.id, m.index, true) } catch { /* fall back to the raw url */ }
           }
           out.push(src)
         }
@@ -1573,6 +1861,22 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       console.error('poster PDF:', err)
       alert('Failed to generate poster PDF: ' + (err?.message || 'Unknown error'))
     } finally { setPdfBusy('') }
+  }
+
+  /* The card's Show preview: render the poster from the freshly generated
+     report (photos included) instead of waiting on the hidden poster. */
+  const showPlannerPoster = async (eventId) => {
+    try {
+      setSelectedEvent(String(eventId))
+      const data = await generate(eventId)
+      if (!data) return
+      const photos = await resolvePosterPhotos(data)
+      const canvas = await renderPosterCanvas(posterPropsFor(data, photos))
+      setShowPosterImage(canvas.toDataURL('image/jpeg', 0.92))
+    } catch (err) {
+      console.error('planner poster preview:', err)
+      alert('Failed to show the poster: ' + (err?.message || 'Unknown error'))
+    }
   }
 
   // Auto-download the daily report once after completion. The data is already
@@ -1745,18 +2049,16 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           <span>✓</span>{toast}
         </div>
       )}
-      {/* ── Reporting header: the whole screen is these two report types ── */}
+      {/* ── Reports & Analytics: daily and monthly reporting ── */}
       <div className="eh-report-tabs no-print" style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Reporting — Event Reports</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Reports &amp; Analytics</h3>
         <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 3 }}>
-          Choose a report:
-          <b> Daily</b> = one event you created for a single day, with its own downloadable report.
-          <b> Monthly</b> = every event in a chosen month, grouped by NGO.
+          View daily event reports or review the complete monthly performance, grouped by NGO.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-          {/* <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button> */}
+          <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Report</button>
           <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
-          <button type="button" onClick={() => setMode('create-event')} style={tabStyle(mode === 'create-event')}>+ Daily Report</button>
+          {/* <button type="button" onClick={() => { setEditingEventId(null); setCreateEntry({ key: null, date: '', ngoId: ngos[0]?.id ? String(ngos[0].id) : '', name: '', location: null, description: null, slogan: null, tagline: null, images: [], activityId: null, suggestion: null, editing: false, eventId: null }); setCreateOpen(true) }}>＋ Create Event</button> */}
         </div>
       </div>
 
@@ -1773,37 +2075,192 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                 <option value="Draft">Draft only</option>
               </select>
             </div>
-            <div style={{ flex: '1 1 300px', minWidth: 240 }}>
-              <label style={labelStyle}>Pick the event (day) to report</label>
-              <select
-                value={selectedEvent}
-                onChange={e => { const v = e.target.value; setSelectedEvent(v); if (v) generate(v); else setReportData(null) }}
-                style={{ ...selectStyle, width: '100%' }}
-              >
-                <option value="">Select an event…</option>
-                {[...filteredEvents].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || 0).map(ev => (
-                  <option key={ev.id} value={ev.id}>
-                    {fmtDate(ev.date)} · {ev.name} · {ev.status}{ev.status_new ? ' · NEW' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Report type</label>
-              <select value={reportType} onChange={e => { setReportType(e.target.value); setReportData(null) }} style={selectStyle}>
-                {REPORT_TYPES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-              </select>
-            </div>
+
             <button className="btn btn-sm" onClick={loadEvents} disabled={refreshing}>
               {refreshing ? 'Refreshing…' : '🔄 Refresh'}
             </button>
-            <button className="btn btn-primary btn-sm" onClick={() => generate()} disabled={!selectedEvent || loading}>
-              {loading ? 'Generating...' : 'Generate Report'}
-            </button>
+            {loading && <span style={{ fontSize: 12, color: '#6b7280' }}>Generating…</span>}
           </div>
         </div>
       )}
 
+      {/* ── DAILY: Monthly Planner events as cards ── */}
+      {mode === 'daily' && reportData && (
+        <div aria-hidden="true" style={{ position: 'fixed', left: -10000, top: 0, pointerEvents: 'none' }}>
+          <EventPosterReport
+            ref={posterRef}
+            title={ev.name || ''}
+            headline={ev.poster_headline || ev.name || ''}
+            date={ev.date}
+            description={ev.description || ''}
+            venue={ev.venue || ''}
+            tagline={ev.tagline || ev.slogan || ''}
+            footerQuote={ev.footer_quote || ''}
+            reportNo={ev.report_no || ''}
+            brandName={isBsct ? 'Being Sevak' : (dailyTheme.fullName || dailyNgoName)}
+            brandSub={isBsct ? 'Charitable Trust' : ''}
+            teamMembers={posterTeam}
+            photos={posterPhotos}
+            logoUrl={dailyLogo || ''}
+            sevakBanoImage="/logo/sevak-logo.png"
+            brandImage={isBsct ? '/logo/bsct-logo.png' : ''}
+          />
+        </div>
+      )}
+
+      {mode === 'daily' && (
+        <div className="card no-print" style={{ marginBottom: 16 }}>
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <h3>Planner events</h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+              <select value={plannerCardsNgo} onChange={e => setPlannerCardsNgo(e.target.value)} style={{ ...selectStyle, width: 150 }}>
+                {ngos.map(n => <option key={n.id ?? n.ngo_id} value={n.id ?? n.ngo_id}>{n.name || n.ngo_name || n.code || `NGO ${n.id ?? n.ngo_id}`}</option>)}
+              </select>
+              <select value={plannerCardsMonth} onChange={e => setPlannerCardsMonth(e.target.value)} style={{ ...selectStyle, width: 120 }}>
+                {Array.from({ length: 12 }, (_, i) => { const m = String(i + 1).padStart(2, '0'); return <option key={m} value={m}>{new Date(2000, i, 1).toLocaleString('en-IN', { month: 'long' })}</option> })}
+              </select>
+              <select value={plannerCardsYear} onChange={e => setPlannerCardsYear(e.target.value)} style={{ ...selectStyle, width: 90 }}>
+                {Array.from({ length: 5 }, (_, i) => { const y = String(now.getFullYear() - 2 + i); return <option key={y} value={y}>{y}</option> })}
+              </select>
+              <button className="btn btn-sm" onClick={downloadAllPlannerPdf} disabled={pdfBusy === 'all'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#374151', color: '#fff', borderColor: '#374151' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                {pdfBusy === 'all' ? 'Building…' : 'All PDF'}
+              </button>
+            </div>
+          </div>
+          <div className="card-pad" style={{ paddingTop: 8 }}>
+            {plannerCardsWarning && (
+              <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#fef3c7', color: '#92400e', fontSize: 12.5, lineHeight: 1.5 }}>
+                {plannerCardsWarning}
+              </div>
+            )}
+            {plannerCardsLoading ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading planner events…</div>
+            ) : plannerCards.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No festivals for this month.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {plannerCardGroups.map(group => (
+                  <div key={group.date}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#1a1a2e' }}>{fmtDate(group.date)}</div>
+                      <div style={{ fontSize: 11.5, fontWeight: 600, color: '#6b7280' }}>{new Date(group.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' })}</div>
+                      <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                      <div style={{ fontSize: 11.5, color: '#6b7280' }}>{group.cards.length} {group.cards.length === 1 ? 'event' : 'events'}</div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                      {group.cards.map((s, i) => {
+                  // Resolve the linked event: prefer suggested_event_id, fall back to
+                  // matching an event in the loaded events list by date + NGO + name.
+                  const sDate = s.observance_date || s.date
+                  // Resolve created event: durable planner link first, then suggested_event_id, then events-list match
+                  let evId = null
+                  const link = (plannerLinks || []).find(l =>
+                    String(l.observance_date || '').slice(0, 10) === String(sDate || '').slice(0, 10) &&
+                    String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase() &&
+                    (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
+                  )
+                  if (link && link.event_id) evId = link.event_id
+                  else if (s.suggested_event_id) evId = s.suggested_event_id
+                  else {
+                    const match = (events || []).find(e => {
+                      if (!e || !sDate) return false
+                      const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
+                      const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
+                      const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
+                        String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+                      return sameDate && sameNgo && nameMatch
+                    })
+                    if (match) evId = match.id
+                  }
+                  const isDone = Boolean(evId)
+                  return (
+                    <div key={s.id || i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{s.festival || s.title || 'Event'}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 2 }}>{(s.observance_date || s.date) ? fmtDate(s.observance_date || s.date) : ''}</div>
+                      {s.ngo_name && <div style={{ fontSize: 11.5, color: '#6b7280' }}>{s.ngo_name}</div>}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                        {isDone ? (
+                          <>
+                          <button className="btn btn-sm" onClick={() => downloadPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#6b7280', color: '#fff', borderColor: '#6b7280' }}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Download
+                          </button>
+                            <button className="btn btn-sm btn-outline" onClick={() => showPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                              Show
+                            </button>
+                            <button className="btn btn-sm" onClick={async () => {
+                              const linkedEv = (events || []).find(e => String(e.id) === String(evId))
+                              const rawImages = Array.isArray(linkedEv?.images) ? linkedEv.images : []
+                              const images = []
+                              for (let i = 0; i < rawImages.length; i++) {
+                                const u = String(rawImages[i] || '')
+                                if (!u) continue
+                                let dataUrl = ''
+                                if (u.startsWith('data:')) dataUrl = u
+                                else { try { dataUrl = await fetchEventImageDataUrl(evId, i, true) } catch { /* preview falls back to the URL */ } }
+                                images.push({ name: `photo-${i + 1}`, url: u, dataUrl })
+                              }
+                              setEditingEventId(evId)
+                              setCreateEntry({
+                                key: null,
+                                date: linkedEv?.date || s.observance_date || s.date || '',
+                                ngoId: linkedEv?.ngo_id ? String(linkedEv.ngo_id) : (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : '')),
+                                name: linkedEv?.name || s.festival || s.title || '',
+                                location: linkedEv?.venue || null,
+                                description: linkedEv?.description || null,
+                                slogan: linkedEv?.slogan || null,
+                                tagline: linkedEv?.tagline || null,
+                                images,
+                                activityId: linkedEv?.activity_id || s.activity_id || null,
+                                suggestion: s,
+                                editing: true,
+                                eventId: evId,
+                              })
+                              setCreateOpen(true)
+                            }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                              Edit
+                            </button>
+                          </>
+                        ) : (
+                          <button className="btn btn-sm btn-primary" onClick={() => {
+                            setEditingEventId(null)
+                            setCreateEntry({
+                              key: null,
+                              date: s.observance_date || s.date || '',
+                              ngoId: s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : ''),
+                              name: s.festival || s.title || '',
+                              location: null,
+                              description: null,
+                              slogan: null,
+                              tagline: null,
+                              images: [],
+                              activityId: s.activity_id || null,
+                              suggestion: s,
+                              editing: false,
+                              eventId: null,
+                            })
+                            setCreateOpen(true)
+                          }}>
+                            Create Event
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+       )}
+
+    
       {/* ── MONTHLY controls ── */}
       {mode === 'monthly' && (
         <div className="card no-print" style={{ marginBottom: 16 }}>
@@ -1847,7 +2304,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       {mode === 'monthly' && (
         <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>A� by NGO</span></h3>
+            <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>· by NGO</span></h3>
           </div>
           <div className="card-pad" style={{ paddingTop: 8 }}>
             {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
@@ -1898,190 +2355,55 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         </div>
       )}
 
-      {mode === 'create-event' && (
-        <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
-          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <h3>Create Event</h3>
-          </div>
-          <div className="card-pad" style={{ paddingTop: 8 }}>
-            {createError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{createError}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Event name
-                <input className="eh-input" value={createName} onChange={e => setCreateName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>NGO
-                <select className="eh-select" value={createNgoId} onChange={e => setCreateNgoId(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
-                  <option value="">Select NGO…</option>
-                  {ngos.map(n => <option key={n.id} value={String(n.id)}>{n.name || n.code}</option>)}
-                </select>
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Date
-                <input type="date" className="eh-input" value={createDate} onChange={e => setCreateDate(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Venue
-                <input className="eh-input" value={createVenue} onChange={e => setCreateVenue(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-              </label>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button className="btn btn-primary btn-sm" onClick={submitCreateEvent} disabled={createBusy}>{createBusy ? 'Creating…' : 'Create Event'}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {createOpen && createEntry && (
+        <Suspense fallback={<div />}>
+          <CreateEventFromProgrammeModal
+            entry={createEntry}
+            ngos={ngos}
+            activities={createActivities}
+            onClose={() => { setCreateOpen(false); setCreateEntry(null); setEditingEventId(null) }}
+            onSaved={({ event }) => {
+              // Persist a durable row → event link so the Monthly Planner shows
+              // the Download button for this programme after a reload / on another
+              // device. The ActivityPlanner owns these links; creating the event
+              // here (from the Monthly Report) must register one too.
+              const entry = createEntry
+              const obsDate = String(entry?.date || '').slice(0, 10)
+              const festival = String(entry?.suggestion?.festival || entry?.name || '').trim()
+              const ngoId = event?.ngo_id || entry?.ngoId || entry?.suggestion?.ngo_id
+              if (event?.id && obsDate && festival) {
+                setPlannerEventLink({
+                  observance_date: obsDate,
+                  festival,
+                  ngo_id: ngoId || null,
+                  event_id: event.id,
+                }).catch(() => {})
+              }
+              loadEvents()
+              setPlannerCardsReload((n) => n + 1)
+              setCreateOpen(false)
+              setCreateEntry(null)
+              setEditingEventId(null)
+            }}
+          />
+        </Suspense>
+       )}
 
-      {/* ═══ DAILY EVENT REPORT (single event) ═══ */}
-      {mode === 'daily' && reportData && (
-        <div className="card" style={{ background: '#fff' }}>
-          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <h3>{REPORT_TYPES.find(r => r.id === reportType)?.label}</h3>
-            <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" onClick={() => downloadPosterPdf()} disabled={pdfBusy}>{pdfBusy ? 'Preparing…' : 'Download Poster PDF'}</button>
-              <button className="btn btn-sm" onClick={() => downloadSinglePdf()} disabled={pdfBusy}>Download Full Report</button>
-              <button className="btn btn-sm" onClick={exportJSON}>Export JSON</button>
-              {reportType === 'expense' && <button className="btn btn-sm" onClick={() => exportCSV(expenseCols, reportData.expenses || [], `expenses-${ev.id}.csv`)}>Export CSV</button>}
-            </div>
-          </div>
+       {showPosterImage && (
+         <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowPosterImage(null)}>
+           <div className="modal" style={{ maxWidth: 820, width: '95%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+             <div className="modal-header"><h3>Report Preview</h3></div>
+             <div className="modal-body" style={{ padding: 12, textAlign: 'center' }}>
+               <img src={showPosterImage} alt="report" style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }} />
+             </div>
+             <div className="modal-footer" style={{ padding: 12, display: 'flex', justifyContent: 'flex-end' }}>
+               <button className="btn btn-sm" onClick={() => setShowPosterImage(null)}>Close</button>
+             </div>
+           </div>
+         </div>
+       )}
 
-          <div className="card-pad" style={{ paddingTop: 4 }}>
-            {/* Off-screen poster used for the one-page poster PDF */}
-            <div aria-hidden="true" style={{ position: 'fixed', left: -10000, top: 0, pointerEvents: 'none' }}>
-              <EventPosterReport
-                ref={posterRef}
-                title={ev.name || ''}
-                headline={ev.poster_headline || ev.name || ''}
-                date={ev.date}
-                description={ev.description || ''}
-                venue={ev.venue || ''}
-                tagline={ev.tagline || ev.slogan || ''}
-                footerQuote={ev.footer_quote || ''}
-                reportNo={ev.report_no || ''}
-                brandName={isBsct ? 'Being Sevak' : (dailyTheme.fullName || dailyNgoName)}
-                brandSub={isBsct ? 'Charitable Trust' : ''}
-                teamMembers={posterTeam}
-                photos={posterPhotos}
-                logoUrl={dailyLogo || ''}
-                sevakBanoImage="/logo/sevak-logo.png"
-                brandImage={isBsct ? '/logo/bsct-logo.png' : ''}
-              />
-            </div>
-            <div className="eh-print-root" ref={singleReportRef}>
-              {/* ── NGO-BRANDED REPORT CARD (letterhead + banner + facts) ── */}
-              <div
-                className="eh-report-body"
-                style={{ background: '#fff', border: '1px solid #e5e7eb', borderTop: `5px solid ${dailyTheme.color}`, borderRadius: 12, overflow: 'hidden' }}
-              >
-                {/* Letterhead: NGO identity (logo + name + colour) and report meta */}
-                <div style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-                  {dailyLogo ? (
-                    <img src={dailyLogo} alt={dailyNgoName} style={{ width: 58, height: 58, objectFit: 'contain', background: '#fff', borderRadius: 10, border: '1px solid #eef0f4', padding: 5, flexShrink: 0 }} onError={e => { e.currentTarget.style.display = 'none' }} />
-                  ) : (
-                    <div style={{ width: 58, height: 58, borderRadius: 10, background: dailyTheme.color, color: '#fff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{String(dailyTheme.name || dailyNgoName || 'R').slice(0, 1)}</div>
-                  )}
-                  <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-                    {dailyTheme.tagline && <div style={{ fontSize: 10, letterSpacing: 2.2, fontWeight: 700, textTransform: 'uppercase', color: dailyTheme.color }}>{dailyTheme.tagline}</div>}
-                    <div style={{ fontSize: 21, fontWeight: 900, color: '#1a1a2e', letterSpacing: 0.2, lineHeight: 1.2 }}>{dailyTheme.fullName || dailyNgoName}</div>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{dailyNgoName}</div>
-                  </div>
-                  <div style={{ textAlign: 'right', paddingLeft: 18, borderLeft: '1px solid #e5e7eb' }}>
-                    <div style={{ fontSize: 10, letterSpacing: 2, fontWeight: 800, textTransform: 'uppercase', color: dailyTheme.color }}>Daily Event Report</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e', marginTop: 4 }}>{fmtDate(ev.date)}</div>
-                    {ev.day && <div style={{ fontSize: 11.5, color: '#6b7280' }}>{ev.day}</div>}
-                  </div>
-                </div>
-
-                <div style={{ height: 4, background: dailyTheme.color }} />
-
-                {/* Event banner (omitted cleanly when the event has none) */}
-                {ev.banner && (
-                  <div style={{ maxHeight: 320, overflow: 'hidden', lineHeight: 0 }}>
-                    <ReportBanner src={ev.banner} alt={ev.name} />
-                  </div>
-                )}
-
-                {/* Title + badges */}
-                <div style={{ padding: '18px 22px 0' }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name || 'Event Report'}</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                    {ev.category && <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '3px 11px', fontSize: 11.5, fontWeight: 600 }}>{ev.category}</span>}
-                    {ev.ngo_name && <span style={{ background: dailyTheme.color, color: '#fff', borderRadius: 999, padding: '3px 11px', fontSize: 11.5, fontWeight: 700 }}>{ev.ngo_name}</span>}
-                    {statusBadge(isCompleted ? 'Completed' : ev.status)}
-                  </div>
-                </div>
-
-                {/* Key facts */}
-                <div style={{ padding: '16px 22px 22px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px 20px' }}>
-                  <KeyVal label="Date" value={fmtDate(ev.date)} />
-                  <KeyVal label="Day" value={ev.day ? ev.day.split(' ')[0] : '—'} />
-                  <KeyVal label="Start Time" value={fmtTime(ev.start_time)} />
-                  <KeyVal label="End Time" value={fmtTime(ev.end_time)} />
-                  <KeyVal label="Venue" value={ev.venue} />
-                  <KeyVal label="Sector" value={ev.sector_name} />
-                  <KeyVal label="Activity" value={ev.activity_name} />
-                  <KeyVal label="Budget" value={money(ev.budget)} />
-                  <KeyVal label="Beneficiaries" value={ev.expected_beneficiaries || '—'} />
-                </div>
-              </div>
-
-              {ev.description && (
-                <Section title="About This Event">
-                  <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ev.description}</div>
-                </Section>
-              )}
-
-              <Section title="Attendance" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{reportData.attendance?.length || 0} records</span>}>
-                <Table cols={attendanceCols} rows={reportData.attendance || []} />
-              </Section>
-
-              <Section title="Media / Images" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{reportData.media?.length || 0} items</span>}>
-                {(reportData.media || []).length > 0 ? (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14, marginBottom: 14 }}>
-                      {(reportData.media || []).filter(m => isImage(m.url)).map((m, i) => (
-                        <a key={i} href={m.url} target="_blank" rel="noreferrer" title={m.title || m.name} style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', display: 'block', background: '#f3f4f6' }}>
-                          <SafeImg src={m.url} alt={m.title || m.name || 'media'} height={200} radius={0} />
-                          {(m.title || m.name) && <div style={{ fontSize: 12, color: '#374151', fontWeight: 600, padding: '8px 10px' }}>{m.title || m.name}</div>}
-                        </a>
-                      ))}
-                    </div>
-                    <Table cols={mediaCols} rows={reportData.media || []} />
-                  </>
-                ) : <div style={{ color: '#9ca3af', fontSize: 13 }}>No media records</div>}
-              </Section>
-
-              {showSocial && (
-                <Section title="Social Media Publishing Report" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{socialResolved} of {socialRows.length} resolved</span>}>
-                  <Table cols={socialCols} rows={socialRows} />
-                </Section>
-              )}
-
-              <Section title="Expenses" right={<span style={{ fontSize: 12, color: '#6b7280' }}>Total: {money((reportData.expenses || []).reduce((s, x) => s + (Number(x.amount) || 0), 0))}</span>}>
-                <Table cols={expenseCols} rows={reportData.expenses || []} />
-              </Section>
-
-              <Section title="Material Distribution" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{reportData.distributions?.length || 0} records</span>}>
-                <Table cols={distCols} rows={reportData.distributions || []} />
-              </Section>
-
-              <Section title="Checklist">
-                <Table cols={checklistCols} rows={reportData.checklist || []} />
-              </Section>
-
-              <ReportCardFooter theme={dailyTheme} n={{ ngo_name: dailyNgoName }} monthLabel="" yearLabel="" />
-              {printFooter()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {mode === 'daily' && !reportData && !loading && (
-        <div className="card no-print">
-          <div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>
-            Pick an event above to open its <b>daily report</b>, then use <b>Download PDF</b> to save it.
-          </div>
-        </div>
-      )}
-
-      <style>{`
+       <style>{`
         @page { margin: 10mm; }
         @media screen {
           .eh-print-brand { border-bottom: 3px solid #2036bd; padding-bottom: 10px; margin-bottom: 16px; }

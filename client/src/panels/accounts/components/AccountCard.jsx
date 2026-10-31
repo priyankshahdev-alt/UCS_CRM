@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Download, Pencil, Trash2, Users } from 'lucide-react';
+import { Check, Copy, Download, List, Pencil, Plus, Trash2 } from 'lucide-react';
 
 const MASK = '••••••••••••••••';
 
@@ -45,10 +45,10 @@ export default function AccountCard({
   onToggleReveal,
   fetchingTemplates,
   onFetchTemplates,
+  onAddTemplate,
+  onOpenTemplates,
   templates,
   onSelectTemplate,
-  agentCount,
-  onOpenAgents,
   onEdit,
   onDelete,
 }) {
@@ -181,12 +181,10 @@ export default function AccountCard({
           <button
             type="button"
             className="wa-btn-outline"
-            onClick={onOpenAgents}
-            aria-haspopup="dialog"
-            data-wa-agents-btn={account.id}
+            onClick={onAddTemplate}
           >
-            <Users size={15} strokeWidth={1.8} aria-hidden="true" />
-            Agents{agentCount !== null ? ` (${agentCount})` : ''}
+            <Plus size={15} strokeWidth={1.8} aria-hidden="true" />
+            Add Template
           </button>
           <button
             type="button"
@@ -196,6 +194,14 @@ export default function AccountCard({
           >
             <Download size={15} strokeWidth={1.8} aria-hidden="true" />
             {fetchingTemplates ? 'Loading...' : 'Templates'}
+          </button>
+          <button
+            type="button"
+            className="wa-btn-outline"
+            onClick={onOpenTemplates}
+          >
+            <List size={15} strokeWidth={1.8} aria-hidden="true" />
+            Show Templates
           </button>
         </div>
         <div className="wa-foot-group">
