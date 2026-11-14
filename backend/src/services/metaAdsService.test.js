@@ -5,8 +5,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import {
+  leadAnswers,
   mapLeadFields,
   metaLeadCount,
+  ngoFromName,
   normalizeAdAccountId,
   normalizePageIds,
   normalizePhone,
@@ -145,4 +147,56 @@ test('page ids are accepted as ids, lists, comma strings and Page URLs', () => {
   assert.deepEqual(normalizePageIds(['abc', '', null]), []);
   // Duplicates collapse so one Page is not subscribed twice.
   assert.deepEqual(normalizePageIds(['153125381133', '153125381133']), ['153125381133']);
+});
+
+test('lead answers come from field_data, with multi-select kept readable', () => {
+  const answers = leadAnswers({
+    field_data: [
+      { name: 'full_name', values: ['Sachin Kadam'] },
+      { name: 'phone_number', values: ['+919820852460'] },
+      { name: 'state', values: ['Maharashtra'] },
+      {
+        name: 'how_would_you_like_to_associate_with_being_charitable_trust?',
+        values: ['make_a_donation', 'csr_/_corporate_partnership'],
+      },
+      { name: 'email', values: [] },
+      { name: 'inbox_url', values: ['https://business.facebook.com/latest/123'] },
+    ],
+  });
+  assert.equal(answers.state, 'Maharashtra');
+  assert.equal(answers.email, undefined);
+  assert.equal(
+    answers['how_would_you_like_to_associate_with_being_charitable_trust?'],
+    'make_a_donation, csr_/_corporate_partnership',
+  );
+  assert.match(answers.inbox_url, /^https:\/\/business\.facebook\.com/);
+});
+
+test('webhook leads fall back to the notes column when payload has no field_data', () => {
+  const notes = [
+    '[Meta Lead: 123]',
+    '[Platform: ig]',
+    '[Form: 456]',
+    'State: ODISHA',
+    'Inbox Url: https://business.facebook.com/latest/999',
+  ].join('\n');
+  const answers = leadAnswers({ id: '123' }, notes);
+  assert.equal(answers.State, 'ODISHA');
+  assert.equal(answers['Inbox Url'], 'https://business.facebook.com/latest/999');
+  // The provenance tags must not be mistaken for answers.
+  assert.equal(answers['Meta Lead'], undefined);
+  assert.equal(answers.Platform, undefined);
+});
+
+test('NGO comes from a name token, never from a substring', () => {
+  assert.equal(ngoFromName('abc_bsct'), 'BSCT');
+  assert.equal(ngoFromName('bcd_mann'), 'MANN');
+  assert.equal(ngoFromName('dfg_aflf'), 'AFLF');
+  assert.equal(ngoFromName('BSCT_Blind Ration Kit'), 'BSCT');
+  assert.equal(ngoFromName('Mission-Vidhya-MANN'), 'MANN');
+  assert.equal(ngoFromName('Being Sevak Donation'), 'BSCT');
+  // "manner" must not become MANN, and no fallback means no guess at all.
+  assert.equal(ngoFromName('manner_test'), '');
+  assert.equal(ngoFromName('manner_test', 'BSCT'), 'BSCT');
+  assert.equal(ngoFromName('', ''), '');
 });

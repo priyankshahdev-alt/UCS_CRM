@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "UCS Extractor - Capture",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Capture business listings from a page you are already viewing, normalise them, and save them to UCS CRM Accounts > Extractor.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "sidePanel", "tabs"],

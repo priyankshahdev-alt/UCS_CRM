@@ -95,13 +95,28 @@ export async function ingestMetaLead(leadgenId, { payload = null, source = 'webh
   const id = String(leadgenId || '').trim();
   if (!id) return { ok: false, reason: 'missing leadgen id' };
 
+  // A duplicate event row is only written the first time this lead id is seen.
+  // The 5-minute poller re-reads the same 7 days on every run; without this
+  // guard each pass rewrote a delivered lead's status to "duplicate" and made
+  // the delivery log unreadable.
+  const alreadyLogged = async () => {
+    const { data } = await db
+      .from('meta_lead_events')
+      .select('meta_lead_id')
+      .eq('meta_lead_id', id)
+      .maybeSingle();
+    return Boolean(data);
+  };
+
   const { data: existing } = await db
     .from('leads')
     .select('id, name, phone, meta_lead_id')
     .eq('meta_lead_id', id)
     .maybeSingle();
   if (existing) {
-    await writeEvent({ id, ...(payload || {}) }, { status: 'duplicate', leadId: existing.id, payload });
+    if (!(await alreadyLogged())) {
+      await writeEvent({ id, ...(payload || {}) }, { status: 'duplicate', leadId: existing.id, payload });
+    }
     return { ok: true, duplicate: true, lead: existing, source };
   }
 
@@ -159,7 +174,9 @@ export async function ingestMetaLead(leadgenId, { payload = null, source = 'webh
         .select('id, name, phone, meta_lead_id')
         .eq('meta_lead_id', data.id)
         .maybeSingle();
-      await writeEvent(data, { status: 'duplicate', leadId: raced?.id || null, payload });
+      if (!(await alreadyLogged())) {
+        await writeEvent(data, { status: 'duplicate', leadId: raced?.id || null, payload });
+      }
       return { ok: true, duplicate: true, lead: raced || null, source };
     }
     console.error('Meta lead insert failed:', error.message);

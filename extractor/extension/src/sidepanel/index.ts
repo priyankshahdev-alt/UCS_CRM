@@ -135,7 +135,7 @@ function jobMeta(job: AutoJob): string {
   if (job.status === 'pending') return 'Waiting';
   if (job.status === 'running') return 'Running now';
 
-  const parts = [`${job.rows} saved`, `${job.phones} with phone`];
+  const parts = [`${job.rows} saved`, `${job.phones} number${job.phones === 1 ? '' : 's'} found`];
   if (job.duplicates > 0) {
     parts.push(`${job.duplicates} duplicate${job.duplicates === 1 ? '' : 's'}`);
   }
@@ -686,6 +686,8 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   const typed = message as {
     type?: string;
     state?: PublicState | AutoRunState | null;
+    saved?: number;
+    remaining?: number;
   };
 
   if (typed.type === 'UCS_STATE' && typed.state) {
@@ -698,6 +700,13 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
 
   if (typed.type === 'UCS_AUTORUN_STATE') {
     renderAuto((typed.state as AutoRunState | null) ?? null);
+    return;
+  }
+
+  if (typed.type === 'UCS_PENDING_FLUSHED') {
+    autoNote.textContent = `${typed.saved ?? 0} held row(s) reached the CRM.${
+      typed.remaining ? ` ${typed.remaining} still waiting to retry.` : ''
+    }`;
   }
 });
 

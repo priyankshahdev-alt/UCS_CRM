@@ -18,6 +18,21 @@ const GRAPH_BASE = 'https://graph.facebook.com';
 export const META_LEAD_SOURCE = 'Meta Lead Ad';
 export const META_NGOS = ['BSCT', 'AFLF', 'MANN'];
 
+// New forms are named with the NGO as a token: "abc_bsct", "bcd_mann",
+// "Mission_Vidhya_AFLF". Token match only, so "manner_test" does not become
+// MANN. The fallback is used by the explicit auto-map action, not by discovery.
+export function ngoFromName(name, fallback = '') {
+  const tokens = String(name || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (tokens.includes('bsct')) return 'BSCT';
+  if (tokens.includes('aflf')) return 'AFLF';
+  if (tokens.includes('mann')) return 'MANN';
+  if (tokens.includes('beingsevak') || tokens.join(' ').includes('being sevak')) return 'BSCT';
+  return fallback ? String(fallback).trim().toUpperCase() : '';
+}
+
 const nameCache = new Map();
 
 export function normalizeAdAccountId(value) {
@@ -156,6 +171,31 @@ export function metaLeadCount(actions) {
   return Math.max(...values);
 }
 
+// All custom answers for one lead, keyed by the question name exactly as Meta
+// returned it. The Graph payload is the source of truth; the notes column is the
+// fallback for webhook deliveries, where the event row stores only the lead id
+// (the enriched field_data lives on the lead record's notes instead).
+export function leadAnswers(payload, notes = '') {
+  const answers = {};
+  const fields = Array.isArray(payload?.field_data) ? payload.field_data : [];
+  for (const field of fields) {
+    const key = String(field?.name || '').trim();
+    if (!key) continue;
+    const values = (Array.isArray(field.values) ? field.values : [])
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean);
+    if (values.length) answers[key] = values.join(', ');
+  }
+
+  if (!Object.keys(answers).length) {
+    for (const line of String(notes || '').split('\n')) {
+      const match = /^([^:[\]]{2,80}):\s*(.+)$/.exec(line.trim());
+      if (match) answers[match[1].trim()] = match[2].trim();
+    }
+  }
+  return answers;
+}
+
 const isoDate = (d) => d.toISOString().slice(0, 10);
 
 export function metaDateRange(days = 30) {
@@ -263,25 +303,43 @@ export async function listMetaPages() {
   }));
 }
 
-// Apps currently installed on the Page. When `appId` is known the caller can
-// tell whether THIS app is the one subscribed, not just any app.
+// A Page-scoped Graph call (subscribed_apps, leadgen_forms) rejects a system
+// user token with "(#210) A page access token is required". The page token is
+// obtainable from me/accounts with the same system user token, so fetch it once
+// per call and use it for the Page edge.
+async function pageAccessToken(pageId) {
+  const id = normalizePageIds(pageId)[0];
+  if (!id) throw new Error(`Invalid Page id: ${pageId}`);
+  const res = await graphRequest('me/accounts', { fields: 'id,access_token', limit: 100 });
+  const page = (Array.isArray(res.data) ? res.data : [])
+    .find((p) => String(p?.id) === String(id));
+  if (!page?.access_token) {
+    throw new Error(`No Page access token for ${id} — assign the Page to the system user`);
+  }
+  return page.access_token;
+}
+
+// Apps currently installed on the Page, with the fields each one subscribed to.
 export async function listPageWebhookSubscriptions(pageId) {
-  const res = await graphRequest(`${pageId}/subscribed_apps`);
+  const token = await pageAccessToken(pageId);
+  const res = await graphRequest(`${normalizePageIds(pageId)[0]}/subscribed_apps`, {}, { token });
   return Array.isArray(res.data) ? res.data : [];
 }
 
 export async function subscribePageWebhook(pageId) {
   const id = normalizePageIds(pageId)[0];
   if (!id) throw new Error(`Invalid Page id: ${pageId}`);
+  const token = await pageAccessToken(id);
   // Query params (not a JSON body): the subscribed_apps edge reads them from
   // the request string on both versions this code targets.
-  return graphRequest(`${id}/subscribed_apps`, { subscribed_fields: 'leadgen' }, { method: 'POST' });
+  return graphRequest(`${id}/subscribed_apps`, { subscribed_fields: 'leadgen' }, { method: 'POST', token });
 }
 
 export async function unsubscribePageWebhook(pageId) {
   const id = normalizePageIds(pageId)[0];
   if (!id) throw new Error(`Invalid Page id: ${pageId}`);
-  return graphRequest(`${id}/subscribed_apps`, {}, { method: 'DELETE' });
+  const token = await pageAccessToken(id);
+  return graphRequest(`${id}/subscribed_apps`, {}, { method: 'DELETE', token });
 }
 
 
@@ -309,7 +367,7 @@ export async function fetchLeadDetails(leadgenId) {
 
 export async function fetchFormLeads(formId, { sinceUnix } = {}) {
   return paginate(`${formId}/leads`, {
-    fields: 'id,created_time,field_data,form_id,page_id,platform,ad_id,adset_id,campaign_id',
+    fields: 'id,created_time,field_data,form_id,page_id,platform,ad_id,adset_id,campaign_id,is_organic',
     limit: 100,
     since: sinceUnix,
   }, { pages: 10 });
@@ -375,6 +433,22 @@ export async function discoverMetaForms() {
     .from('meta_lead_forms')
     .upsert(payload, { onConflict: 'form_id' });
   if (error) throw error;
+
+  // A form named "abc_bsct" is mapped on discovery. `ngo is null` keeps a
+  // manual mapping authoritative: discovery never overwrites a human choice.
+  for (const form of payload) {
+    const guessed = ngoFromName(form.form_name);
+    if (!guessed) continue;
+    await db._pool
+      .query(
+        `update meta_lead_forms
+            set ngo = $2, account = $3, updated_at = now()
+          where form_id = $1 and (ngo is null or ngo = '')`,
+        [form.form_id, guessed, ngoToAccount(guessed)],
+      )
+      .catch(() => {});
+  }
+
   return payload;
 }
 

@@ -12,11 +12,13 @@ import {
   listMetaForms,
   saveMetaForm,
   deleteMetaForm,
+  autoMapMetaForms,
   getMetaWebhookEvents,
   listMetaWebhookPages,
   subscribeMetaWebhook,
   getMetaAdsConfig,
   saveMetaAdsConfig,
+  listMetaLeads,
 } from '../controllers/metaAdsController.js';
 
 const router = Router();
@@ -30,11 +32,15 @@ router.get('/campaigns/:id/insights', authenticateRole(...READ_ROLES), getMetaCa
 
 router.get('/insights/summary', authenticateRole(...READ_ROLES), getMetaInsightsSummary);
 router.get('/funnel', authenticateRole(...READ_ROLES), getMetaFunnelHandler);
+
+// Captured leads with flattened form answers (state, association choice, inbox).
+router.get('/leads', authenticateRole(...READ_ROLES), listMetaLeads);
 router.post('/insights/sync', authenticateRole(...WRITE_ROLES), syncMetaInsights);
 router.post('/leads/sync', authenticateRole(...WRITE_ROLES), syncMetaLeads);
 
 router.get('/forms', authenticateRole(...READ_ROLES), listMetaForms);
 router.post('/forms', authenticateRole(...WRITE_ROLES), saveMetaForm);
+router.post('/forms/auto-map', authenticateRole(...WRITE_ROLES), autoMapMetaForms);
 router.delete('/forms/:formId', authenticateRole(...WRITE_ROLES), deleteMetaForm);
 
 // Webhook management: events are delivery history, pages shows whether this app

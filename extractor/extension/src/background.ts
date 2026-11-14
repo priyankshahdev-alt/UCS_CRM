@@ -107,7 +107,25 @@ const INJECTED_CONFIG =
   (globalThis as { UCS_EXTRACTOR_CONFIG?: ExtractorConfig }).UCS_EXTRACTOR_CONFIG || {};
 
 const DEFAULT_API_BASE = (INJECTED_CONFIG.apiBase || 'http://localhost:5000').replace(/\/+$/, '');
-const DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === 'string' ? INJECTED_CONFIG.token : '';const MAX_BUFFER = 2000;
+const DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === 'string' ? INJECTED_CONFIG.token : '';
+const MAX_ROWS_PER_POST = 50;
+const PENDING_KEY = 'pendingCaptureQueue';
+
+interface BatchResult {
+  accepted: number;
+  updated: number;
+  duplicatesIgnored: number;
+  rejected: number;
+  rejections?: Array<{ row: number; reason: string }>;
+}
+
+interface PendingBatch {
+  batchId: string;
+  sessionId: string;
+  sourceUrl: string;
+  sourceName: string;
+  rows: CapturedRow[];
+}const MAX_BUFFER = 2000;
 const AUTO_STORAGE_KEY = 'autoRun';
 const AUTO_JOB_TIMEOUT_MS = 45_000;
 /**
@@ -157,6 +175,15 @@ void settingsReady.catch(() => {
   apiBaseUrl = DEFAULT_API_BASE;
   authToken = DEFAULT_TOKEN;
 });
+
+// Rows held from an earlier job (API outage, browser restart) are posted as
+// soon as the worker wakes, and retried while it stays alive.
+void settingsReady
+  .then(() => retryPendingBatches())
+  .catch(() => {});
+setInterval(() => {
+  void retryPendingBatches();
+}, 60_000);
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -258,6 +285,91 @@ function broadcastAutoRun(): void {
     });
 }
 
+async function postBatch(payload: {
+  batchId: string;
+  sessionId: string;
+  sourceUrl: string;
+  sourceName: string;
+  capturedAt: string;
+  country?: string;
+  rows: CapturedRow[];
+}): Promise<BatchResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ country: 'IN', ...payload })
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      'CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup.'
+    );
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
+  }
+
+  return (await response.json()) as BatchResult;
+}
+
+/** Rows that could not be posted are kept here so a tab close cannot lose them. */
+async function appendPendingBatch(batch: PendingBatch): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(PENDING_KEY);
+    const queue = Array.isArray(stored[PENDING_KEY]) ? (stored[PENDING_KEY] as PendingBatch[]) : [];
+    queue.push(batch);
+    await chrome.storage.local.set({ [PENDING_KEY]: queue });
+  } catch {
+    // Storage is best effort; the job error already reports the loss.
+  }
+}
+
+async function retryPendingBatches(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(PENDING_KEY);
+    const queue = Array.isArray(stored[PENDING_KEY]) ? (stored[PENDING_KEY] as PendingBatch[]) : [];
+    if (queue.length === 0) return;
+
+    const remaining: PendingBatch[] = [];
+    let saved = 0;
+    for (const batch of queue) {
+      try {
+        const result = await postBatch({
+          batchId: batch.batchId,
+          sessionId: batch.sessionId,
+          sourceUrl: batch.sourceUrl,
+          sourceName: batch.sourceName,
+          capturedAt: new Date().toISOString(),
+          rows: batch.rows
+        });
+        saved += result.accepted + result.updated + result.duplicatesIgnored;
+      } catch {
+        remaining.push(batch);
+      }
+    }
+
+    await chrome.storage.local.set({ [PENDING_KEY]: remaining });
+    if (saved > 0) {
+      void chrome.runtime
+        .sendMessage({
+          type: 'UCS_PENDING_FLUSHED',
+          saved,
+          remaining: remaining.reduce((total, batch) => total + batch.rows.length, 0)
+        })
+        .catch(() => {
+          // No side panel open.
+        });
+    }
+  } catch {
+    // Retried again on the next tick / worker start.
+  }
+}
+
 async function flush(session: TabSession): Promise<void> {
   if (session.flushing || session.buffer.length === 0) return;
   if (holdFlushTabs.has(session.tabId)) return;
@@ -272,7 +384,7 @@ async function flush(session: TabSession): Promise<void> {
     session.flushing = false;
     return;
   }
-  const rows = session.buffer.splice(0, 100);
+  const rows = session.buffer.splice(0, MAX_ROWS_PER_POST);
   session.batchCounter += 1;
 
   const payload = {
@@ -281,37 +393,11 @@ async function flush(session: TabSession): Promise<void> {
     sourceUrl: session.sourceUrl,
     sourceName: session.sourceName,
     capturedAt: new Date().toISOString(),
-    country: 'IN',
     rows
   };
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-
-    const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        'CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup.'
-      );
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
-    }
-
-    const result = (await response.json()) as {
-      accepted: number;
-      updated: number;
-      duplicatesIgnored: number;
-      rejected: number;
-    };
+    const result = await postBatch(payload);
 
     session.sent += result.accepted + result.updated;
     session.duplicates += result.duplicatesIgnored;
@@ -338,13 +424,21 @@ async function flush(session: TabSession): Promise<void> {
   }
 }
 
-/** Drain the whole buffer; a single flush only posts one 50-row batch. */
+/** Drain the whole buffer, retrying a transient API outage before giving up. */
 async function flushAll(session: TabSession): Promise<void> {
   for (let pass = 0; pass < 60; pass += 1) {
     if (session.buffer.length === 0) return;
     const before = session.buffer.length;
     await flush(session);
-    if (session.buffer.length >= before) return; // API failed; rows were restored.
+    if (session.buffer.length >= before) {
+      // One failure is usually a backend restart or a flaky link. Give it a
+      // few seconds before calling the job failed.
+      if (pass < 3) {
+        await delay(2000 * (pass + 1));
+        continue;
+      }
+      return;
+    }
   }
 }
 
@@ -410,6 +504,19 @@ async function handleStop(tabId: number): Promise<StopOutcome> {
 
   await flushAll(session);
   const pending = session.buffer.length;
+
+  if (pending > 0) {
+    // The tab is about to close. Keep the unsent rows in extension storage so
+    // they are retried instead of disappearing with the session.
+    await appendPendingBatch({
+      batchId: `${session.sessionId}-p${session.batchCounter + 1}`,
+      sessionId: session.sessionId,
+      sourceUrl: session.sourceUrl,
+      sourceName: session.sourceName,
+      rows: session.buffer.slice()
+    });
+  }
+
   lastCounts.set(tabId, {
     startedAt: session.startedAt,
     sourceHost: session.sourceName,
@@ -1066,7 +1173,9 @@ async function runAutoLoop(token: number): Promise<void> {
 
       if (outcome.pending > 0) {
         job.status = 'failed';
-        job.error = `${outcome.pending} row(s) could not reach the API and stayed in the extension.`;
+        job.error = `${outcome.pending} row(s) could not reach the API and are saved in the extension for automatic retry.${
+          outcome.lastError ? ` ${outcome.lastError}` : ''
+        }`;
       } else if (outcome.sent === 0) {
         job.status = 'failed';
         job.error =
@@ -1100,7 +1209,7 @@ async function runAutoLoop(token: number): Promise<void> {
           job.error =
             'Saved rows, but none carried a phone number. For Google Maps, enable "Open each result".';
         } else if (outcome.rejected > 0) {
-          job.error = `${outcome.rejected} row(s) were rejected by the API.`;
+          job.error = `${outcome.rejected} row(s) were rejected by the CRM. Only mobile numbers are stored, so landlines are skipped.`;
         }
       }
     } catch (error) {
@@ -1183,8 +1292,8 @@ async function startAutoRun(input: {
     finishedAt: null,
     message:
       parsed.errors.length > 0
-        ? `Queued ${parsed.jobs.length} page(s). ${parsed.errors.join(' ')}`
-        : `Queued ${parsed.jobs.length} page(s).`,
+        ? `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop. ${parsed.errors.join(' ')}`
+        : `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop.`,
     currentTabId: null
   };
 

@@ -134,16 +134,25 @@
     const rows = state.jobs.reduce((total, job) => total + job.rows, 0);
     const phones = state.jobs.reduce((total, job) => total + job.phones, 0);
     const target = state.settings.targetPhones;
+    const pages = state.jobs.length;
     const parts = [
-      `${done} page${done === 1 ? "" : "s"} captured`,
+      `${done} of ${pages} page${pages === 1 ? "" : "s"} captured`,
       `${failed} failed`,
       `${rows} row${rows === 1 ? "" : "s"} saved`,
-      `${phones} with phone`
+      `${phones} number${phones === 1 ? "" : "s"} found`
     ];
     if (target > 0) {
-      parts.push(
-        phones >= target ? `target ${target} reached` : `target ${target} not reached (queue ended at ${phones})`
-      );
+      if (phones >= target) {
+        parts.push(`target ${target} reached`);
+      } else if (state.status === "running") {
+        parts.push(`target ${target} not reached yet (${phones} so far)`);
+      } else if (state.status === "paused") {
+        parts.push(`target ${target} not reached (paused at ${phones})`);
+      } else if (state.status === "stopped") {
+        parts.push(`target ${target} not reached (stopped at ${phones})`);
+      } else {
+        parts.push(`target ${target} not reached (queue ended at ${phones})`);
+      }
     }
     return parts.join(" \xB7 ");
   }
@@ -158,6 +167,8 @@
   var INJECTED_CONFIG = globalThis.UCS_EXTRACTOR_CONFIG || {};
   var DEFAULT_API_BASE = (INJECTED_CONFIG.apiBase || "http://localhost:5000").replace(/\/+$/, "");
   var DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === "string" ? INJECTED_CONFIG.token : "";
+  var MAX_ROWS_PER_POST = 50;
+  var PENDING_KEY = "pendingCaptureQueue";
   var MAX_BUFFER = 2e3;
   var AUTO_STORAGE_KEY = "autoRun";
   var AUTO_JOB_TIMEOUT_MS = 45e3;
@@ -189,6 +200,11 @@
     apiBaseUrl = DEFAULT_API_BASE;
     authToken = DEFAULT_TOKEN;
   });
+  void settingsReady.then(() => retryPendingBatches()).catch(() => {
+  });
+  setInterval(() => {
+    void retryPendingBatches();
+  }, 6e4);
   function delay(ms) {
     return new Promise((resolve) => {
       setTimeout(resolve, ms);
@@ -263,6 +279,68 @@
     void chrome.runtime.sendMessage({ type: "UCS_AUTORUN_STATE", state: autoState }).catch(() => {
     });
   }
+  async function postBatch(payload) {
+    const headers = { "Content-Type": "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ country: "IN", ...payload })
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        "CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup."
+      );
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
+    }
+    return await response.json();
+  }
+  async function appendPendingBatch(batch) {
+    try {
+      const stored = await chrome.storage.local.get(PENDING_KEY);
+      const queue = Array.isArray(stored[PENDING_KEY]) ? stored[PENDING_KEY] : [];
+      queue.push(batch);
+      await chrome.storage.local.set({ [PENDING_KEY]: queue });
+    } catch {
+    }
+  }
+  async function retryPendingBatches() {
+    try {
+      const stored = await chrome.storage.local.get(PENDING_KEY);
+      const queue = Array.isArray(stored[PENDING_KEY]) ? stored[PENDING_KEY] : [];
+      if (queue.length === 0) return;
+      const remaining = [];
+      let saved = 0;
+      for (const batch of queue) {
+        try {
+          const result = await postBatch({
+            batchId: batch.batchId,
+            sessionId: batch.sessionId,
+            sourceUrl: batch.sourceUrl,
+            sourceName: batch.sourceName,
+            capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            rows: batch.rows
+          });
+          saved += result.accepted + result.updated + result.duplicatesIgnored;
+        } catch {
+          remaining.push(batch);
+        }
+      }
+      await chrome.storage.local.set({ [PENDING_KEY]: remaining });
+      if (saved > 0) {
+        void chrome.runtime.sendMessage({
+          type: "UCS_PENDING_FLUSHED",
+          saved,
+          remaining: remaining.reduce((total, batch) => total + batch.rows.length, 0)
+        }).catch(() => {
+        });
+      }
+    } catch {
+    }
+  }
   async function flush(session) {
     if (session.flushing || session.buffer.length === 0) return;
     if (holdFlushTabs.has(session.tabId)) return;
@@ -274,7 +352,7 @@
       session.flushing = false;
       return;
     }
-    const rows = session.buffer.splice(0, 100);
+    const rows = session.buffer.splice(0, MAX_ROWS_PER_POST);
     session.batchCounter += 1;
     const payload = {
       batchId: `${session.sessionId}-${session.batchCounter}`,
@@ -282,27 +360,10 @@
       sourceUrl: session.sourceUrl,
       sourceName: session.sourceName,
       capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      country: "IN",
       rows
     };
     try {
-      const headers = { "Content-Type": "application/json" };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload)
-      });
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(
-          "CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup."
-        );
-      }
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
-      }
-      const result = await response.json();
+      const result = await postBatch(payload);
       session.sent += result.accepted + result.updated;
       session.duplicates += result.duplicatesIgnored;
       session.rejected += result.rejected;
@@ -327,7 +388,13 @@
       if (session.buffer.length === 0) return;
       const before = session.buffer.length;
       await flush(session);
-      if (session.buffer.length >= before) return;
+      if (session.buffer.length >= before) {
+        if (pass < 3) {
+          await delay(2e3 * (pass + 1));
+          continue;
+        }
+        return;
+      }
     }
   }
   function ensureSession(tabId, url, sourceName) {
@@ -384,6 +451,15 @@
     }
     await flushAll(session);
     const pending = session.buffer.length;
+    if (pending > 0) {
+      await appendPendingBatch({
+        batchId: `${session.sessionId}-p${session.batchCounter + 1}`,
+        sessionId: session.sessionId,
+        sourceUrl: session.sourceUrl,
+        sourceName: session.sourceName,
+        rows: session.buffer.slice()
+      });
+    }
     lastCounts.set(tabId, {
       startedAt: session.startedAt,
       sourceHost: session.sourceName,
@@ -844,7 +920,7 @@
         totalPhones += outcome.withPhone;
         if (outcome.pending > 0) {
           job.status = "failed";
-          job.error = `${outcome.pending} row(s) could not reach the API and stayed in the extension.`;
+          job.error = `${outcome.pending} row(s) could not reach the API and are saved in the extension for automatic retry.${outcome.lastError ? ` ${outcome.lastError}` : ""}`;
         } else if (outcome.sent === 0) {
           job.status = "failed";
           job.error = outcome.rejected > 0 ? `The API rejected all ${outcome.rejected} row(s) from this page.` : "No leads were saved from this page. It may have hid its data, required a login, or still be loading.";
@@ -869,7 +945,7 @@
           } else if (outcome.withPhone === 0) {
             job.error = 'Saved rows, but none carried a phone number. For Google Maps, enable "Open each result".';
           } else if (outcome.rejected > 0) {
-            job.error = `${outcome.rejected} row(s) were rejected by the API.`;
+            job.error = `${outcome.rejected} row(s) were rejected by the CRM. Only mobile numbers are stored, so landlines are skipped.`;
           }
         }
       } catch (error) {
@@ -934,7 +1010,7 @@
       settings: normalizeSettings(input.settings),
       startedAt: (/* @__PURE__ */ new Date()).toISOString(),
       finishedAt: null,
-      message: parsed.errors.length > 0 ? `Queued ${parsed.jobs.length} page(s). ${parsed.errors.join(" ")}` : `Queued ${parsed.jobs.length} page(s).`,
+      message: parsed.errors.length > 0 ? `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop. ${parsed.errors.join(" ")}` : `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop.`,
       currentTabId: null
     };
     const token = autoLoopToken;

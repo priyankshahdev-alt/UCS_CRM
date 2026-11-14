@@ -24,16 +24,25 @@
     const rows = state.jobs.reduce((total, job) => total + job.rows, 0);
     const phones = state.jobs.reduce((total, job) => total + job.phones, 0);
     const target = state.settings.targetPhones;
+    const pages = state.jobs.length;
     const parts = [
-      `${done} page${done === 1 ? "" : "s"} captured`,
+      `${done} of ${pages} page${pages === 1 ? "" : "s"} captured`,
       `${failed} failed`,
       `${rows} row${rows === 1 ? "" : "s"} saved`,
-      `${phones} with phone`
+      `${phones} number${phones === 1 ? "" : "s"} found`
     ];
     if (target > 0) {
-      parts.push(
-        phones >= target ? `target ${target} reached` : `target ${target} not reached (queue ended at ${phones})`
-      );
+      if (phones >= target) {
+        parts.push(`target ${target} reached`);
+      } else if (state.status === "running") {
+        parts.push(`target ${target} not reached yet (${phones} so far)`);
+      } else if (state.status === "paused") {
+        parts.push(`target ${target} not reached (paused at ${phones})`);
+      } else if (state.status === "stopped") {
+        parts.push(`target ${target} not reached (stopped at ${phones})`);
+      } else {
+        parts.push(`target ${target} not reached (queue ended at ${phones})`);
+      }
     }
     return parts.join(" \xB7 ");
   }
@@ -136,7 +145,7 @@
   function jobMeta(job) {
     if (job.status === "pending") return "Waiting";
     if (job.status === "running") return "Running now";
-    const parts = [`${job.rows} saved`, `${job.phones} with phone`];
+    const parts = [`${job.rows} saved`, `${job.phones} number${job.phones === 1 ? "" : "s"} found`];
     if (job.duplicates > 0) {
       parts.push(`${job.duplicates} duplicate${job.duplicates === 1 ? "" : "s"}`);
     }
@@ -560,6 +569,10 @@
     }
     if (typed.type === "UCS_AUTORUN_STATE") {
       renderAuto(typed.state ?? null);
+      return;
+    }
+    if (typed.type === "UCS_PENDING_FLUSHED") {
+      autoNote.textContent = `${typed.saved ?? 0} held row(s) reached the CRM.${typed.remaining ? ` ${typed.remaining} still waiting to retry.` : ""}`;
     }
   });
   void init().catch(() => {

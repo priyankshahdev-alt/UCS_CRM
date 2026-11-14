@@ -20,6 +20,8 @@ import {
   metaDateRange,
   ngoToAccount,
   normalizePageIds,
+  ngoFromName,
+  leadAnswers,
   setSyncState,
   subscribePageWebhook,
   syncInsights,
@@ -475,15 +477,157 @@ export async function saveMetaAdsConfig(req, res) {
   }
 }
 
+// Fills `ngo` for every form that has no mapping yet, from the form name token
+// (abc_bsct → BSCT) and then the configured default. Manual mappings are never
+// touched. Leads already ingested from a form get the [Account:] tag backfilled.
+export async function autoMapMetaForms(req, res) {
+  try {
+    const requested = String(req.body?.fallback || '').trim().toUpperCase();
+    const fallback = META_NGOS.includes(requested)
+      ? requested
+      : (META_NGOS.includes(String(process.env.META_ADS_DEFAULT_NGO || '').trim().toUpperCase())
+        ? String(process.env.META_ADS_DEFAULT_NGO).trim().toUpperCase()
+        : 'BSCT');
+
+    const { data: forms, error } = await db
+      .from('meta_lead_forms')
+      .select('form_id, form_name, ngo');
+    if (error) throw error;
+
+    const results = [];
+    for (const form of forms || []) {
+      if (form.ngo) continue; // a human mapping always wins
+      const ngo = ngoFromName(form.form_name, fallback);
+      if (!ngo) continue;
+      const account = ngoToAccount(ngo);
+      const { error: updateError } = await db
+        .from('meta_lead_forms')
+        .update({ ngo, account, updated_at: new Date().toISOString() })
+        .eq('form_id', form.form_id);
+      if (updateError) {
+        results.push({ form_id: form.form_id, ok: false, error: updateError.message });
+        continue;
+      }
+      const remapped = await remapFormLeads(form.form_id, account).catch(() => 0);
+      results.push({
+        form_id: form.form_id,
+        form_name: form.form_name || '',
+        ngo,
+        account,
+        remapped,
+        ok: true,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      fallback,
+      mapped: results.filter((r) => r.ok).length,
+      leads_updated: results.reduce((sum, r) => sum + (r.remapped || 0), 0),
+      results,
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ---- Lead log (panel) ------------------------------------------------------
+
+// One row per captured Meta lead, with the custom form answers flattened so the
+// panel can show what the CSV export shows: state, association choice, inbox
+// link. Filters are optional and additive.
+export async function listMetaLeads(req, res) {
+  try {
+    const days = daysOf(req.query.days, 30);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const platform = String(req.query.platform || '').trim().toLowerCase();
+    const formId = String(req.query.form_id || '').trim();
+    const q = String(req.query.q || '').trim();
+
+    const params = [days];
+    let where = `l.source = 'Meta Lead Ad' and l.created_at >= now() - ($1::int || ' days')::interval`;
+    if (platform) {
+      params.push(platform);
+      where += ` and lower(coalesce(l.meta_platform, '')) = $${params.length}`;
+    }
+    if (formId) {
+      params.push(formId);
+      where += ` and l.meta_form_id = $${params.length}`;
+    }
+    if (q) {
+      params.push(`%${q}%`);
+      where += ` and (l.name ilike $${params.length} or l.email ilike $${params.length} or l.phone like $${params.length})`;
+    }
+    params.push(limit);
+    const limitParam = params.length;
+    params.push(offset);
+    const offsetParam = params.length;
+
+    const { rows } = await db._pool.query(
+      `select l.id, l.name, l.phone, l.email, l.notes, l.meta_platform, l.meta_form_id,
+              l.meta_campaign_id, l.meta_campaign_name, l.meta_lead_id, l.created_at,
+              f.form_name, f.ngo, f.account, e.payload,
+              count(*) over()::int as total
+         from leads l
+         left join meta_lead_forms f on f.form_id = l.meta_form_id
+         left join meta_lead_events e on e.meta_lead_id = l.meta_lead_id
+        where ${where}
+        order by l.created_at desc
+        limit $${limitParam} offset $${offsetParam}`,
+      params,
+    );
+
+    const answerOf = (answers, needle) => {
+      const key = Object.keys(answers).find((k) => k.toLowerCase().includes(needle));
+      return key ? answers[key] : '';
+    };
+
+    return res.json({
+      total: rows[0]?.total || 0,
+      rows: rows.map((r) => {
+        const answers = leadAnswers(r.payload, r.notes);
+        return {
+          id: r.id,
+          name: r.name || '',
+          phone: r.phone || '',
+          email: r.email || '',
+          platform: r.meta_platform || '',
+          form_id: r.meta_form_id || '',
+          form_name: r.form_name || '',
+          campaign_id: r.meta_campaign_id || r.payload?.campaign_id || '',
+          campaign_name: r.meta_campaign_name || '',
+          ad_id: r.payload?.ad_id || '',
+          is_organic: r.payload?.is_organic == null
+            ? null
+            : String(r.payload.is_organic).toLowerCase() === 'true',
+          state: answerOf(answers, 'state'),
+          interest: answerOf(answers, 'associate'),
+          inbox_url: answers.inbox_url || answerOf(answers, 'inbox'),
+          ngo: r.ngo || '',
+          answers,
+          created_at: r.created_at,
+        };
+      }),
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
 // ---- Webhook (public) ------------------------------------------------------
 
 export async function getMetaWebhookEvents(req, res) {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    // Re-polls used to rewrite every row to "duplicate"; the ingest guard stops
+    // that now, but old rows remain, so duplicates are hidden unless asked for.
+    const includeDuplicates = String(req.query.include_duplicates || '') === '1';
     const { rows } = await db._pool.query(
       `select meta_lead_id, form_id, page_id, platform, campaign_id, campaign_name,
               status, error, lead_id, received_at, processed_at
          from meta_lead_events
+        ${includeDuplicates ? '' : `where status <> 'duplicate'`}
         order by received_at desc
         limit $1`,
       [limit],
@@ -521,23 +665,27 @@ export async function listMetaWebhookPages(req, res) {
 
     const out = [];
     for (const page of pages) {
-      let subscribed = null;
-      let fields = [];
+      let apps = null;
       try {
-        const apps = await listPageWebhookSubscriptions(page.id);
-        const mine = cfg.appId
-          ? apps.find((a) => String(a?.id) === String(cfg.appId))
-          : apps[0];
-        subscribed = Boolean(mine);
-        fields = Array.isArray(mine?.subscribed_fields) ? mine.subscribed_fields.map(String) : [];
+        apps = await listPageWebhookSubscriptions(page.id);
       } catch {
-        subscribed = null;
+        apps = null;
       }
+      const installed = (apps || []).map((a) => ({
+        id: String(a?.id || ''),
+        name: a?.name || '',
+        fields: Array.isArray(a?.subscribed_fields) ? a.subscribed_fields.map(String) : [],
+      }));
+      // `subscribed: null` means Graph could not be asked. `leadgen` is true if
+      // ANY installed app receives the field — the configured app id may be a
+      // different app (WhatsApp fallback), so it cannot be the only signal.
       out.push({
         ...page,
-        subscribed,
-        subscribed_fields: fields,
-        leadgen: fields.includes('leadgen'),
+        subscribed: apps === null ? null : installed.length > 0,
+        subscribed_fields: installed.flatMap((a) => a.fields),
+        leadgen: installed.some((a) => a.fields.includes('leadgen')),
+        apps: installed,
+        app_match: cfg.appId ? installed.some((a) => a.id === String(cfg.appId)) : null,
       });
     }
 
