@@ -114,6 +114,50 @@ Test it without waiting for the schedule: `npx wrangler dev --test-scheduled`, t
 > No-deploy alternative: point a free uptime monitor (UptimeRobot, cron-job.org) at
 > `https://ucs-ocr.onrender.com/api/status` every 5-10 minutes.
 
+### Run it at home with a free Cloudflare URL (no domain needed)
+
+You can keep the OCR engine on your own PC and expose it with a Quick Tunnel — no port forwarding
+and no domain:
+
+```powershell
+cd ocr
+$env:OCR_API_KEY = "<a long random string>"
+.\start.bat
+```
+
+In a second terminal:
+
+```powershell
+winget install --id Cloudflare.cloudflared --exact
+cloudflared tunnel --url http://localhost:8010
+```
+
+The last command prints a random `https://*.trycloudflare.com` URL. That URL changes every time the
+tunnel restarts. To get a **stable** URL without owning a domain, deploy the free Worker proxy in
+`ocr/deploy/proxy/`:
+
+```bash
+cd ocr/deploy/proxy
+npm install
+npx wrangler login
+# put the current *.trycloudflare.com URL into TARGET_URL in wrangler.jsonc
+npx wrangler deploy
+```
+
+Workers give you `https://ucs-ocr-proxy.<your-subdomain>.workers.dev`, which never changes. Set the
+Node backend's `INDRA_OCR_URL` to that URL once. After a tunnel restart, paste the new
+`*.trycloudflare.com` URL into `TARGET_URL` and run `npx wrangler deploy` again — the public URL
+stays identical. The proxy forwards cookies and rewrites the `?key=` bootstrap redirect so the
+browser scanner keeps working.
+
+To avoid the manual update entirely, run `.\start-local.ps1 -ApiKey "<key>"` from this folder after
+each restart. It starts the OCR service and tunnel, reads the new tunnel URL, patches
+`wrangler.jsonc`, and redeploys the proxy in one step.
+
+Your PC must stay awake and both terminals must keep running. Cloudflare Tunnel requires no inbound
+firewall rules. A permanent custom hostname like `ocr.yourdomain.com` needs a domain whose DNS is
+managed by Cloudflare (or a Business/Enterprise partial setup).
+
 ### Any Docker host
 
 ```bash

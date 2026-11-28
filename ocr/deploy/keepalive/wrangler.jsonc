@@ -13,8 +13,7 @@
     "crons": ["*/10 * * * *"]
   },
   "vars": {
-    // Replace with the real URL after the first Render deploy. Render appends a
-    // suffix (e.g. ucs-ocr-ab12.onrender.com) when the name is already taken.
-    "TARGET_URL": "https://ucs-ocr.onrender.com/api/status"
+    // URL Render assigned to the OCR service.
+    "TARGET_URL": "https://ocr-iuuz.onrender.com/api/status"
   }
 }
