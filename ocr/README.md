@@ -46,6 +46,92 @@ The first start downloads the Indra OCR models (about 100 MB with math disabled,
 
 ---
 
+## Deploy it
+
+The service ships as a Docker image (`ocr/Dockerfile`). The Indra weights are downloaded **at build
+time**, so a cold start needs no Hugging Face access and the running container needs no outbound
+network. The image is roughly 600 MB.
+
+### Render (blueprint)
+
+The repository's root `render.yaml` already declares the OCR service (`ucs-ocr`):
+
+1. Render Dashboard → **New → Blueprint** → pick this repository.
+2. Render creates `ucs-openwa` and `ucs-ocr`. The OCR service builds from `ocr/` with
+   `Dockerfile`, and Render generates an `OCR_API_KEY` for it.
+3. Open the service's **Environment** tab and copy `OCR_API_KEY`.
+4. On the Node backend (`backend/`) set:
+   ```env
+   INDRA_OCR_URL=https://ucs-ocr.onrender.com
+   INDRA_OCR_KEY=<the generated OCR_API_KEY>
+   ```
+5. To use the browser scanner on the deployed URL, open
+   `https://ucs-ocr.onrender.com/?key=<the generated OCR_API_KEY>` once. The page stores the key in
+   an HttpOnly cookie and redirects to `/`, so the camera UI works without putting the key in JS.
+
+**Plan sizes.** Indra OCR needs real RAM and CPU:
+
+| Render plan | CPU / RAM | Verdict |
+| --- | --- | --- |
+| `free` | 0.1 CPU / 512 MB | Testing only. Sleeps after 15 min; cold start 1-3 min. |
+| `0.5c-512mb` ($7/mo) | 0.5 CPU / 512 MB | Smallest sensible option, no sleep. |
+| `1c-2g` ($25/mo) | 1 CPU / 2 GB | Comfortable for regular use. |
+
+On the free plan, scans can take tens of seconds; if Render reports an out-of-memory restart, move
+to `1c-2g`. A free-plan cold start (spin-up + model load) can also exceed the Node backend's default
+90 s timeout, so raise it when the OCR service runs on the free plan:
+
+```env
+INDRA_OCR_TIMEOUT_MS=180000
+```
+
+### Keep the free instance awake (optional)
+
+Render spins a Free web service down after 15 minutes without inbound traffic.
+`ocr/deploy/keepalive/` is a Cloudflare Worker whose Cron Trigger pings `/api/status`
+every 10 minutes (Workers Free includes 5 cron triggers per account; a run that only
+waits on `fetch()` barely uses the 10 ms CPU budget).
+
+```bash
+cd ocr/deploy/keepalive
+npm install
+npx wrangler login
+# edit TARGET_URL in wrangler.jsonc to the URL Render gave you
+npx wrangler deploy
+npx wrangler tail        # watch the keepalive results
+```
+
+Test it without waiting for the schedule: `npx wrangler dev --test-scheduled`, then open
+`http://localhost:8787/ping`. To protect `/api/status` later, run
+`npx wrangler secret put OCR_API_KEY` and the Worker will send it.
+
+> **This does not make the free plan production-ready.** A free service kept awake 24/7 uses
+> roughly 720-744 of the **750 free instance hours per workspace**, so `ucs-openwa` (also free)
+> can exhaust the pool and Render suspends every free service until the next month. The keepalive
+> is for demos and short testing windows; for an always-on OCR service use `0.5c-512mb` ($7/mo),
+> which does not sleep at all.
+>
+> No-deploy alternative: point a free uptime monitor (UptimeRobot, cron-job.org) at
+> `https://ucs-ocr.onrender.com/api/status` every 5-10 minutes.
+
+### Any Docker host
+
+```bash
+cd ocr
+docker build -t ucs-ocr .
+docker run --rm -p 8010:8010 -e OCR_API_KEY=change-me ucs-ocr
+```
+
+The container listens on `0.0.0.0:8010` (Render's `PORT` is honoured automatically). Put TLS and
+access control in front of it if it is public — the API key is the only gate.
+
+> **Cloudflare Workers / pywrangler will not run this service.** Python Workers execute Pyodide in
+> a 128 MB isolate and cannot load `onnxruntime` or `opencv-python-headless` (no PyEmscripten
+> wheels), and the model weights alone exceed the bundle limit. Use a container host such as Render,
+> or Cloudflare **Containers** on the paid Workers plan.
+
+---
+
 ## How it works
 
 ```

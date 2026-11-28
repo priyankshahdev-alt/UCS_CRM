@@ -18,11 +18,12 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import numpy as np
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
@@ -280,13 +281,17 @@ def _is_loopback(request: Request) -> bool:
     return host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")
 
 
+def _supplied_key(request: Request) -> str:
+    """The X-OCR-Key header, or the cookie set by the ?key= bootstrap below."""
+    return request.headers.get("X-OCR-Key") or request.cookies.get("ocr_key", "")
+
+
 def _require_ocr_key(request: Request) -> None:
     """When OCR_API_KEY is set, non-loopback callers must send X-OCR-Key."""
     expected = os.getenv("OCR_API_KEY", "").strip()
     if not expected or _is_loopback(request):
         return
-    provided = request.headers.get("X-OCR-Key", "")
-    if not hmac.compare_digest(provided, expected):
+    if not hmac.compare_digest(_supplied_key(request).encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Missing or invalid X-OCR-Key header.")
 
 
@@ -338,6 +343,27 @@ app = FastAPI(title="Indra OCR Service", version="1.0.0", docs_url=None, redoc_u
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    # Browser convenience: open /?key=<OCR_API_KEY> once and the key is stored in an
+    # HttpOnly cookie, so the scanner UI keeps working when the service is not on
+    # loopback (Render, a LAN address, a tunnel). The key never reaches app.js.
+    expected = os.getenv("OCR_API_KEY", "").strip()
+    supplied = request.query_params.get("key")
+    if expected and supplied and hmac.compare_digest(supplied.encode(), expected.encode()):
+        params = dict(request.query_params)
+        params.pop("key", None)
+        target = str(request.url.replace(query=urlencode(params)))
+        response = RedirectResponse(target, status_code=303)
+        response.set_cookie(
+            "ocr_key",
+            expected,
+            max_age=30 * 24 * 60 * 60,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -405,6 +431,13 @@ async def scan_base64(payload: ScanPayload) -> dict[str, Any]:
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+
+@app.head("/", include_in_schema=False)
+@app.head("/api/status", include_in_schema=False)
+async def head_probe() -> Response:
+    """HEAD probes for Render's port scan and uptime monitors (FastAPI does not add HEAD)."""
+    return Response(status_code=200)
 
 
 @app.get("/favicon.svg", include_in_schema=False)

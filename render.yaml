@@ -1,7 +1,7 @@
-# Render Blueprint for the OpenWA WhatsApp gateway.
+# Render Blueprint for the OpenWA WhatsApp gateway and the Indra OCR service.
 #
-# Render reads this file from the ROOT of the repository. The service itself is built from `openwa/`
-# (rootDir below), so keep this file where it is and do not move it into openwa/.
+# Render reads this file from the ROOT of the repository. Each service is built from its own
+# subfolder (`rootDir` below), so keep this file where it is and do not move it into them.
 #
 # Create the Blueprint at https://dashboard.render.com/blueprints → "New Blueprint Instance".
 # Secrets marked `sync: false` are prompted for on creation and never stored in git.
@@ -86,3 +86,40 @@ services:
       # Set after the first deploy to the public URL, e.g. https://ucs-openwa.onrender.com
       - key: BASE_URL
         sync: false
+
+  # --- Indra OCR (Python + FastAPI) ------------------------------------------------------------
+  #
+  # Docker image with the ~89 MB of Indra OCR weights baked in, so a cold start needs no
+  # Hugging Face download. `plan: free` is 512 MB / 0.1 CPU: it fits, but a scan is slow and the
+  # service sleeps after 15 min idle (cold start 1-3 min). For real use switch to `0.5c-512mb`
+  # ($7/mo, no sleep) or `1c-2g` ($25/mo, 1 CPU / 2 GB).
+  #
+  # After the first deploy, copy the generated OCR_API_KEY from this service's Environment tab
+  # into the Node backend as INDRA_OCR_KEY, and set INDRA_OCR_URL to this service's URL.
+  - type: web
+    name: ucs-ocr
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: ocr
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/status
+    autoDeploy: false
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # One ONNX thread keeps the process inside the free instance's small CPU/RAM budget.
+      - key: INDRA_THREADS
+        value: '1'
+      - key: INDRA_MATH
+        value: '0'
+      - key: OCR_PRELOAD
+        value: '1'
+      # Cards do not need 3000 px; 2000 keeps peak memory down on a 512 MB instance.
+      - key: OCR_MAX_IMAGE_SIDE
+        value: '2000'
+      - key: OCR_MAX_UPLOAD_MB
+        value: '10'
+      - key: OCR_API_KEY
+        generateValue: true

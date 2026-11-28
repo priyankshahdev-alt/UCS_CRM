@@ -1,0 +1,13 @@
+{
+  "name": "ucs-ocr-keepalive",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --test-scheduled",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "4.169.0"
+  }
+}

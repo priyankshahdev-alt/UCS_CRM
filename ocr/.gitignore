@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+node_modules/
+.wrangler/
+.dev.vars
