@@ -816,11 +816,10 @@ export const getAuditTrail = async (req, res) => {
 // (src/aadhaar/routes.js) using @xone-labs/aadharjs with the legacy XML
 // decoder as fallback.
 
-// OCRs a photo of an Aadhaar card and returns the same field shape as
-// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a base64 JPEG
-// (/data:image;base64,... or raw). Uses Gemini vision first, falls back to
-// OCR.space + regex heuristics. If everything fails, `detail` explains which
-// OCR engine was missing/broken so the operator can fix it server-side.
+// OCRs a photo of an Aadhaar card / UDID / disability certificate through the
+// local Indra service and returns the same flat field shape as decodeAadhaarQr
+// so the mobile app auto-fills the form. `lines` carries the detected text
+// boxes so the beneficiary app can show a tap-to-select preview before attach.
 export const parseAadhaarPhotoController = async (req, res) => {
   try {
     const { image, side } = req.body || {};
@@ -853,7 +852,11 @@ export const parseAadhaarPhotoController = async (req, res) => {
     // side: 'front' | 'back' | anything else -> 'all' (scrape every visible
     // detail, used when a single uploaded document must autofill).
     const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
-    const { fields, via, warnings } = await extractDocumentFromPhoto(String(image), docType, sideKey);
+    const { fields, via, warnings, lines, meta } = await extractDocumentFromPhoto(
+      String(image),
+      docType,
+      sideKey,
+    );
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
         message: 'Could not read this document. Make sure the photo is sharp, well-lit, and shows the whole document.',
@@ -870,7 +873,7 @@ export const parseAadhaarPhotoController = async (req, res) => {
 
     const discarded = [...new Set([...ALL_KEYS].filter((k) => !(k in fields)))];
     console.log(`[ocr] via=${via} doc_type=${docType} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
-    return res.json({ ...fields, doc_type: docType });
+    return res.json({ ...fields, doc_type: docType, lines, meta });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message });
   }

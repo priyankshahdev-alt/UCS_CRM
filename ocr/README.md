@@ -313,7 +313,9 @@ warnings, so a caller can show the raw OCR when a field is uncertain.
 
 ### API key
 
-Set `OCR_API_KEY` on the OCR service when it is reachable beyond the machine:
+Set `OCR_API_KEY` on the OCR service when it is reachable beyond the machine.
+Generate a value with
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`, then:
 
 ```bash
 OCR_API_KEY="long-random-value" python server.py
@@ -337,7 +339,17 @@ the Indra version, `doc_types`, and whether demo mode / the API key are active.
 
 - The Node backend calls this service from `backend/src/utils/aadhaarPhotoOcr.js`.
   It reads `INDRA_OCR_URL` (default `http://127.0.0.1:8010`) and optionally
-  `INDRA_OCR_KEY`.
+  `INDRA_OCR_KEY`. A public HTTPS proxy is supported:
+
+  ```env
+  INDRA_OCR_URL=https://ucs-ocr-proxy.priyankshah-dev.workers.dev
+  INDRA_OCR_KEY=<same key the proxy expects>
+  INDRA_OCR_TIMEOUT_MS=180000
+  ```
+
+- The Flutter app does **not** store the OCR key. It calls the backend, which
+  adds `X-OCR-Key` and forwards the photo. The app only stores the public proxy
+  URL for a read-only status check (backend picker → Indra OCR status).
 - Existing route: `POST /api/beneficiaries/aadhaar/parse-photo`.
 - Generic route: `POST /api/beneficiaries/documents/parse-photo` with
   `{ image, side, doc_type }`. It returns the flat fields the Flutter app uses:
@@ -367,6 +379,10 @@ Environment variables, all optional:
 | `OCR_MOCK` | `0` | set to `1` for a UI demo with canned data (no models, no OCR) |
 | `OCR_API_KEY` | unset | require `X-OCR-Key` from non-loopback callers |
 | `INDRA_OCR_MODEL_DIR` | model cache | point at a local model folder |
+
+These can also be placed in `ocr/.env` (loaded at startup and gitignored). The
+`backend/.env` file should use `INDRA_OCR_URL` and `INDRA_OCR_KEY` to reach this
+service.
 
 Demo mode without downloading models:
 

@@ -135,7 +135,7 @@ function serviceError(message, statusCode = 502) {
  * @param {string} base64   raw base64 or a data URL
  * @param {string} docType  aadhaar | udid | disability | generic | auto
  * @param {string} side     front | back | all
- * @returns {Promise<{fields: object, via: string, errors: string[], warnings: string[], doc_type: string}>}
+ * @returns {Promise<{fields: object, via: string, errors: string[], warnings: string[], doc_type: string, lines: Array<{index: number, text: string, box: number[], conf: number|null}>, meta: object|null}>}
  */
 export async function extractDocumentFromPhoto(base64, docType = 'aadhaar', side = 'all') {
   if (!base64 || typeof base64 !== 'string') {
@@ -188,7 +188,31 @@ export async function extractDocumentFromPhoto(base64, docType = 'aadhaar', side
     errors: [],
     warnings: Array.isArray(data?.warnings) ? data.warnings : [],
     doc_type: data?.doc_type || docType,
+    lines: sanitizeLines(data?.lines),
+    meta: data?.meta && typeof data.meta === 'object' ? data.meta : null,
   };
+}
+
+/**
+ * Keep only the geometry the Flutter overlay needs. The OCR service is local,
+ * but this payload crosses the Worker proxy, so nothing unexpected is forwarded.
+ */
+function sanitizeLines(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((line, index) => {
+      const text = String(line?.text ?? '').trim();
+      const raw = Array.isArray(line?.box) ? line.box : [];
+      const box = raw.slice(0, 4).map((n) => Number(n));
+      if (!text || box.length !== 4 || box.some((n) => !Number.isFinite(n))) return null;
+      return {
+        index: Number.isInteger(line?.index) ? line.index : index,
+        text,
+        box,
+        conf: typeof line?.conf === 'number' && Number.isFinite(line.conf) ? line.conf : null,
+      };
+    })
+    .filter(Boolean);
 }
 
 // Backwards-compatible wrapper for the existing Aadhaar route/callers.

@@ -35,6 +35,29 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+
+def _load_local_env(path: Path) -> None:
+    """Load KEY=VALUE pairs from ocr/.env without overriding the real env."""
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8", errors="surrogateescape").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        value = value.strip().strip('"').strip("'")
+        if " #" in value:
+            value = value.split(" #", 1)[0].strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env(BASE_DIR / ".env")
+
 MAX_UPLOAD_BYTES = int(os.getenv("OCR_MAX_UPLOAD_MB", "15")) * 1024 * 1024
 MAX_IMAGE_SIDE = int(os.getenv("OCR_MAX_IMAGE_SIDE", "3000"))
 MOCK = os.getenv("OCR_MOCK", "0") == "1"
@@ -104,6 +127,66 @@ class ScanError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+def _line_boxes(page: Any, scale_x: float, scale_y: float) -> list[dict[str, Any]]:
+    """Convert Indra line boxes into image-pixel coordinates for UI overlays.
+
+    Indra returns boxes as [x1, y1, x2, y2] for the image it actually read. The
+    app displays the original photo, so boxes are scaled back up when the photo
+    was resized before OCR.
+    """
+    boxes: list[dict[str, Any]] = []
+    for index, line in enumerate(getattr(page, "lines", []) or []):
+        text = str(getattr(line, "text", "") or "").strip()
+        raw_box = getattr(line, "box", None)
+        if not text or raw_box is None:
+            continue
+        try:
+            coords = [float(value) for value in list(raw_box)[:4]]
+        except (TypeError, ValueError):
+            continue
+        if len(coords) != 4:
+            continue
+        x1, y1, x2, y2 = coords
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if y2 < y1:
+            y1, y2 = y2, y1
+        item: dict[str, Any] = {
+            "index": index,
+            "text": text,
+            "box": [
+                round(x1 * scale_x, 1),
+                round(y1 * scale_y, 1),
+                round(x2 * scale_x, 1),
+                round(y2 * scale_y, 1),
+            ],
+        }
+        conf = getattr(line, "conf", None)
+        if isinstance(conf, (int, float)):
+            item["conf"] = round(float(conf), 4)
+        boxes.append(item)
+    return boxes
+
+
+def _mock_line_boxes(text: str) -> list[dict[str, Any]]:
+    """Simple demo boxes so the scanner UI can be tested with OCR_MOCK=1."""
+    result: list[dict[str, Any]] = []
+    for index, value in enumerate(
+        [line.strip() for line in text.splitlines() if line.strip()]
+    ):
+        width = min(760, max(140, len(value) * 11))
+        top = 54 + index * 72
+        result.append(
+            {
+                "index": index,
+                "text": value,
+                "box": [60.0, float(top), float(60 + width), float(top + 40)],
+                "conf": 0.99,
+            }
+        )
+    return result
 
 
 class OcrEngine:
@@ -201,6 +284,7 @@ class OcrEngine:
                 "warnings": parsed.warnings,
                 "markdown": text,
                 "text": text,
+                "lines": _mock_line_boxes(text),
                 "meta": {
                     "engine": "demo",
                     "doc_type": resolved,
@@ -223,12 +307,15 @@ class OcrEngine:
             image = image.convert("RGB")
 
         width, height = image.size
+        source_width, source_height = width, height
         longest = max(width, height)
         if longest > MAX_IMAGE_SIDE:
             ratio = MAX_IMAGE_SIDE / longest
             image = image.resize((max(1, int(width * ratio)), max(1, int(height * ratio))), Image.LANCZOS)
             width, height = image.size
 
+        scale_x = source_width / width if width else 1.0
+        scale_y = source_height / height if height else 1.0
         gray = np.array(image.convert("L"), dtype=np.uint8)
 
         self.ensure_loaded()
@@ -259,11 +346,15 @@ class OcrEngine:
                 "doc_type": resolved,
                 "markdown": markdown,
                 "text": text,
+                # Boxes are scaled to the original photo, not the resized copy
+                # Indra read, so the Flutter overlay lines up exactly.
+                "lines": _line_boxes(page, scale_x, scale_y),
                 "meta": {
                     "engine": "indra-ocr",
                     "doc_type": resolved,
                     "elapsed_ms": elapsed_ms,
-                    "image": {"width": width, "height": height},
+                    "image": {"width": source_width, "height": source_height},
+                    "ocr_image": {"width": width, "height": height},
                     "lines": len(getattr(page, "lines", []) or []),
                     "source": getattr(page, "source", None),
                     "mock": False,
