@@ -49,52 +49,15 @@ class ApiService {
     return _handleResponse(res);
   }
 
-  /// Sends a card/document photo to the backend. The backend forwards it to
-  /// Indra OCR using INDRA_OCR_URL / INDRA_OCR_KEY from its own env (currently
-  /// the public Worker proxy), then returns the fields the form understands.
-  /// [docType] is one of aadhaar, udid, disability, generic or auto.
-  /// The photo is sent once and never persisted by the OCR service.
-  static const Duration ocrTimeout = Duration(seconds: 180);
-
-  static Future<Map<String, dynamic>> parseDocumentPhoto(
-    String base64, {
-    String docType = 'aadhaar',
-    String side = 'all',
-  }) async {
-    return scanDocumentPreview(base64, docType: docType, side: side);
-  }
-
-  /// Same OCR call as [parseDocumentPhoto], used by the text-scan preview page.
-  /// Besides the flat form fields, the response now carries `lines` (detected
-  /// text boxes) and `meta.image` so the app can draw a tappable overlay.
-  static Future<Map<String, dynamic>> scanDocumentPreview(
-    String base64, {
-    String docType = 'aadhaar',
-    String side = 'all',
-  }) async {
-    return post('/beneficiaries/documents/parse-photo',
-        body: {'image': base64, 'side': side, 'doc_type': docType},
-        timeout: ocrTimeout);
-  }
-
-  /// Aadhaar-only helper kept for the existing edit flow.
+  /// Sends a card photo (base64) to the backend which reads the details with
+  /// Gemini vision and returns the fields scraped from it (name/dob/gender/
+  /// address_line_1/aadhaar_number). `side` picks the extraction scope:
+  /// 'front', 'back', or 'all' (default). The photo is sent once and never
+  /// persisted on the device.
   static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64,
       {String side = 'all'}) async {
     return post('/beneficiaries/aadhaar/parse-photo',
-        body: {'image': base64, 'side': side}, timeout: ocrTimeout);
-  }
-
-  /// Read-only health check for the OCR proxy. No API key is needed and no
-  /// photo is sent. Used to tell the operator whether scans will work before
-  /// they capture a document.
-  static Future<Map<String, dynamic>> ocrStatus() async {
-    final res = await http
-        .get(
-          Uri.parse('${Config.ocrProxyUrl}/api/status'),
-          headers: const {'ngrok-skip-browser-warning': 'true'},
-        )
-        .timeout(const Duration(seconds: 15));
-    return _handleResponse(res);
+        body: {'image': base64, 'side': side}, timeout: const Duration(seconds: 60));
   }
 
   static Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {

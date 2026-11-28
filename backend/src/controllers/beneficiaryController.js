@@ -21,7 +21,7 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { getCatalogItem } from '../models/bnfCatalogModel.js';
-import { extractDocumentFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
+import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
 import { randomInt, timingSafeEqual } from 'crypto';
 import db from '../config/db.js';
 
@@ -816,10 +816,11 @@ export const getAuditTrail = async (req, res) => {
 // (src/aadhaar/routes.js) using @xone-labs/aadharjs with the legacy XML
 // decoder as fallback.
 
-// OCRs a photo of an Aadhaar card / UDID / disability certificate through the
-// local Indra service and returns the same flat field shape as decodeAadhaarQr
-// so the mobile app auto-fills the form. `lines` carries the detected text
-// boxes so the beneficiary app can show a tap-to-select preview before attach.
+// OCRs a photo of an Aadhaar card and returns the same field shape as
+// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a base64 JPEG
+// (/data:image;base64,... or raw). Uses Gemini vision first, falls back to
+// OCR.space + regex heuristics. If everything fails, `detail` explains which
+// OCR engine was missing/broken so the operator can fix it server-side.
 export const parseAadhaarPhotoController = async (req, res) => {
   try {
     const { image, side } = req.body || {};
@@ -827,54 +828,28 @@ export const parseAadhaarPhotoController = async (req, res) => {
       return res.status(400).json({ message: 'image is required' });
     }
 
-    // doc_type selects the extraction profile. Aadhaar stays the default so the
-    // existing add/edit flows keep working; UDID and disability certificates use
-    // the same endpoint with a different profile.
-    const aliases = {
-      aadhar: 'aadhaar',
-      'aadhaar card': 'aadhaar',
-      'udid card': 'udid',
-      'unique disability id': 'udid',
-      'disability certificate': 'disability',
-      'certificate of disability': 'disability',
-      document: 'generic',
-      doc: 'generic',
-    };
-    const rawDocType = String(req.body?.doc_type || req.body?.docType || 'aadhaar').trim().toLowerCase();
-    const docType = aliases[rawDocType] || rawDocType;
-    if (!['aadhaar', 'udid', 'disability', 'generic', 'auto'].includes(docType)) {
-      return res.status(400).json({
-        message: 'Unsupported doc_type.',
-        detail: 'Use aadhaar, udid, disability, generic or auto.',
-      });
-    }
-
-    // side: 'front' | 'back' | anything else -> 'all' (scrape every visible
-    // detail, used when a single uploaded document must autofill).
+    // side: 'front' | 'back' | anything else → 'all' (scrape every visible
+    // detail, used when a single uploaded Aadhaar document must autofill).
     const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
-    const { fields, via, warnings, lines, meta } = await extractDocumentFromPhoto(
-      String(image),
-      docType,
-      sideKey,
-    );
+    const { fields, via, errors } = await extractAadhaarFromPhoto(String(image), sideKey);
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
-        message: 'Could not read this document. Make sure the photo is sharp, well-lit, and shows the whole document.',
-        detail: Array.isArray(warnings) ? warnings.join('; ') : 'Indra OCR returned no usable fields.',
+        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole Aadhaar card.',
+        detail: errors.join('; ') || 'No OCR engine returned usable text.',
       });
     }
 
     await logAuditEvent({
       entity_type: 'aadhaar_scan',
       action: 'AADHAAR_PHOTO_SCANNED',
-      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via, doc_type: docType },
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via },
       performed_by: req.user?.name || req.user?.email || 'system',
     });
 
     const discarded = [...new Set([...ALL_KEYS].filter((k) => !(k in fields)))];
-    console.log(`[ocr] via=${via} doc_type=${docType} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
-    return res.json({ ...fields, doc_type: docType, lines, meta });
+    console.log(`[aadhaar OCR] via=${via} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
+    return res.json(fields);
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/config/api_config.dart';
-import 'api_service.dart';
 import 'backend_switcher.dart';
 
 class BackendPicker extends StatelessWidget {
@@ -76,39 +75,6 @@ class BackendPicker extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.document_scanner_outlined, size: 20),
-                title: const Text('Indra OCR status'),
-                subtitle: const Text(
-                  Config.ocrProxyUrl,
-                  style: TextStyle(fontSize: 11),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    final status = await ApiService.ocrStatus();
-                    if (!context.mounted) return;
-                    final ready = status['state'] == 'ready';
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(ready
-                            ? 'Indra OCR ready (${status['engine'] ?? 'indra-ocr'})'
-                            : 'Indra OCR: ${status['state'] ?? 'unavailable'}'),
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  } catch (_) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Indra OCR is unreachable right now.'),
-                        duration: Duration(seconds: 3),
-                      ),
-                    );
-                  }
-                },
-              ),
               ListTile(
                 leading: const Icon(Icons.link, size: 20),
                 title: const Text('Custom URL...'),

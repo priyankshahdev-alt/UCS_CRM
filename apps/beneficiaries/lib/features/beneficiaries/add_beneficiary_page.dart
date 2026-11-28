@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dropdown_button2/dropdown_button2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/lucide_icons.dart';
@@ -15,7 +17,6 @@ import '../../core/utils/photo_utils.dart';
 import '../../services/api_service.dart';
 import 'camera_capture_page.dart';
 import 'document_capture_page.dart';
-import 'document_text_scan_page.dart';
 import 'fingerprint_enroll_panel.dart';
 
 enum _DocType { aadhaar, aadhaarBack, udid, disability }
@@ -494,8 +495,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     );
   }
 
-  /// Captures one side of the Aadhaar card, shows the text-scan preview first,
-  /// and only attaches the photo after the operator confirms the field mapping.
+  /// Picks one side of the Aadhaar card, attaches it, then reads it with OCR.
   Future<void> _captureAadhaarSide({required bool front}) async {
     if (!mounted) return;
 
@@ -510,134 +510,150 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       if (file == null || !mounted) return;
 
       final bytes = await file.readAsBytes();
+
       if (!mounted) return;
 
       setState(() {
+        final doc = _doc(front ? _DocType.aadhaar : _DocType.aadhaarBack);
+
+        doc.base64 = base64Encode(bytes);
+        doc.name = front ? 'aadhaar_front.jpg' : 'aadhaar_back.jpg';
+        if (front) _isLetter = null;
         if (front) {
           _ocrBusyFront = true;
-          _isLetter = null;
         } else {
           _ocrBusyBack = true;
         }
       });
 
-      final result = await Navigator.push<DocumentTextScanResult>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DocumentTextScanPage(
-            imageBytes: bytes,
-            title: front ? 'Aadhaar front — text scan' : 'Aadhaar back — text scan',
-            docType: 'aadhaar',
-            side: front ? 'front' : 'back',
-          ),
-        ),
-      );
-      if (!mounted) return;
-
-      // Cancelled in the preview: nothing is attached and no fields are changed.
-      if (result == null) {
-        setState(() {
-          _ocrBusyFront = false;
-          _ocrBusyBack = false;
-        });
-        return;
-      }
-
-      final doc = _doc(front ? _DocType.aadhaar : _DocType.aadhaarBack);
-      setState(() {
-        doc.base64 = base64Encode(bytes);
-        doc.name = front ? 'aadhaar_front.jpg' : 'aadhaar_back.jpg';
-      });
-
-      _applyAadhaarValues(
-        result.values,
-        front: front,
-        hadLines: result.lineCount > 0,
-      );
+      await _readAadhaarSide(file.path, front: front);
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         _ocrBusyFront = false;
         _ocrBusyBack = false;
       });
+
       showAppSnackbar(
         context,
-        'Could not scan Aadhaar image: $e',
+        'Could not capture Aadhaar image: $e',
         error: true,
       );
     }
   }
 
-  /// Applies the values confirmed in the text-scan preview to the form.
-  void _applyAadhaarValues(
-    Map<String, String> values, {
-    required bool front,
-    required bool hadLines,
-  }) {
-    final name = values['name']?.trim();
-    final dobRaw = values['dob']?.trim();
-    final genderRaw = values['gender']?.trim();
-    final number = values['aadhaar_number']?.replaceAll(RegExp(r'\D'), '');
-    final address = values['address_line_1']?.trim();
-    final pin = values['pincode']?.replaceAll(RegExp(r'\D'), '');
-    final hasAddress = address != null && address.isNotEmpty;
+  Future<void> _readAadhaarSide(String path, {required bool front}) async {
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    try {
+      final result = await recognizer.processImage(
+        InputImage.fromFilePath(path),
+      );
+      final text = result.text;
+      if (!mounted) return;
 
-    setState(() {
-      _ocrBusyFront = false;
-      _ocrBusyBack = false;
-      if (front) _isLetter = hasAddress;
+      if (front) {
+        final aadhaar = _extractAadhaar(text);
+        final dobText = _extractDob(text);
+        final gender = _extractGender(text);
+        final name = _extractName(text);
+        final letter = _extractLetterAddress(text);
+        setState(() {
+          _ocrBusyFront = false;
+          _isLetter = letter != null;
 
-      if (front && hasAddress) {
-        final back = _doc(_DocType.aadhaarBack);
-        back.base64 = null;
-        back.name = null;
+          if (letter != null) {
+            final back = _doc(_DocType.aadhaarBack);
+            back.base64 = null;
+            back.name = null;
+          }
+          if (name != null && name.isNotEmpty) {
+            _fullNameController.text = name;
+          }
+          if (dobText != null) {
+            final parsed = _parseOcrDob(dobText);
+            if (parsed != null) {
+              _dob = parsed;
+              _dobController.text = _formatDob(parsed);
+            }
+          }
+          if (gender != null) {
+            final g = _normalizeGender(gender);
+            if (g != null) _gender = g;
+          }
+          if (aadhaar != null) {
+            _aadhaarController.text = aadhaar;
+          }
+          if (letter != null) {
+            if (letter.address.isNotEmpty)
+              _locationController.text = letter.address;
+            final cs = _extractCityState(text);
+            final city = letter.city ?? cs.city;
+            final st = letter.state ?? cs.state;
+            if (city != null) {
+              _selectedCity = _matchCity(st, city);
+              _cityController.text = _selectedCity ?? '';
+            }
+            if (st != null) {
+              _selectedState = _matchState(st);
+              _stateController.text = _selectedState ?? '';
+            }
+            if (letter.pin != null) _pincodeController.text = letter.pin!;
+            if (letter.mobile != null &&
+                _mobileController.text.trim().isEmpty) {
+              _mobileController.text = letter.mobile!;
+            }
+          }
+        });
+        showAppSnackbar(
+          context,
+          letter != null
+              ? 'Aadhaar and address read. Back side not needed. Please verify.'
+              : 'Front side read. Now scan the back side for the address.',
+          success: true,
+        );
+      } else {
+        final address = _extractAddress(text);
+        final pin = RegExp(r'\b\d{6}\b').firstMatch(text)?.group(0);
+        final cs = _extractCityState(text);
+        setState(() {
+          _ocrBusyBack = false;
+          if (address != null && address.isNotEmpty) {
+            _locationController.text = address;
+          }
+          if (pin != null && _pincodeController.text.trim().isEmpty) {
+            _pincodeController.text = pin;
+          }
+          if (cs.city != null) {
+            _selectedCity = _matchCity(cs.state, cs.city!);
+            _cityController.text = _selectedCity ?? '';
+          }
+          if (cs.state != null) {
+            _selectedState = _matchState(cs.state!);
+            _stateController.text = _selectedState ?? '';
+          }
+        });
+        showAppSnackbar(
+          context,
+          'Back side read. Please verify the address.',
+          success: true,
+        );
       }
-      if (name != null && name.isNotEmpty) {
-        _fullNameController.text = name;
-      }
-      if (dobRaw != null && dobRaw.isNotEmpty) {
-        final parsed = DateTime.tryParse(dobRaw) ?? _parseOcrDob(dobRaw);
-        if (parsed != null) {
-          _dob = parsed;
-          _dobController.text = _formatDob(parsed);
-        }
-      }
-      if (genderRaw != null && genderRaw.isNotEmpty) {
-        final g = _normalizeGender(genderRaw);
-        if (g != null) _gender = g;
-      }
-      if (number != null && number.isNotEmpty) {
-        _aadhaarController.text = number;
-      }
-      if (hasAddress) {
-        _locationController.text = address;
-        final cs = _extractCityState('$address ${pin ?? ''}');
-        if (cs.city != null) {
-          _selectedCity = _matchCity(cs.state, cs.city!);
-          _cityController.text = _selectedCity ?? '';
-        }
-        if (cs.state != null) {
-          _selectedState = _matchState(cs.state!);
-          _stateController.text = _selectedState ?? '';
-        }
-      }
-      if (pin != null && pin.length == 6 && _pincodeController.text.trim().isEmpty) {
-        _pincodeController.text = pin;
-      }
-    });
-
-    showAppSnackbar(
-      context,
-      !hadLines
-          ? 'Aadhaar attached. No text boxes were detected — please verify the fields.'
-          : !front
-              ? 'Back side attached. Please verify the address.'
-              : hasAddress
-                  ? 'Aadhaar attached with address. Back side not needed. Please verify.'
-                  : 'Front side attached. Now scan the back side for the address.',
-      success: hadLines,
-      warning: !hadLines,
-    );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _ocrBusyFront = false;
+        _ocrBusyBack = false;
+        if (front) _isLetter = false;
+      });
+      showAppSnackbar(
+        context,
+        'Image attached, but details could not be read. Fill them manually.',
+        warning: true,
+      );
+    } finally {
+      await recognizer.close();
+    }
   }
 
   // ---------------- OCR text parsing ----------------
@@ -1254,53 +1270,68 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     return hits.length == 1 ? hits.first : null;
   }
 
-  /// Applies the disability fields confirmed in the text-scan preview.
-  List<String> _applyProofValues(Map<String, String> values, {required bool hadLines}) {
-    final udid = values['udid_number']?.trim();
-    final cert = values['certificate_number']?.trim();
-    final certNo = (udid != null && udid.isNotEmpty) ? udid : cert;
-    final pct = values['disability_percentage']?.replaceAll(RegExp(r'\D'), '');
-    final type = values['disability_type']?.trim();
+  /// Reads the attached UDID card / disability certificate and fills
+  Future<void> _readProofDoc(Uint8List bytes) async {
+    setState(() => _ocrBusyProof = true);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    File? tmp;
+    try {
+      // ML Kit reads from a file, so write the image to a temp file first.
+      tmp = File(
+        '${Directory.systemTemp.path}/proof_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await tmp.writeAsBytes(bytes, flush: true);
 
-    setState(() {
-      _ocrBusyProof = false;
-      if (certNo != null && certNo.isNotEmpty) {
-        _certNoController.text = certNo;
-      }
-      if (pct != null && pct.isNotEmpty) {
-        _disabilityPctController.text = pct;
-      }
-      if (type != null && type.isNotEmpty) {
-        _disabilityType = _disabilityTypes.contains(type) ? type : 'Other';
-      }
-    });
+      final result = await recognizer.processImage(
+        InputImage.fromFilePath(tmp.path),
+      );
+      final text = result.text;
+      debugPrint('PROOF OCR TEXT:\n$text');
+      if (!mounted) return;
 
-    final found = <String>[
-      if (certNo != null && certNo.isNotEmpty) 'certificate no.',
-      if (type != null && type.isNotEmpty) 'type',
-      if (pct != null && pct.isNotEmpty) '$pct%',
-    ];
+      final certNo = _extractCertNo(text);
+      final pct = _extractDisabilityPercent(text);
+      final type = _extractDisabilityType(text);
 
-    if (!hadLines) {
+      setState(() {
+        _ocrBusyProof = false;
+        if (certNo != null) _certNoController.text = certNo;
+        if (pct != null) _disabilityPctController.text = pct.toString();
+        if (type != null) _disabilityType = type;
+      });
+
+      final found = <String>[
+        if (certNo != null) 'certificate no.',
+        if (type != null) 'type',
+        if (pct != null) '$pct%',
+      ];
+      if (found.isEmpty) {
+        showAppSnackbar(
+          context,
+          'Document attached, but details could not be read. Please fill them in.',
+          warning: true,
+        );
+      } else {
+        showAppSnackbar(
+          context,
+          'Read ${found.join(', ')}. Please verify.',
+          success: true,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _ocrBusyProof = false);
       showAppSnackbar(
         context,
-        'Document attached. No text boxes were detected — please fill the details yourself.',
+        'Document attached, but details could not be read. Please fill them in.',
         warning: true,
       );
-    } else if (found.isEmpty) {
-      showAppSnackbar(
-        context,
-        'Document attached. No fields were matched — please fill them in.',
-        warning: true,
-      );
-    } else {
-      showAppSnackbar(
-        context,
-        'Using ${found.join(', ')}. Please verify.',
-        success: true,
-      );
+    } finally {
+      await recognizer.close();
+      try {
+        await tmp?.delete();
+      } catch (_) {}
     }
-    return found;
   }
 
   // ------------------------------------------------------------
@@ -1315,55 +1346,24 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         );
     if (result == null || !mounted) return;
 
-    final raw = result['base64']?.toString();
-    if (raw == null || raw.isEmpty) return;
-
-    final comma = raw.indexOf(',');
-    final b64 = comma == -1 ? raw : raw.substring(comma + 1);
-
-    Uint8List bytes;
-    try {
-      bytes = base64Decode(b64);
-    } catch (_) {
-      showAppSnackbar(context, 'Could not read that scan. Try again.', error: true);
-      return;
-    }
-
-    final docType = selected == _DocType.udid ? 'udid' : 'disability';
-    setState(() => _ocrBusyProof = true);
-
-    // Show the detected text boxes first. The photo is attached only after the
-    // operator confirms which box is the name, certificate number, etc.
-    final scan = await Navigator.push<DocumentTextScanResult>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DocumentTextScanPage(
-          imageBytes: bytes,
-          title: '${_docLabel(selected)} — text scan',
-          docType: docType,
-          side: 'all',
-        ),
-      ),
-    );
-    if (!mounted) return;
-
-    if (scan == null) {
-      setState(() => _ocrBusyProof = false);
-      return;
-    }
-
+    final b64 = result['base64']?.toString();
     setState(() {
       final doc = _doc(selected);
       doc.base64 = b64;
       doc.name = result['name']?.toString() ?? 'scanned_document.jpg';
     });
-
     showAppSnackbar(
       context,
       '${_docLabel(selected)} copy attached.',
       success: true,
     );
-    _applyProofValues(scan.values, hadLines: scan.lineCount > 0);
+
+    // Read the document and fill the disability fields.
+    if (b64 != null && b64.isNotEmpty) {
+      try {
+        await _readProofDoc(base64Decode(b64));
+      } catch (_) {}
+    }
   }
 
   // -----------------------------------------------------------
@@ -1986,6 +1986,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     // ------------------------------------------------------------
 
     final aadhaar = _doc(_DocType.aadhaar);
+    final aadhaarBack = _doc(_DocType.aadhaarBack);
     final udid = _doc(_DocType.udid);
     final disability = _doc(_DocType.disability);
     final certNo = _certNoController.text.trim();

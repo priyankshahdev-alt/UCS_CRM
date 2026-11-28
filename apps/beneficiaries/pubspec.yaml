@@ -48,6 +48,7 @@ dependencies:
   audioplayers: ^6.8.1
   dropdown_button2: ^3.1.0
   image_picker: ^1.2.3
+  google_mlkit_text_recognition: ^0.17.1
 
 dev_dependencies:
   flutter_test:

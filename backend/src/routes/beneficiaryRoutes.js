@@ -51,10 +51,6 @@ router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'account
 // before '/:id' so 'aadhaar' is not parsed as an id.
 router.post('/aadhaar/parse-photo', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarPhotoController);
 
-// Same Indra OCR bridge, generic name for UDID cards, disability certificates
-// and other documents. `doc_type` in the body selects the extraction profile.
-router.post('/documents/parse-photo', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarPhotoController);
-
 // App operators — the only accounts allowed to log into the Beneficiaries
 // mobile app. Declared before /:id so '/operators' is not parsed as an id.
 router.get('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listBnfOperatorsController);

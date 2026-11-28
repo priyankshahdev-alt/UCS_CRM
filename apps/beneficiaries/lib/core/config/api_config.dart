@@ -15,10 +15,4 @@ class Config {
 
   static const String appName = 'Beneficiaries';
   static const String appBrand = 'BEING SEVAK';
-
-  /// Public Indra OCR proxy. The Node backend sends the key; the app only uses
-  /// this URL for the read-only /api/status health check, so no secret is ever
-  /// stored in the app binary.
-  static const String ocrProxyUrl =
-      'https://ucs-ocr-proxy.priyankshah-dev.workers.dev';
 }
